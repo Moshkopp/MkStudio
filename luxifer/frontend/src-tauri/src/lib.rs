@@ -245,6 +245,27 @@ fn generate_gcode(data: State<AppData>) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
+/// Prüft per UDP-Ping, ob eine Ruida-Maschine unter `ip` antwortet.
+#[tauri::command]
+fn ruida_ping(ip: String) -> bool {
+    luxifer_driver_ruida::RuidaTransport::ping(&ip)
+}
+
+/// Kompiliert den aktuellen Zustand als Ruida-Job und sendet ihn per UDP.
+#[tauri::command]
+fn ruida_send(data: State<AppData>, ip: String) -> Result<String, String> {
+    use luxifer_core::{JobPlan, MachineDriver};
+    use luxifer_driver_ruida::{RuidaDriver, RuidaTransport};
+    let plan = {
+        let s = data.state.lock().unwrap();
+        JobPlan::from_shapes(&s.shapes, &s.layers)
+    };
+    let packet = RuidaDriver.compile(&plan, &[])?;
+    let t = RuidaTransport::connect(&ip).map_err(|e| e.to_string())?;
+    t.send(&packet).map_err(|e| e.to_string())?;
+    Ok(format!("Job gesendet ({} Byte).", packet.len()))
+}
+
 #[tauri::command]
 fn undo(data: State<AppData>) -> Scene {
     let mut s = data.state.lock().unwrap();
@@ -283,6 +304,8 @@ pub fn run() {
             set_layer_params,
             toggle_layer,
             generate_gcode,
+            ruida_ping,
+            ruida_send,
             clear_selection,
             delete_selected,
             undo,

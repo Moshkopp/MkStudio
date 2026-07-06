@@ -81,6 +81,27 @@
     if (gcode) navigator.clipboard?.writeText(gcode);
   }
 
+  let status = $state<string | null>(null);
+  async function pingRuida(ip: string): Promise<boolean> {
+    try {
+      const ok = await core.ruidaPing(ip);
+      status = ok ? `Verbunden mit ${ip}` : `Keine Antwort von ${ip}`;
+      setTimeout(() => (status = null), 3000);
+      return ok;
+    } catch (e) {
+      error = String(e);
+      return false;
+    }
+  }
+  async function sendRuida(ip: string) {
+    try {
+      status = await core.ruidaSend(ip);
+      setTimeout(() => (status = null), 4000);
+    } catch (e) {
+      error = String(e);
+    }
+  }
+
   const selCount = $derived(scene?.selected.length ?? 0);
 
   async function doUndo() {
@@ -199,7 +220,11 @@
   {/if}
 
   <!-- Laser-Control-Panel unten rechts -->
-  <LaserPanel ongenerate={generateGcode} />
+  <LaserPanel ongenerate={generateGcode} onping={pingRuida} onsend={sendRuida} />
+
+  {#if status}
+    <div class="status">{status}</div>
+  {/if}
 
   <!-- G-Code-Overlay -->
   {#if gcode !== null}
@@ -391,6 +416,18 @@
     padding: 6px 12px;
     border-radius: 8px;
     z-index: 20;
+  }
+  .status {
+    position: absolute;
+    bottom: 16px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #1a2b22;
+    color: #3fb27f;
+    padding: 8px 16px;
+    border-radius: 8px;
+    z-index: 20;
+    border: 1px solid #3fb27f55;
   }
   .backdrop {
     position: absolute;

@@ -107,6 +107,9 @@ export const toggleLayer = (index: number, field: "visible" | "locked") =>
 
 export const generateGcode = () => invoke<string>("generate_gcode");
 
+export const ruidaPing = (ip: string) => invoke<boolean>("ruida_ping", { ip });
+export const ruidaSend = (ip: string) => invoke<string>("ruida_send", { ip });
+
 export const undo = () => invoke<Scene>("undo");
 export const redo = () => invoke<Scene>("redo");
 

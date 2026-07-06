@@ -1674,6 +1674,7 @@ version = "0.1.0"
 dependencies = [
  "luxifer-core",
  "luxifer-driver-grbl",
+ "luxifer-driver-ruida",
  "serde",
  "serde_json",
  "tauri",
@@ -1690,6 +1691,13 @@ dependencies = [
 
 [[package]]
 name = "luxifer-driver-grbl"
+version = "0.1.0"
+dependencies = [
+ "luxifer-core",
+]
+
+[[package]]
+name = "luxifer-driver-ruida"
 version = "0.1.0"
 dependencies = [
  "luxifer-core",

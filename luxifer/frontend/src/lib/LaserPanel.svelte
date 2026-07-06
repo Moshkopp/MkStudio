@@ -1,8 +1,17 @@
 <script lang="ts">
-  // Laser-Control-Panel (UI-Gerüst nach ThorBurn-Vorbild).
-  // Verbindung/Jog sind noch Platzhalter; "Start" erzeugt bereits G-Code.
-  let { ongenerate }: { ongenerate: () => void } = $props();
+  // Laser-Control-Panel (nach ThorBurn-Vorbild).
+  // "Start" erzeugt G-Code-Vorschau (GRBL). Verbindung/Senden nutzen Ruida-UDP.
+  let {
+    ongenerate,
+    onping,
+    onsend,
+  }: {
+    ongenerate: () => void;
+    onping: (ip: string) => Promise<boolean>;
+    onsend: (ip: string) => void;
+  } = $props();
 
+  let ip = $state("192.168.1.100");
   let connected = $state(false);
   let startFrom = $state<"absolut" | "aktuell" | "ursprung">("absolut");
   // Job-Nullpunkt-Anker: 3×3-Raster (Index 0..8), 4 = Mitte.
@@ -10,12 +19,20 @@
   let jogStep = $state(10);
   let jogSpeed = $state(100);
 
-  // Platzhalter-Position (bis echte Verbindung existiert).
+  // Platzhalter-Position (bis Status-Abfrage existiert).
   const posX = $state(0);
   const posY = $state(0);
 
+  async function toggleConnect() {
+    if (connected) {
+      connected = false;
+      return;
+    }
+    connected = await onping(ip);
+  }
+
   function todo() {
-    /* Platzhalter — Aktion folgt mit Treiber/Transport. */
+    /* Platzhalter — Jog/Rahmen folgen mit der Live-Steuerung. */
   }
 </script>
 
@@ -26,7 +43,8 @@
       <span class="dot" class:on={connected}></span>
       <span class="title">{connected ? "Online" : "Getrennt"}</span>
     </div>
-    <button class="wide" onclick={() => (connected = !connected)}>
+    <input bind:value={ip} placeholder="IP der Maschine" />
+    <button class="wide" onclick={toggleConnect}>
       {connected ? "Verbindung trennen" : "Verbindung aufbauen"}
     </button>
     <div class="pos">
@@ -40,9 +58,12 @@
   <!-- Job-Aktionen -->
   <section>
     <span class="label">Job</span>
+    <button class="wide send" onclick={() => onsend(ip)} title="Job an Ruida-Maschine senden">
+      ⭑ An Laser senden
+    </button>
     <div class="grid3">
-      <button class="tile start" onclick={ongenerate} title="Job erzeugen (G-Code)">
-        <span class="glyph">▶</span><span>Start</span>
+      <button class="tile start" onclick={ongenerate} title="G-Code-Vorschau erzeugen">
+        <span class="glyph">▤</span><span>G-Code</span>
       </button>
       <button class="tile" onclick={todo}><span class="glyph">⏸</span><span>Pause</span></button>
       <button class="tile" onclick={todo}><span class="glyph">■</span><span>Stopp</span></button>
@@ -182,6 +203,14 @@
   .tile.start {
     background: var(--accent);
     color: white;
+  }
+  .send {
+    background: #3fb27f;
+    color: white;
+    font-weight: 600;
+  }
+  .send:hover {
+    background: #4bc48f;
   }
   .field {
     display: flex;
