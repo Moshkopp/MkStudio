@@ -27,6 +27,26 @@ Architekturregeln aus [ADR 0001](0001-gui-first-offline-first.md) und
 **ThorBurns Layout ist das Leitbild.** Konzepte werden übernommen, aber im
 aktuellen Stil sauber neu implementiert — niemals Code kopiert.
 
+### 0. Vollflächiger Canvas, schwebende Panele
+
+Der Canvas ist die **Grundfläche der gesamten Anwendung** und füllt das Fenster
+randlos aus. Das Grid erstreckt sich über den kompletten Inhaltsbereich, nicht
+nur über ein eingerahmtes Kästchen. Der Canvas ist unbegrenzt scroll- und
+zoombar; das Maschinenbett wird als hervorgehobener Bereich *innerhalb* dieser
+Fläche dargestellt (mit Rahmen), nicht als äußerer Container.
+
+**Alle Panele, Paletten und Werkzeugleisten schweben über dem Canvas** (Overlay)
+und nehmen ihm keinen Platz weg — Werkzeug-Palette, Transform-/Anordnen-Palette,
+Layer-/Eigenschaften-Panel, Farbpalette. Sie sind visuell abgesetzt (leicht
+transparenter/erhöhter Hintergrund, Ecken gerundet) und liegen an den
+Fensterrändern bzw. -ecken. So bleibt der Arbeitsbereich maximal und der Blick
+liegt durchgehend auf dem Werkstück.
+
+Konkret ersetzt das die aktuelle `DockPanel`-Aufteilung (Panele docken und
+verkleinern den Canvas) durch ein `Panel`/`Grid`, in dem der Canvas die unterste,
+vollflächige Ebene ist und die Panele als darüberliegende Kinder positioniert
+werden.
+
 ### 1. Zwei Arbeitsmodi: Design und Laser
 
 Die Oberfläche trennt **Design** (Zeichnen, Formen, Anordnen) von **Laser**

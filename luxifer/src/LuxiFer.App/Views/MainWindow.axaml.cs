@@ -1,3 +1,4 @@
+using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Interactivity;
@@ -20,6 +21,10 @@ public partial class MainWindow : Window
             if (ViewModel is { } vm)
                 vm.CanvasInvalidateRequested += (_, _) => Canvas.InvalidateVisual();
         };
+
+        // Bett beim Einpassen zwischen den schwebenden Panelen freihalten
+        // (links Werkzeug-Palette ~64px, rechts Layer-Panel ~294px).
+        Canvas.ContentInset = new Thickness(72, 24, 300, 24);
 
         KeyDown += OnWindowKeyDown;
     }

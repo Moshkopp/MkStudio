@@ -18,8 +18,8 @@
 
     <Window.Styles>
         <Style Selector="ToggleButton.tool">
-            <Setter Property="Width" Value="42"/>
-            <Setter Property="Height" Value="42"/>
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
             <Setter Property="FontSize" Value="18"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
         </Style>
@@ -27,6 +27,14 @@
             <Setter Property="Foreground" Value="#9a9aa0"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <!-- Schwebendes Overlay-Panel über dem Canvas -->
+        <Style Selector="Border.floating">
+            <Setter Property="Background" Value="#F02b2b30"/>
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="BoxShadow" Value="0 4 16 0 #60000000"/>
+            <Setter Property="BorderBrush" Value="#20FFFFFF"/>
+            <Setter Property="BorderThickness" Value="1"/>
         </Style>
     </Window.Styles>
 
@@ -57,128 +65,133 @@
             </DockPanel>
         </Border>
 
-        <!-- Werkzeugleiste links -->
-        <Border DockPanel.Dock="Left" Background="#2b2b2f" Padding="6">
-            <StackPanel Spacing="6">
-                <ToggleButton Classes="tool" Content="⬚" ToolTip.Tip="Auswählen (V)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Select}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Select}"/>
-                <ToggleButton Classes="tool" Content="▭" ToolTip.Tip="Rechteck (R)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Rectangle}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Rectangle}"/>
-                <ToggleButton Classes="tool" Content="◯" ToolTip.Tip="Ellipse (E)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Ellipse}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Ellipse}"/>
-                <ToggleButton Classes="tool" Content="╱" ToolTip.Tip="Linie (L)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Line}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Line}"/>
-                <ToggleButton Classes="tool" Content="〜" ToolTip.Tip="Polyline (P)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Polyline}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Polyline}"/>
-                <ToggleButton Classes="tool" Content="⬠" ToolTip.Tip="Polygon (G)"
-                              IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Polygon}, Mode=OneWay}"
-                              Command="{Binding SelectToolCommand}"
-                              CommandParameter="{x:Static ctrl:CanvasTool.Polygon}"/>
-            </StackPanel>
-        </Border>
+        <!-- Arbeitsbereich: Canvas vollflächig, Panele schweben darüber -->
+        <Panel>
+            <!-- Unterste Ebene: der Canvas füllt die gesamte Fläche -->
+            <ctrl:CanvasControl x:Name="Canvas"
+                                Document="{Binding Project.Canvas}"
+                                Tool="{Binding ActiveTool}"
+                                ActiveLayer="{Binding ActiveLayer}"
+                                UndoStack="{Binding Undo}"
+                                SelectedObject="{Binding SelectedObject, Mode=TwoWay}"/>
 
-        <!-- Rechte Seitenleiste: Layer + Parameter + Auswahl -->
-        <Border DockPanel.Dock="Right" Width="270" Background="#2b2b2f" Padding="8">
-            <ScrollViewer>
-                <StackPanel Spacing="10">
-
-                    <!-- Layer-Liste -->
-                    <DockPanel>
-                        <Button DockPanel.Dock="Right" Content="+" Width="30"
-                                Command="{Binding AddLayerCommand}" ToolTip.Tip="Layer hinzufügen"/>
-                        <TextBlock Text="Layer" FontWeight="Bold" VerticalAlignment="Center"/>
-                    </DockPanel>
-                    <ListBox ItemsSource="{Binding Layers}" SelectedItem="{Binding ActiveLayer}"
-                             MaxHeight="220">
-                        <ListBox.ItemTemplate>
-                            <DataTemplate x:DataType="canvas:Layer">
-                                <DockPanel>
-                                    <Border DockPanel.Dock="Left" Width="14" Height="14" CornerRadius="3"
-                                            Background="{Binding ColorHex, Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
-                                            VerticalAlignment="Center"/>
-                                    <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Locked}"
-                                              Click="OnLayerVisibilityClick" ToolTip.Tip="Gesperrt"
-                                              Margin="4,0,0,0">🔒</CheckBox>
-                                    <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Visible}"
-                                              Click="OnLayerVisibilityClick" ToolTip.Tip="Sichtbar"
-                                              Margin="4,0,0,0">👁</CheckBox>
-                                    <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="8,0,0,0"/>
-                                </DockPanel>
-                            </DataTemplate>
-                        </ListBox.ItemTemplate>
-                    </ListBox>
-
-                    <!-- Parameter des aktiven Layers -->
-                    <TextBlock Text="Layer-Parameter" FontWeight="Bold"/>
-                    <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
-                          IsEnabled="{Binding ActiveLayer, Converter={x:Static ObjectConverters.IsNotNull}}">
-                        <Grid.Styles>
-                            <Style Selector="TextBox, ComboBox, CheckBox">
-                                <Setter Property="Margin" Value="0,2"/>
-                            </Style>
-                        </Grid.Styles>
-                        <TextBlock Classes="label" Grid.Row="0" Grid.Column="0" Text="Name"/>
-                        <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ActiveLayer.Name}"/>
-                        <TextBlock Classes="label" Grid.Row="1" Grid.Column="0" Text="Modus"/>
-                        <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
-                                  ItemsSource="{Binding LayerModes}"
-                                  SelectedItem="{Binding ActiveLayer.Mode}"/>
-                        <TextBlock Classes="label" Grid.Row="2" Grid.Column="0" Text="Speed mm/s"/>
-                        <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ActiveLayer.SpeedMmS}"/>
-                        <TextBlock Classes="label" Grid.Row="3" Grid.Column="0" Text="Power %"/>
-                        <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ActiveLayer.PowerPct}"/>
-                        <TextBlock Classes="label" Grid.Row="4" Grid.Column="0" Text="Min-Power %"/>
-                        <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ActiveLayer.MinPowerPct}"/>
-                        <TextBlock Classes="label" Grid.Row="5" Grid.Column="0" Text="Passes"/>
-                        <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ActiveLayer.Passes}"/>
-                        <TextBlock Classes="label" Grid.Row="6" Grid.Column="0" Text="Air Assist"/>
-                        <CheckBox Grid.Row="6" Grid.Column="1" IsChecked="{Binding ActiveLayer.AirAssist}"/>
-                    </Grid>
-
-                    <!-- Auswahl -->
-                    <TextBlock Text="Auswahl" FontWeight="Bold"/>
-                    <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto"
-                          IsVisible="{Binding HasSelection}">
-                        <Grid.Styles>
-                            <Style Selector="TextBox">
-                                <Setter Property="Margin" Value="0,2"/>
-                            </Style>
-                        </Grid.Styles>
-                        <TextBlock Classes="label" Grid.Row="0" Grid.Column="0" Text="X mm"/>
-                        <TextBox Grid.Row="0" Grid.Column="1" LostFocus="OnSelectionEditCommit"
-                                 Text="{Binding SelX, UpdateSourceTrigger=LostFocus}"/>
-                        <TextBlock Classes="label" Grid.Row="1" Grid.Column="0" Text="Y mm"/>
-                        <TextBox Grid.Row="1" Grid.Column="1" LostFocus="OnSelectionEditCommit"
-                                 Text="{Binding SelY, UpdateSourceTrigger=LostFocus}"/>
-                        <TextBlock Classes="label" Grid.Row="2" Grid.Column="0" Text="Breite mm"/>
-                        <TextBox Grid.Row="2" Grid.Column="1" LostFocus="OnSelectionEditCommit"
-                                 Text="{Binding SelWidth, UpdateSourceTrigger=LostFocus}"/>
-                        <TextBlock Classes="label" Grid.Row="3" Grid.Column="0" Text="Höhe mm"/>
-                        <TextBox Grid.Row="3" Grid.Column="1" LostFocus="OnSelectionEditCommit"
-                                 Text="{Binding SelHeight, UpdateSourceTrigger=LostFocus}"/>
-                    </Grid>
-                    <TextBlock Text="Kein Objekt ausgewählt" Foreground="#6b6b70"
-                               IsVisible="{Binding !HasSelection}"/>
+            <!-- Schwebende Werkzeug-Palette links -->
+            <Border Classes="floating" Padding="6" Margin="12"
+                    HorizontalAlignment="Left" VerticalAlignment="Center">
+                <StackPanel Spacing="6">
+                    <ToggleButton Classes="tool" Content="⬚" ToolTip.Tip="Auswählen (V)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Select}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Select}"/>
+                    <ToggleButton Classes="tool" Content="▭" ToolTip.Tip="Rechteck (R)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Rectangle}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Rectangle}"/>
+                    <ToggleButton Classes="tool" Content="◯" ToolTip.Tip="Ellipse (E)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Ellipse}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Ellipse}"/>
+                    <ToggleButton Classes="tool" Content="╱" ToolTip.Tip="Linie (L)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Line}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Line}"/>
+                    <ToggleButton Classes="tool" Content="〜" ToolTip.Tip="Polyline (P)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Polyline}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Polyline}"/>
+                    <ToggleButton Classes="tool" Content="⬠" ToolTip.Tip="Polygon (G)"
+                                  IsChecked="{Binding ActiveTool, Converter={x:Static ctrl:ToolConverters.Equals}, ConverterParameter={x:Static ctrl:CanvasTool.Polygon}, Mode=OneWay}"
+                                  Command="{Binding SelectToolCommand}"
+                                  CommandParameter="{x:Static ctrl:CanvasTool.Polygon}"/>
                 </StackPanel>
-            </ScrollViewer>
-        </Border>
+            </Border>
 
-        <!-- Canvas -->
-        <ctrl:CanvasControl x:Name="Canvas"
-                            Document="{Binding Project.Canvas}"
-                            Tool="{Binding ActiveTool}"
-                            ActiveLayer="{Binding ActiveLayer}"
-                            UndoStack="{Binding Undo}"
-                            SelectedObject="{Binding SelectedObject, Mode=TwoWay}"/>
+            <!-- Schwebendes Panel rechts: Layer + Parameter + Auswahl -->
+            <Border Classes="floating" Width="270" Margin="12"
+                    HorizontalAlignment="Right" VerticalAlignment="Stretch">
+                <ScrollViewer Padding="10">
+                    <StackPanel Spacing="10">
+
+                        <!-- Layer-Liste -->
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="+" Width="30"
+                                    Command="{Binding AddLayerCommand}" ToolTip.Tip="Layer hinzufügen"/>
+                            <TextBlock Text="Layer" FontWeight="Bold" VerticalAlignment="Center"/>
+                        </DockPanel>
+                        <ListBox ItemsSource="{Binding Layers}" SelectedItem="{Binding ActiveLayer}"
+                                 Background="Transparent" MaxHeight="220">
+                            <ListBox.ItemTemplate>
+                                <DataTemplate x:DataType="canvas:Layer">
+                                    <DockPanel>
+                                        <Border DockPanel.Dock="Left" Width="14" Height="14" CornerRadius="3"
+                                                Background="{Binding ColorHex, Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
+                                                VerticalAlignment="Center"/>
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Locked}"
+                                                  Click="OnLayerVisibilityClick" ToolTip.Tip="Gesperrt"
+                                                  Margin="4,0,0,0">🔒</CheckBox>
+                                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Visible}"
+                                                  Click="OnLayerVisibilityClick" ToolTip.Tip="Sichtbar"
+                                                  Margin="4,0,0,0">👁</CheckBox>
+                                        <TextBlock Text="{Binding Name}" VerticalAlignment="Center" Margin="8,0,0,0"/>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ListBox.ItemTemplate>
+                        </ListBox>
+
+                        <!-- Parameter des aktiven Layers -->
+                        <TextBlock Text="Layer-Parameter" FontWeight="Bold"/>
+                        <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,Auto"
+                              IsEnabled="{Binding ActiveLayer, Converter={x:Static ObjectConverters.IsNotNull}}">
+                            <Grid.Styles>
+                                <Style Selector="TextBox, ComboBox, CheckBox">
+                                    <Setter Property="Margin" Value="0,2"/>
+                                </Style>
+                            </Grid.Styles>
+                            <TextBlock Classes="label" Grid.Row="0" Grid.Column="0" Text="Name"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" Text="{Binding ActiveLayer.Name}"/>
+                            <TextBlock Classes="label" Grid.Row="1" Grid.Column="0" Text="Modus"/>
+                            <ComboBox Grid.Row="1" Grid.Column="1" HorizontalAlignment="Stretch"
+                                      ItemsSource="{Binding LayerModes}"
+                                      SelectedItem="{Binding ActiveLayer.Mode}"/>
+                            <TextBlock Classes="label" Grid.Row="2" Grid.Column="0" Text="Speed mm/s"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" Text="{Binding ActiveLayer.SpeedMmS}"/>
+                            <TextBlock Classes="label" Grid.Row="3" Grid.Column="0" Text="Power %"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" Text="{Binding ActiveLayer.PowerPct}"/>
+                            <TextBlock Classes="label" Grid.Row="4" Grid.Column="0" Text="Min-Power %"/>
+                            <TextBox Grid.Row="4" Grid.Column="1" Text="{Binding ActiveLayer.MinPowerPct}"/>
+                            <TextBlock Classes="label" Grid.Row="5" Grid.Column="0" Text="Passes"/>
+                            <TextBox Grid.Row="5" Grid.Column="1" Text="{Binding ActiveLayer.Passes}"/>
+                            <TextBlock Classes="label" Grid.Row="6" Grid.Column="0" Text="Air Assist"/>
+                            <CheckBox Grid.Row="6" Grid.Column="1" IsChecked="{Binding ActiveLayer.AirAssist}"/>
+                        </Grid>
+
+                        <!-- Auswahl -->
+                        <TextBlock Text="Auswahl" FontWeight="Bold"/>
+                        <Grid ColumnDefinitions="90,*" RowDefinitions="Auto,Auto,Auto,Auto"
+                              IsVisible="{Binding HasSelection}">
+                            <Grid.Styles>
+                                <Style Selector="TextBox">
+                                    <Setter Property="Margin" Value="0,2"/>
+                                </Style>
+                            </Grid.Styles>
+                            <TextBlock Classes="label" Grid.Row="0" Grid.Column="0" Text="X mm"/>
+                            <TextBox Grid.Row="0" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     Text="{Binding SelX, UpdateSourceTrigger=LostFocus}"/>
+                            <TextBlock Classes="label" Grid.Row="1" Grid.Column="0" Text="Y mm"/>
+                            <TextBox Grid.Row="1" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     Text="{Binding SelY, UpdateSourceTrigger=LostFocus}"/>
+                            <TextBlock Classes="label" Grid.Row="2" Grid.Column="0" Text="Breite mm"/>
+                            <TextBox Grid.Row="2" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     Text="{Binding SelWidth, UpdateSourceTrigger=LostFocus}"/>
+                            <TextBlock Classes="label" Grid.Row="3" Grid.Column="0" Text="Höhe mm"/>
+                            <TextBox Grid.Row="3" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     Text="{Binding SelHeight, UpdateSourceTrigger=LostFocus}"/>
+                        </Grid>
+                        <TextBlock Text="Kein Objekt ausgewählt" Foreground="#6b6b70"
+                                   IsVisible="{Binding !HasSelection}"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Panel>
     </DockPanel>
 </Window>

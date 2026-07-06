@@ -129,16 +129,24 @@ public sealed class CanvasControl : Control
     private Point ToScreen(double xMm, double yMm) =>
         new(xMm * _zoom + _panOffset.X, yMm * _zoom + _panOffset.Y);
 
+    /// <summary>
+    /// Freizuhaltende Ränder (Pixel), damit das Bett beim Einpassen nicht unter
+    /// den schwebenden Panelen landet. Von der View gesetzt.
+    /// </summary>
+    public Thickness ContentInset { get; set; } = new(48);
+
     public void ZoomToFit()
     {
         if (Document is null || Bounds.Width <= 0) return;
-        var margin = 40.0;
-        var zx = (Bounds.Width - 2 * margin) / Document.WidthMm;
-        var zy = (Bounds.Height - 2 * margin) / Document.HeightMm;
-        _zoom = Math.Max(0.01, Math.Min(zx, zy));
+        var availW = Bounds.Width - ContentInset.Left - ContentInset.Right;
+        var availH = Bounds.Height - ContentInset.Top - ContentInset.Bottom;
+        if (availW <= 0 || availH <= 0) return;
+
+        _zoom = Math.Max(0.01, Math.Min(availW / Document.WidthMm, availH / Document.HeightMm));
+        // Bett im freien Bereich zwischen den Insets zentrieren
         _panOffset = new Point(
-            (Bounds.Width - Document.WidthMm * _zoom) / 2,
-            (Bounds.Height - Document.HeightMm * _zoom) / 2);
+            ContentInset.Left + (availW - Document.WidthMm * _zoom) / 2,
+            ContentInset.Top + (availH - Document.HeightMm * _zoom) / 2);
         InvalidateVisual();
     }
 
