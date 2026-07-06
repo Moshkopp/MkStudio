@@ -16,7 +16,15 @@ pub struct MachineSession {
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum SessionEvent {
     /// Ein anderer Client möchte die Maschine — aktueller Halter soll trennen.
-    ReleaseRequested { machine_id: Uuid, requested_by: Uuid },
-    Acquired { machine_id: Uuid, client_id: Uuid },
-    Released { machine_id: Uuid },
+    ReleaseRequested {
+        machine_id: Uuid,
+        requested_by: Uuid,
+    },
+    Acquired {
+        machine_id: Uuid,
+        client_id: Uuid,
+    },
+    Released {
+        machine_id: Uuid,
+    },
 }
