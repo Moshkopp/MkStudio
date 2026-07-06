@@ -86,11 +86,17 @@ Layer werden als kompakte Tabelle dargestellt: Farbfeld, Name, Modus,
 Geschwindigkeit/Leistung, plus Umschalter für Sichtbarkeit und Sperre.
 Eine **Farbpalette** erlaubt die schnelle Zuordnung einer Layer-Farbe.
 
-### 5. Fill-Vorschau
+### 5. Fill-Vorschau  ✓ umgesetzt
 
 Formen auf Fill-/Raster-Layern werden gefüllt dargestellt (halbtransparent in
 Layerfarbe), Cut-Layer nur als Kontur. So ist der Bearbeitungsmodus visuell
 sofort erkennbar.
+
+Die Regeln liegen im Core und sind ohne Avalonia testbar (Regel 1 der
+CLAUDE.md): `LayerMode.IsFilled()` entscheidet über den Modus,
+`CanvasObject.IsFillable` über die Form (nur geschlossene Flächen — Rechteck,
+Ellipse, geschlossene Polyline; Linien und offene Polylines nie). Der
+`CanvasControl` übersetzt beides in einen halbtransparenten Füll-Brush.
 
 ### 6. Theme und visuelle Sprache
 

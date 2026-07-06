@@ -7,6 +7,7 @@ public sealed class RectangleObject : CanvasObject
     public double Height { get; set; }
 
     public override (double X, double Y, double Width, double Height) Bounds => (X, Y, Width, Height);
+    public override bool IsFillable => true;
 
     public override void SetBounds(double x, double y, double width, double height)
     {
@@ -24,6 +25,7 @@ public sealed class EllipseObject : CanvasObject
     public double Height { get; set; }
 
     public override (double X, double Y, double Width, double Height) Bounds => (X, Y, Width, Height);
+    public override bool IsFillable => true;
 
     public override void SetBounds(double x, double y, double width, double height)
     {
@@ -65,6 +67,9 @@ public sealed class PolylineObject : CanvasObject
 {
     public List<(double X, double Y)> Points { get; init; } = [];
     public bool Closed { get; set; }
+
+    /// <summary>Nur geschlossene Polygone umschließen eine füllbare Fläche.</summary>
+    public override bool IsFillable => Closed;
 
     public override (double X, double Y, double Width, double Height) Bounds
     {

@@ -36,6 +36,18 @@ public enum LayerMode
     Raster,
 }
 
+/// <summary>Gestaltungsregeln, die sich aus dem Layer-Modus ergeben.</summary>
+public static class LayerModeRules
+{
+    /// <summary>
+    /// Formen auf Fill-/Raster-Layern werden flächig dargestellt; Cut-Layer
+    /// nur als Kontur. So ist der Bearbeitungsmodus visuell sofort erkennbar
+    /// (ADR 0003, §5).
+    /// </summary>
+    public static bool IsFilled(this LayerMode mode) =>
+        mode is LayerMode.Fill or LayerMode.Raster;
+}
+
 /// <summary>
 /// Ein Layer bündelt Objekte mit gemeinsamen Laser-Parametern —
 /// der Layer bestimmt, WIE gelasert wird (Modus, Speed, Power).
@@ -84,6 +96,13 @@ public abstract class CanvasObject
 
     /// <summary>Achsenparallele Bounding-Box in mm (ohne Rotation).</summary>
     public abstract (double X, double Y, double Width, double Height) Bounds { get; }
+
+    /// <summary>
+    /// Ob das Objekt eine füllbare Fläche umschließt. Nur geschlossene Formen
+    /// (Rechteck, Ellipse, geschlossene Polyline) werden auf Fill-Layern
+    /// flächig dargestellt; Linien und offene Polylines bleiben Kontur.
+    /// </summary>
+    public virtual bool IsFillable => false;
 
     public virtual bool HitTest(double x, double y, double tolerance = 0)
     {

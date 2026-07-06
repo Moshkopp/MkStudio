@@ -544,8 +544,13 @@ public sealed class CanvasControl : Control
             if (!layer.Visible) continue;
             var color = Color.TryParse(layer.ColorHex, out var c) ? c : Colors.OrangeRed;
             var pen = new Pen(new SolidColorBrush(color), 1.5);
+            // Fill-/Raster-Layer zeigen ihre Formen halbtransparent gefüllt,
+            // damit der Bearbeitungsmodus sofort erkennbar ist (ADR 0003, §5).
+            var fill = layer.Mode.IsFilled()
+                ? new SolidColorBrush(color, 0.28)
+                : null;
             foreach (var obj in layer.Objects)
-                DrawObject(context, obj, pen);
+                DrawObject(context, obj, pen, fill);
         }
 
         // Vorschau-Segment der laufenden Polyline
@@ -633,22 +638,43 @@ public sealed class CanvasControl : Control
         }
     }
 
-    private void DrawObject(DrawingContext context, CanvasObject obj, Pen pen)
+    /// <summary>
+    /// Zeichnet ein Objekt. <paramref name="fill"/> ist gesetzt, wenn der Layer
+    /// im Fill-/Raster-Modus ist; füllbare Formen werden dann zusätzlich flächig
+    /// hinterlegt (die Kontur bleibt immer erhalten).
+    /// </summary>
+    private void DrawObject(DrawingContext context, CanvasObject obj, Pen pen, IBrush? fill = null)
     {
+        var objFill = obj.IsFillable ? fill : null;
         switch (obj)
         {
             case RectangleObject r:
-                context.DrawRectangle(pen,
+                context.DrawRectangle(objFill, pen,
                     new Rect(ToScreen(r.X, r.Y), new Size(r.Width * _zoom, r.Height * _zoom)));
                 break;
             case EllipseObject el:
                 var center = ToScreen(el.X + el.Width / 2, el.Y + el.Height / 2);
-                context.DrawEllipse(null, pen, center, el.Width / 2 * _zoom, el.Height / 2 * _zoom);
+                context.DrawEllipse(objFill, pen, center, el.Width / 2 * _zoom, el.Height / 2 * _zoom);
                 break;
             case LineObject line:
                 context.DrawLine(pen, ToScreen(line.X, line.Y), ToScreen(line.X2, line.Y2));
                 break;
             case PolylineObject poly when poly.Points.Count >= 2:
+                // Geschlossene, gefüllte Polygone als Geometrie zeichnen (Füllung + Kontur);
+                // sonst Segment für Segment als Linienzug.
+                if (objFill is not null && poly.Closed)
+                {
+                    var geo = new StreamGeometry();
+                    using (var g = geo.Open())
+                    {
+                        g.BeginFigure(ToScreen(poly.Points[0].X, poly.Points[0].Y), isFilled: true);
+                        for (var i = 1; i < poly.Points.Count; i++)
+                            g.LineTo(ToScreen(poly.Points[i].X, poly.Points[i].Y));
+                        g.EndFigure(isClosed: true);
+                    }
+                    context.DrawGeometry(objFill, pen, geo);
+                    break;
+                }
                 for (var i = 1; i < poly.Points.Count; i++)
                     context.DrawLine(pen,
                         ToScreen(poly.Points[i - 1].X, poly.Points[i - 1].Y),

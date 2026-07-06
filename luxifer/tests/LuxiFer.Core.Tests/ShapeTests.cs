@@ -61,4 +61,22 @@ public class ShapeTests
         Assert.Equal(Layer.SwatchColors[1], Layer.CreateNext(1).ColorHex);
         Assert.Equal(Layer.SwatchColors[0], Layer.CreateNext(Layer.SwatchColors.Length).ColorHex);
     }
+
+    [Fact]
+    public void Geschlossene_Formen_sind_fuellbar_offene_nicht()
+    {
+        Assert.True(new RectangleObject().IsFillable);
+        Assert.True(new EllipseObject().IsFillable);
+        Assert.False(new LineObject().IsFillable);
+        Assert.False(new PolylineObject { Closed = false }.IsFillable);
+        Assert.True(new PolylineObject { Closed = true }.IsFillable);
+    }
+
+    [Fact]
+    public void Nur_Fill_und_Raster_Modus_werden_gefuellt()
+    {
+        Assert.False(LayerMode.Cut.IsFilled());
+        Assert.True(LayerMode.Fill.IsFilled());
+        Assert.True(LayerMode.Raster.IsFilled());
+    }
 }
