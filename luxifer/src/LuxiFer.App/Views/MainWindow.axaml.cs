@@ -107,8 +107,6 @@ public partial class MainWindow : Window
             Canvas.InvalidateVisual(); // Farbe/Modus könnten sich geändert haben
         };
         panel.LayerToggled += (_, _) => Canvas.InvalidateVisual();
-        panel.LayerColorChangeRequested += (_, arg) =>
-            ViewModel?.SetLayerColorCommand.Execute(arg);
     }
 
     private void OnSelectionEditCommit(object? sender, RoutedEventArgs e) =>

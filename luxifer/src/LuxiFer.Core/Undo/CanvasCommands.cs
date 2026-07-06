@@ -94,6 +94,36 @@ public sealed class ResizeObjectCommand(
     public void Undo() => obj.SetBounds(before.X, before.Y, before.W, before.H);
 }
 
+/// <summary>
+/// Färbt mehrere Objekte um (Farbpalette). Merkt sich je Objekt die alte Farbe
+/// für ein sauberes Undo. Ein Undo-Schritt über die ganze Auswahl (ADR 0005).
+/// </summary>
+public sealed class RecolorObjectsCommand : IUndoableCommand
+{
+    private readonly CanvasObject[] _objects;
+    private readonly string[] _before;
+    private readonly string _after;
+
+    public RecolorObjectsCommand(IReadOnlyList<CanvasObject> objects, string after)
+    {
+        _objects = objects.ToArray();
+        _before = _objects.Select(o => o.ColorHex).ToArray();
+        _after = after;
+    }
+
+    public string Label => "Farbe ändern";
+
+    public void Do()
+    {
+        foreach (var o in _objects) o.ColorHex = _after;
+    }
+
+    public void Undo()
+    {
+        for (var i = 0; i < _objects.Length; i++) _objects[i].ColorHex = _before[i];
+    }
+}
+
 /// <summary>Dreht ein Objekt (Rotation in Grad); Vorher-/Nachher-Winkel.</summary>
 public sealed class RotateObjectCommand(
     CanvasObject obj, double before, double after) : IUndoableCommand

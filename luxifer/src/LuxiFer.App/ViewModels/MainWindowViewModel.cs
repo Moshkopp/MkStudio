@@ -145,6 +145,29 @@ public partial class MainWindowViewModel : ViewModelBase
         CanvasInvalidateRequested?.Invoke(this, EventArgs.Empty);
     }
 
+    /// <summary>
+    /// Farbpalette im Design-Modus (ADR 0005): mit Auswahl werden die
+    /// <b>selektierten Objekte</b> umgefärbt (ein Undo-Schritt); ohne Auswahl
+    /// wird die Vorgabefarbe des aktiven Layers gesetzt (für neue Objekte).
+    /// </summary>
+    [RelayCommand]
+    private void SetActiveColor(string color)
+    {
+        if (SelectedObjects.Count > 0)
+        {
+            Undo.Execute(new RecolorObjectsCommand(SelectedObjects.ToArray(), color));
+            Project.ModifiedAt = DateTimeOffset.UtcNow;
+            CanvasInvalidateRequested?.Invoke(this, EventArgs.Empty);
+            StatusText = SelectedObjects.Count == 1
+                ? $"Objektfarbe {color}"
+                : $"{SelectedObjects.Count} Objekte gefärbt";
+            return;
+        }
+        if (ActiveLayer is null) return;
+        SetLayerColor((ActiveLayer, color));
+        StatusText = $"Vorgabefarbe {color}";
+    }
+
     [RelayCommand]
     private void RemoveLayer(Layer? layer)
     {

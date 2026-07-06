@@ -25,26 +25,6 @@
         <Style Selector="ToggleButton.layericon:pointerover /template/ ContentPresenter">
             <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
         </Style>
-
-        <!-- Farbfeld der Zeile: öffnet die Palette -->
-        <Style Selector="Button.swatchbtn">
-            <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="Width" Value="18"/>
-            <Setter Property="Height" Value="18"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
-
-        <!-- Einzelnes Palettenfeld im Flyout -->
-        <Style Selector="Button.swatch">
-            <Setter Property="Width" Value="24"/>
-            <Setter Property="Height" Value="24"/>
-            <Setter Property="Padding" Value="0"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="CornerRadius" Value="5"/>
-            <Setter Property="Cursor" Value="Hand"/>
-        </Style>
     </UserControl.Styles>
 
     <DockPanel Margin="14">
@@ -60,35 +40,12 @@
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="canvas:Layer">
                     <DockPanel>
-                        <!-- Farbfeld + Palette (Flyout) -->
-                        <Button DockPanel.Dock="Left" Classes="swatchbtn" VerticalAlignment="Center"
-                                ToolTip.Tip="Farbe wählen"
-                                DataContext="{Binding}"
-                                Click="OnSwatchButtonClick">
-                            <Border Width="16" Height="16" CornerRadius="4"
-                                    Background="{Binding ColorHex, Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
-                                    BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"/>
-                            <Button.Flyout>
-                                <Flyout Placement="Bottom">
-                                    <ItemsControl ItemsSource="{x:Static canvas:Layer.SwatchColors}"
-                                                  Width="180">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <WrapPanel/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate x:DataType="x:String">
-                                                <Button Classes="swatch" Margin="2"
-                                                        Tag="{Binding}"
-                                                        Background="{Binding Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
-                                                        Click="OnSwatchClick"/>
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </Flyout>
-                            </Button.Flyout>
-                        </Button>
+                        <!-- Farbchip (Anzeige der Ebenenfarbe; gesetzt über die
+                             Farbpalette unten im Design-Modus). -->
+                        <Border DockPanel.Dock="Left" Width="16" Height="16" CornerRadius="4"
+                                VerticalAlignment="Center"
+                                Background="{Binding ColorHex, Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
+                                BorderBrush="{StaticResource BorderStrongBrush}" BorderThickness="1"/>
 
                         <!-- Sicht / Sperre rechts -->
                         <ToggleButton DockPanel.Dock="Right" Classes="layericon"

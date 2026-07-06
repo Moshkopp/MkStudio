@@ -183,6 +183,27 @@
         <Setter Property="Background" Value="#331E1E"/>
     </Style>
 
+    <!-- ===== Farbkreis der Farbpalette ===== -->
+    <Style Selector="Button.swatchcircle">
+        <Setter Property="Width" Value="22"/>
+        <Setter Property="Height" Value="22"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="CornerRadius" Value="11"/>
+        <Setter Property="BorderBrush" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="2"/>
+        <Setter Property="Cursor" Value="Hand"/>
+        <Setter Property="RenderTransform" Value="scale(1)"/>
+        <Setter Property="Transitions">
+            <Transitions>
+                <TransformOperationsTransition Property="RenderTransform" Duration="0:0:0.10"/>
+            </Transitions>
+        </Setter>
+    </Style>
+    <Style Selector="Button.swatchcircle:pointerover">
+        <Setter Property="BorderBrush" Value="White"/>
+        <Setter Property="RenderTransform" Value="scale(1.15)"/>
+    </Style>
+
     <!-- ===== PathIcon (Standardgröße/-farbe) ===== -->
     <Style Selector="PathIcon">
         <Setter Property="Width" Value="18"/>

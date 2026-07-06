@@ -140,6 +140,27 @@ public class ShapeTests
     }
 
     [Fact]
+    public void RecolorObjectsCommand_faerbt_und_macht_rueckgaengig()
+    {
+        var a = new RectangleObject { ColorHex = "#111111" };
+        var b = new EllipseObject { ColorHex = "#222222" };
+        var cmd = new LuxiFer.Core.Undo.RecolorObjectsCommand([a, b], "#FF0000");
+        cmd.Do();
+        Assert.Equal("#FF0000", a.ColorHex);
+        Assert.Equal("#FF0000", b.ColorHex);
+        cmd.Undo();
+        Assert.Equal("#111111", a.ColorHex);
+        Assert.Equal("#222222", b.ColorHex);
+    }
+
+    [Fact]
+    public void Objekt_hat_eigene_Farbe()
+    {
+        var r = new RectangleObject { ColorHex = "#ABCDEF" };
+        Assert.Equal("#ABCDEF", r.ColorHex);
+    }
+
+    [Fact]
     public void GroupBounds_umschliesst_alle_Objekte()
     {
         var a = new RectangleObject { X = 10, Y = 10, Width = 20, Height = 20 };

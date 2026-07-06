@@ -170,6 +170,31 @@
                 </StackPanel>
             </Border>
 
+            <!-- DESIGN: Farbpalette unten mittig (färbt den aktiven Layer) -->
+            <Border Classes="floating" Padding="8,6" Margin="0,0,0,16"
+                    HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                    IsVisible="{Binding IsDesignMode}">
+                <StackPanel Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
+                    <TextBlock Text="Farbe" Classes="label" VerticalAlignment="Center"/>
+                    <ItemsControl ItemsSource="{x:Static canvas:Layer.SwatchColors}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Orientation="Horizontal" Spacing="6"/>
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="x:String">
+                                <Button Classes="swatchcircle"
+                                        Background="{Binding Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
+                                        Command="{Binding $parent[ItemsControl].((vm:MainWindowViewModel)DataContext).SetActiveColorCommand}"
+                                        CommandParameter="{Binding}"
+                                        ToolTip.Tip="{Binding}"/>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </StackPanel>
+            </Border>
+
             <!-- DESIGN: Layer-Panel + Auswahl rechts -->
             <Border Classes="floating" Width="240" Margin="12,64,12,12"
                     HorizontalAlignment="Right" VerticalAlignment="Stretch"

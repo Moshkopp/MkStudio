@@ -94,6 +94,13 @@ public abstract class CanvasObject
     public double Y { get; set; }
     public double Rotation { get; set; }
 
+    /// <summary>
+    /// Eigene Farbe des Objekts (ADR 0005). Beim Erzeugen wird die Vorgabefarbe
+    /// des Layers kopiert; danach ist die Farbe objekt-eigen und pro Auswahl
+    /// änderbar. Der Layer bestimmt weiterhin die Laserparameter, nicht die Farbe.
+    /// </summary>
+    public string ColorHex { get; set; } = Layer.SwatchColors[0];
+
     /// <summary>Achsenparallele Bounding-Box in mm (ohne Rotation).</summary>
     public abstract (double X, double Y, double Width, double Height) Bounds { get; }
 

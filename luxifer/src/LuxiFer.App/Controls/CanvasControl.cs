@@ -177,7 +177,13 @@ public sealed class CanvasControl : Control
     private ResizeHandle? _activeHandle;
     private (double X, double Y, double W, double H) _resizeStartBounds;
 
+    private bool _rotating;                 // Dreh-Griff wird gezogen
+    private double _rotateStartAngle;       // Objekt-Rotation bei Drag-Beginn
+    private double _rotatePointerStart;     // Mauswinkel (Grad) bei Drag-Beginn
+
     private const double HandleSizePx = 8;
+    private const double RotateHandleOffsetPx = 22;  // Abstand des Griffs über der Oberkante
+    private const double RotateHandleRadiusPx = 6;
 
     static CanvasControl()
     {
@@ -262,7 +268,16 @@ public sealed class CanvasControl : Control
         switch (Tool)
         {
             case CanvasTool.Select:
-                // Zuerst prüfen, ob ein Resize-Handle getroffen wurde
+                // Dreh-Griff vor allem anderen prüfen (nur bei Einzelauswahl).
+                if (_selection.Count == 1 && HitRotateHandle(pos))
+                {
+                    _rotating = true;
+                    _rotateStartAngle = SelectedObject!.Rotation;
+                    var gc = RotateHandleGeometry()!.Value.Center;
+                    _rotatePointerStart = Math.Atan2(pos.Y - gc.Y, pos.X - gc.X) * 180 / Math.PI;
+                    break;
+                }
+                // Dann prüfen, ob ein Resize-Handle getroffen wurde
                 if (SelectedObject is not null && HitHandle(pos) is { } handle)
                 {
                     _activeHandle = handle;
@@ -306,13 +321,13 @@ public sealed class CanvasControl : Control
                 break;
 
             case CanvasTool.Rectangle when canDraw:
-                _drawingObject = new RectangleObject { X = mm.X, Y = mm.Y };
+                _drawingObject = new RectangleObject { X = mm.X, Y = mm.Y, ColorHex = ActiveColorHex() };
                 break;
             case CanvasTool.Ellipse when canDraw:
-                _drawingObject = new EllipseObject { X = mm.X, Y = mm.Y };
+                _drawingObject = new EllipseObject { X = mm.X, Y = mm.Y, ColorHex = ActiveColorHex() };
                 break;
             case CanvasTool.Line when canDraw:
-                _drawingObject = new LineObject { X = mm.X, Y = mm.Y, X2 = mm.X, Y2 = mm.Y };
+                _drawingObject = new LineObject { X = mm.X, Y = mm.Y, X2 = mm.X, Y2 = mm.Y, ColorHex = ActiveColorHex() };
                 break;
 
             case CanvasTool.Polyline or CanvasTool.Polygon when canDraw:
@@ -323,7 +338,11 @@ public sealed class CanvasControl : Control
                 }
                 if (_polyInProgress is null)
                 {
-                    _polyInProgress = new PolylineObject { Closed = Tool == CanvasTool.Polygon };
+                    _polyInProgress = new PolylineObject
+                    {
+                        Closed = Tool == CanvasTool.Polygon,
+                        ColorHex = ActiveColorHex(),
+                    };
                     ActiveLayer!.Objects.Add(_polyInProgress);
                 }
                 _polyInProgress.Points.Add((mm.X, mm.Y));
@@ -358,6 +377,18 @@ public sealed class CanvasControl : Control
         }
 
         UpdateCursor(pos);
+
+        if (_rotating && SelectedObject is not null && RotateHandleGeometry() is { } rg)
+        {
+            var angleNow = Math.Atan2(pos.Y - rg.Center.Y, pos.X - rg.Center.X) * 180 / Math.PI;
+            var newRot = _rotateStartAngle + (angleNow - _rotatePointerStart);
+            // Beim Ziehen mit Shift auf 15°-Schritte einrasten.
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Shift))
+                newRot = Math.Round(newRot / 15) * 15;
+            SelectedObject.Rotation = ((newRot % 360) + 360) % 360;
+            InvalidateVisual();
+            return;
+        }
 
         if (_activeHandle is { } handle && SelectedObject is not null)
         {
@@ -416,6 +447,18 @@ public sealed class CanvasControl : Control
     protected override void OnPointerReleased(PointerReleasedEventArgs e)
     {
         _panning = false;
+
+        if (_rotating && SelectedObject is not null)
+        {
+            _rotating = false;
+            if (SelectedObject.Rotation != _rotateStartAngle)
+            {
+                UndoStack?.Push(new RotateObjectCommand(
+                    SelectedObject, _rotateStartAngle, SelectedObject.Rotation));
+                RaiseDocumentChanged();
+            }
+            return;
+        }
 
         if (_activeHandle is not null && SelectedObject is not null)
         {
@@ -586,6 +629,37 @@ public sealed class CanvasControl : Control
 
     private void RaiseDocumentChanged() => DocumentChanged?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>Vorgabefarbe für neue Objekte: die Farbe des aktiven Layers (ADR 0005).</summary>
+    private string ActiveColorHex() => ActiveLayer?.ColorHex ?? Layer.SwatchColors[0];
+
+    // ----- Dreh-Griff -----
+
+    /// <summary>Bildschirm-Mittelpunkt des Objekts und Position des Dreh-Griffs.</summary>
+    private (Point Center, Point Handle)? RotateHandleGeometry()
+    {
+        if (SelectedObject is null) return null;
+        var (x, y, w, h) = SelectedObject.Bounds;
+        var center = ToScreen(x + w / 2, y + h / 2);
+        var topMid = ToScreen(x + w / 2, y);
+        // Griff sitzt oberhalb der Oberkante …
+        var handle = new Point(topMid.X, topMid.Y - RotateHandleOffsetPx);
+        // … und wird mit dem Objekt um dessen Mittelpunkt gedreht.
+        if (SelectedObject.Rotation != 0)
+        {
+            var (hx, hy) = LuxiFer.Core.Canvas.Geometry.RotatePoint(
+                handle.X, handle.Y, center.X, center.Y, SelectedObject.Rotation);
+            handle = new Point(hx, hy);
+        }
+        return (center, handle);
+    }
+
+    private bool HitRotateHandle(Point screenPos)
+    {
+        if (RotateHandleGeometry() is not { } g) return false;
+        var d = screenPos - g.Handle;
+        return Math.Sqrt(d.X * d.X + d.Y * d.Y) <= RotateHandleRadiusPx + 3;
+    }
+
     // ----- Resize-Handles -----
 
     private IEnumerable<(ResizeHandle Handle, Point Center)> HandlePositions()
@@ -646,6 +720,11 @@ public sealed class CanvasControl : Control
             Cursor = Cursor.Default;
             return;
         }
+        if (_selection.Count == 1 && HitRotateHandle(screenPos))
+        {
+            Cursor = new Cursor(StandardCursorType.Hand);
+            return;
+        }
         Cursor = HitHandle(screenPos) switch
         {
             ResizeHandle.N or ResizeHandle.S => new Cursor(StandardCursorType.SizeNorthSouth),
@@ -672,15 +751,14 @@ public sealed class CanvasControl : Control
         foreach (var layer in Document.Layers)
         {
             if (!layer.Visible) continue;
-            var color = Color.TryParse(layer.ColorHex, out var c) ? c : Colors.OrangeRed;
-            var pen = new Pen(new SolidColorBrush(color), 1.5);
-            // Fill-/Raster-Layer zeigen ihre Formen halbtransparent gefüllt,
-            // damit der Bearbeitungsmodus sofort erkennbar ist (ADR 0003, §5).
-            var fill = layer.Mode.IsFilled()
-                ? new SolidColorBrush(color, 0.28)
-                : null;
+            // Farbe kommt vom Objekt (ADR 0005); der Layer-Modus entscheidet nur
+            // über die Fill-Vorschau (ADR 0003 §5).
+            var filled = layer.Mode.IsFilled();
             foreach (var obj in layer.Objects)
             {
+                var color = Color.TryParse(obj.ColorHex, out var c) ? c : Colors.OrangeRed;
+                var pen = new Pen(new SolidColorBrush(color), 1.5);
+                var fill = filled ? new SolidColorBrush(color, 0.28) : null;
                 using (PushRotation(context, obj))
                     DrawObject(context, obj, pen, fill);
             }
@@ -782,11 +860,31 @@ public sealed class CanvasControl : Control
                 context.DrawRectangle(selPen, selRect.Inflate(4));
         }
 
-        // Größen-Handles nur bei genau EINEM, unrotierten Objekt.
-        if (_selection.Count != 1 || SelectedObject!.Rotation != 0) return;
+        // Extras (Dreh-Griff, Größen-Handles) nur bei genau EINEM Objekt.
+        if (_selection.Count != 1) return;
 
         var handleBrush = Brushes.White;
         var handlePen = new Pen(Brushes.DeepSkyBlue, 1);
+
+        // Dreh-Griff über der Oberkante (immer, auch bei rotiertem Objekt).
+        if (RotateHandleGeometry() is { } rg)
+        {
+            // Verbindungslinie von der (gedrehten) Oberkanten-Mitte zum Griff.
+            var (bx, by, bw, bh) = SelectedObject!.Bounds;
+            var topMid = ToScreen(bx + bw / 2, by);
+            if (SelectedObject.Rotation != 0)
+            {
+                var (tx, ty) = LuxiFer.Core.Canvas.Geometry.RotatePoint(
+                    topMid.X, topMid.Y, rg.Center.X, rg.Center.Y, SelectedObject.Rotation);
+                topMid = new Point(tx, ty);
+            }
+            context.DrawLine(handlePen, topMid, rg.Handle);
+            context.DrawEllipse(handleBrush, handlePen, rg.Handle,
+                RotateHandleRadiusPx, RotateHandleRadiusPx);
+        }
+
+        // Größen-Handles nur bei unrotiertem Objekt.
+        if (SelectedObject!.Rotation != 0) return;
         foreach (var (_, center) in HandlePositions())
         {
             var r = new Rect(center.X - HandleSizePx / 2, center.Y - HandleSizePx / 2, HandleSizePx, HandleSizePx);
