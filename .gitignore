@@ -1,22 +1,16 @@
 # --- Referenzprojekt (nur lokal, nicht Teil von LuxiFer) ---
 /nur zur Referenu/
 
-# --- .NET / Avalonia (luxifer/) ---
-bin/
-obj/
-[Dd]ebug/
-[Rr]elease/
-*.user
-*.suo
-.vs/
-artifacts/
-project.lock.json
-*.nupkg
-
-# --- Rust (sharon/) ---
+# --- Rust ---
 target/
 **/*.rs.bk
 Cargo.lock.orig
+
+# --- Node / Tauri-Frontend (kommt später) ---
+node_modules/
+dist/
+.svelte-kit/
+*.local
 
 # --- IDE / Editor ---
 .idea/

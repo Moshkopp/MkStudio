@@ -1,0 +1,20 @@
+# LuxiFer — Cargo-Workspace (Rust-Core + spätere Tauri-App + Charon-Server)
+#
+# Der Core ist die einzige Quelle der Wahrheit für Geometrie, Layer/Farbe,
+# Projektformat und Job-Kompilierung. Die Tauri-GUI (Svelte) und Charon teilen
+# sich diesen Core; das Frontend zeichnet nur.
+[workspace]
+resolver = "2"
+members = [
+    "crates/luxifer-core",
+    "charon",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+authors = ["moshy"]
+
+[workspace.dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

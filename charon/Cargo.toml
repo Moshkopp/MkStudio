@@ -1,0 +1,10 @@
+[package]
+name = "charon"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "Charon — optionaler Koordinations-Server für LuxiFer (Sync/Bibliotheken). Noch leer."
+
+[dependencies]
+luxifer-core = { path = "../crates/luxifer-core" }
