@@ -92,7 +92,9 @@ impl JobPlan {
         let mut job_layers: Vec<JobLayer> = Vec::new();
 
         for (li, layer) in layers.iter().enumerate() {
-            if !layer.active || layer.locked || !layer.visible {
+            // Nur aktivierte Layer werden gebrannt. `visible` steuert nur die
+            // Canvas-Anzeige, nicht den Job (ADR/Model: enabled ≠ visible).
+            if !layer.enabled {
                 continue;
             }
             let paths: Vec<Path> = shapes
@@ -266,11 +268,21 @@ mod tests {
     }
 
     #[test]
-    fn gesperrter_layer_wird_uebersprungen() {
+    fn deaktivierter_layer_wird_uebersprungen() {
         let mut s = state_one_rect();
-        s.layers[0].locked = true;
+        s.layers[0].enabled = false;
         let plan = JobPlan::from_shapes(&s.shapes, &s.layers);
         assert!(plan.is_empty());
+    }
+
+    #[test]
+    fn unsichtbarer_aber_aktivierter_layer_wird_gebrannt() {
+        // visible steuert nur die Anzeige, nicht den Job.
+        let mut s = state_one_rect();
+        s.layers[0].visible = false;
+        s.layers[0].enabled = true;
+        let plan = JobPlan::from_shapes(&s.shapes, &s.layers);
+        assert!(!plan.is_empty(), "unsichtbarer aktivierter Layer brennt");
     }
 
     #[test]

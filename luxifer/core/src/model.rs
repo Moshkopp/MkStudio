@@ -8,6 +8,11 @@ use serde::{Deserialize, Serialize};
 
 use crate::geometry::{BBox, Geo};
 
+/// serde-Default für bool-Felder, die fehlend als `true` gelten sollen.
+fn default_true() -> bool {
+    true
+}
+
 /// Die 14 Standard-Layerfarben (RGB). Neue Layer erhalten reihum eine Farbe.
 pub const SWATCH_COLORS: &[[u8; 3]] = &[
     [0xEF, 0x44, 0x44], // rot
@@ -48,7 +53,13 @@ impl LayerMode {
 pub struct Layer {
     pub name: String,
     pub color: [u8; 3],
+    /// Objekte dieses Layers im Canvas anzeigen (Show/Hide).
     pub visible: bool,
+    /// Layer im Job mitbrennen/gravieren. Unabhängig von `visible`: ein Layer
+    /// kann sichtbar, aber vom Brennen ausgenommen sein. Alte Dateien ohne das
+    /// Feld gelten als aktiviert.
+    #[serde(default = "default_true")]
+    pub enabled: bool,
     pub active: bool,
     pub locked: bool,
     pub mode: LayerMode,
@@ -76,6 +87,7 @@ impl Layer {
             name: format!("Ebene {}", index + 1),
             color,
             visible: true,
+            enabled: true,
             active: true,
             locked: false,
             mode: LayerMode::Cut,

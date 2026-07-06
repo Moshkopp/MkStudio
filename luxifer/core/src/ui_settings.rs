@@ -1,10 +1,9 @@
 //! GUI-Einstellungen (Panel-System, Theming, Arbeitsplatz) — ADR 0002.
 //!
 //! Auflösungsunabhängiges Panel-Layout: Panel-Positionen werden als
-//! **Bruchteile** des Fensters gespeichert (0…1), nie als Pixel oder rohe
-//! Zellindizes. Dadurch sitzt dasselbe Layout auf FullHD und WQHD an der
-//! gleichen relativen Stelle, und ein Wechsel der Rastermaße (zum
-//! Experimentieren) ist verlustfrei — siehe ADR §1.
+//! **Bruchteile** des Fensters gespeichert (0…1), nie als Pixel. Dadurch sitzt
+//! dasselbe Layout auf FullHD und WQHD an der gleichen relativen Stelle. Panele
+//! werden frei positioniert und skaliert (kein Raster/Snap) — siehe ADR §1.
 //!
 //! Das Modell ist UI-frei und testbar. Die Tauri-GUI liest/schreibt es über
 //! Commands; die lokale JSON ist offline-first und später von Charon pro
@@ -51,10 +50,9 @@ pub enum PanelKind {
 /// Position und Größe eines Panels als **Bruchteile** des Fensters (0…1).
 ///
 /// `x`/`y` ist die linke obere Ecke, `w`/`h` die Ausdehnung — jeweils relativ
-/// zur Fensterbreite/-höhe. Das Snapping aufs aktuelle Raster passiert erst
-/// beim Anzeigen im Frontend, die gespeicherten Werte bleiben stufenlos
-/// relativ (ADR §1). `z` bestimmt die Stapel-Reihenfolge bei Überlappung —
-/// Panele dürfen sich frei überlappen, es gibt keine Kollisionslogik.
+/// zur Fensterbreite/-höhe, stufenlos (kein Raster). `z` bestimmt die Stapel-
+/// Reihenfolge bei Überlappung — Panele dürfen sich frei überlappen, es gibt
+/// keine Kollisionslogik.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct PanelRect {
     pub x: f64,
@@ -95,31 +93,6 @@ pub struct PanelPlacement {
 pub struct TabLayout {
     pub tab: Tab,
     pub panels: Vec<PanelPlacement>,
-}
-
-/// Rastermaße (Spalten × Zeilen). Zum Experimentieren einstellbar, später fix
-/// (ADR §1). Beeinflusst nur das Snapping bei der Anzeige, nicht die
-/// gespeicherten Bruchteile.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Grid {
-    pub cols: u32,
-    pub rows: u32,
-}
-
-impl Default for Grid {
-    fn default() -> Self {
-        Grid { cols: 12, rows: 8 }
-    }
-}
-
-impl Grid {
-    /// Hält die Rastermaße in einem sinnvollen Bereich.
-    pub fn clamped(self) -> Self {
-        Grid {
-            cols: self.cols.clamp(2, 48),
-            rows: self.rows.clamp(2, 32),
-        }
-    }
 }
 
 /// Eine Theme-Farbe: Farbton (RGB) plus geklemmte Intensität (ADR §3).
@@ -189,7 +162,6 @@ pub struct UiSettings {
     /// Arbeitsplatzname (z. B. „Werkstatt-PC"). Später von Charon als Schlüssel
     /// zum Synchronisieren genutzt.
     pub workplace: String,
-    pub grid: Grid,
     pub theme: Theme,
     /// Ein Layout je Reiter.
     pub layouts: Vec<TabLayout>,
@@ -200,7 +172,6 @@ impl Default for UiSettings {
         UiSettings {
             version: UI_FORMAT_VERSION,
             workplace: "Arbeitsplatz".into(),
-            grid: Grid::default(),
             theme: Theme::default(),
             layouts: Tab::ALL.iter().map(|&t| default_layout(t)).collect(),
         }
@@ -227,7 +198,6 @@ impl UiSettings {
     /// Räumt geladene Settings auf: fehlende Reiter ergänzen, Werte klemmen.
     /// Macht das Laden robust gegen alte/fehlerhafte Dateien.
     pub fn sanitize(&mut self) {
-        self.grid = self.grid.clamped();
         self.theme = self.theme.clamped();
         for tab in Tab::ALL {
             if !self.layouts.iter().any(|l| l.tab == tab) {
@@ -348,14 +318,6 @@ mod tests {
     }
 
     #[test]
-    fn grid_wird_geklemmt() {
-        assert_eq!(
-            Grid { cols: 0, rows: 999 }.clamped(),
-            Grid { cols: 2, rows: 32 }
-        );
-    }
-
-    #[test]
     fn reset_tab_setzt_nur_den_reiter_zurueck() {
         let mut s = UiSettings::default();
         // Design-Layout verändern.
@@ -390,13 +352,11 @@ mod tests {
 
         let mut s = UiSettings::default();
         s.workplace = "Werkstatt-PC".into();
-        s.grid = Grid { cols: 16, rows: 10 };
         let path = s.save_to(&dir).unwrap();
         assert!(path.exists());
 
         let loaded = UiSettings::load_from(&dir);
         assert_eq!(loaded.workplace, "Werkstatt-PC");
-        assert_eq!(loaded.grid, Grid { cols: 16, rows: 10 });
 
         let _ = std::fs::remove_dir_all(&dir);
     }

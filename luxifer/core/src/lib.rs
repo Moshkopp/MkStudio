@@ -31,5 +31,5 @@ pub use project::{ProjectFile, ProjectInfo};
 pub use scanline::FillSegment;
 pub use state::AppState;
 pub use ui_settings::{
-    Grid, PanelKind, PanelPlacement, PanelRect, Tab, TabLayout, Theme, ThemeColor, UiSettings,
+    PanelKind, PanelPlacement, PanelRect, Tab, TabLayout, Theme, ThemeColor, UiSettings,
 };
