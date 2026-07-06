@@ -60,6 +60,22 @@
     <!-- Feiner Innen-Highlight-Rand (Glaskante oben) -->
     <SolidColorBrush x:Key="PanelBorderBrush" Color="#33FFFFFF"/>
 
+    <!-- Eingebettete Karte (leicht vertiefter Bereich innerhalb eines Panels) -->
+    <SolidColorBrush x:Key="SurfaceInsetBrush" Color="#16171B"/>
+
+    <!-- Primär-Kachel: Akzent-Verlauf für die dominante Aktion (START) -->
+    <LinearGradientBrush x:Key="AccentTileBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#5A8CFF"/>
+        <GradientStop Offset="1" Color="#3F72E6"/>
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="AccentTileHoverBrush" StartPoint="0%,0%" EndPoint="0%,100%">
+        <GradientStop Offset="0" Color="#6D9BFF"/>
+        <GradientStop Offset="1" Color="#4C82F7"/>
+    </LinearGradientBrush>
+
+    <!-- Weicher Akzent-Schein unter der Primär-Aktion -->
+    <BoxShadows x:Key="AccentGlow">0 4 16 -2 #664C82F7</BoxShadows>
+
     <!-- Radien -->
     <CornerRadius x:Key="RadiusSmall">6</CornerRadius>
     <CornerRadius x:Key="RadiusMedium">10</CornerRadius>
