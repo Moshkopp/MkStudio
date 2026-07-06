@@ -98,6 +98,7 @@ public sealed class CanvasControl : Control
     private Point _panOffset = new(40, 40); // Pixel
     private bool _panning;
     private Point _panStart, _panOffsetStart;
+    private bool _userAdjustedView;         // hat der Nutzer selbst gezoomt/gepannt?
 
     private CanvasObject? _drawingObject;   // Rect/Ellipse/Linie im Aufziehen
     private Layer? _drawingLayer;           // Layer, in dem gerade gezeichnet wird
@@ -147,13 +148,16 @@ public sealed class CanvasControl : Control
         _panOffset = new Point(
             ContentInset.Left + (availW - Document.WidthMm * _zoom) / 2,
             ContentInset.Top + (availH - Document.HeightMm * _zoom) / 2);
+        _userAdjustedView = false; // Einpassen ist der automatische Zustand
         InvalidateVisual();
     }
 
     protected override void OnSizeChanged(SizeChangedEventArgs e)
     {
         base.OnSizeChanged(e);
-        if (e.PreviousSize == default) ZoomToFit();
+        // Automatisch einpassen, solange der Nutzer die Ansicht nicht selbst
+        // per Zoom/Pan verändert hat (z. B. auch beim Maximieren des Fensters).
+        if (!_userAdjustedView) ZoomToFit();
     }
 
     protected override void OnPointerWheelChanged(PointerWheelEventArgs e)
@@ -164,6 +168,7 @@ public sealed class CanvasControl : Control
         _zoom = Math.Clamp(_zoom * factor, 0.05, 100);
         // Punkt unter dem Cursor festhalten
         _panOffset = new Point(pos.X - mmBefore.X * _zoom, pos.Y - mmBefore.Y * _zoom);
+        _userAdjustedView = true;
         InvalidateVisual();
         e.Handled = true;
     }
@@ -179,6 +184,7 @@ public sealed class CanvasControl : Control
             _panning = true;
             _panStart = pos;
             _panOffsetStart = _panOffset;
+            _userAdjustedView = true;
             e.Handled = true;
             return;
         }

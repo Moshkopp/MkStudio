@@ -10,7 +10,8 @@
         x:DataType="vm:MainWindowViewModel"
         Icon="/Assets/avalonia-logo.ico"
         Title="{Binding Title}"
-        Width="1280" Height="800">
+        Width="1280" Height="800"
+        WindowState="Maximized">
 
     <Design.DataContext>
         <vm:MainWindowViewModel/>
