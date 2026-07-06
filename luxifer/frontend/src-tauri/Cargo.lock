@@ -1673,6 +1673,7 @@ name = "luxifer-app"
 version = "0.1.0"
 dependencies = [
  "luxifer-core",
+ "luxifer-driver-grbl",
  "serde",
  "serde_json",
  "tauri",
@@ -1685,6 +1686,13 @@ version = "0.1.0"
 dependencies = [
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "luxifer-driver-grbl"
+version = "0.1.0"
+dependencies = [
+ "luxifer-core",
 ]
 
 [[package]]

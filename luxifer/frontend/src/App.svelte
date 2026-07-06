@@ -1,6 +1,7 @@
 <script lang="ts">
   import Canvas from "./lib/Canvas.svelte";
   import LayerDialog from "./lib/LayerDialog.svelte";
+  import LaserPanel from "./lib/LaserPanel.svelte";
   import * as core from "./lib/core";
   import type { Scene, LayerParams } from "./lib/core";
 
@@ -12,6 +13,8 @@
   let error = $state<string | null>(null);
   // Index des Layers, dessen Dialog offen ist (oder null).
   let editLayer = $state<number | null>(null);
+  // Erzeugter G-Code (Overlay), oder null.
+  let gcode = $state<string | null>(null);
 
   async function load() {
     try {
@@ -65,6 +68,17 @@
   }
   async function toggleLayer(i: number, field: "visible" | "locked") {
     scene = await core.toggleLayer(i, field);
+  }
+
+  async function generateGcode() {
+    try {
+      gcode = await core.generateGcode();
+    } catch (e) {
+      error = String(e);
+    }
+  }
+  function copyGcode() {
+    if (gcode) navigator.clipboard?.writeText(gcode);
   }
 
   const selCount = $derived(scene?.selected.length ?? 0);
@@ -182,6 +196,31 @@
       onsave={saveLayer}
       oncancel={() => (editLayer = null)}
     />
+  {/if}
+
+  <!-- Laser-Control-Panel unten rechts -->
+  <LaserPanel ongenerate={generateGcode} />
+
+  <!-- G-Code-Overlay -->
+  {#if gcode !== null}
+    <div
+      class="backdrop"
+      onclick={() => (gcode = null)}
+      onkeydown={(e) => e.key === "Escape" && (gcode = null)}
+      role="button"
+      tabindex="-1"
+    >
+      <div class="gcode" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1">
+        <div class="gc-head">
+          <span>G-Code ({gcode.split("\n").length} Zeilen)</span>
+          <div>
+            <button onclick={copyGcode}>Kopieren</button>
+            <button class="primary" onclick={() => (gcode = null)}>Schließen</button>
+          </div>
+        </div>
+        <pre>{gcode}</pre>
+      </div>
+    </div>
   {/if}
 </main>
 
@@ -352,5 +391,49 @@
     padding: 6px 12px;
     border-radius: 8px;
     z-index: 20;
+  }
+  .backdrop {
+    position: absolute;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+  }
+  .gcode {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    width: min(600px, 90%);
+    max-height: 80%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 20px 60px -8px rgba(0, 0, 0, 0.6);
+  }
+  .gc-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    gap: 8px;
+  }
+  .gc-head > div {
+    display: flex;
+    gap: 8px;
+  }
+  .gcode pre {
+    margin: 0;
+    padding: 14px 16px;
+    overflow: auto;
+    font-family: ui-monospace, "Cascadia Code", monospace;
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text);
+  }
+  .primary {
+    background: var(--accent);
+    color: white;
   }
 </style>

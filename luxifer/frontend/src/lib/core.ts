@@ -105,6 +105,8 @@ export const setLayerParams = (index: number, p: LayerParams) =>
 export const toggleLayer = (index: number, field: "visible" | "locked") =>
   invoke<Scene>("toggle_layer", { index, field });
 
+export const generateGcode = () => invoke<string>("generate_gcode");
+
 export const undo = () => invoke<Scene>("undo");
 export const redo = () => invoke<Scene>("redo");
 

@@ -233,6 +233,18 @@ fn toggle_layer(data: State<AppData>, index: usize, field: String) -> Scene {
     Scene::from_state(&s)
 }
 
+/// Erzeugt aus dem aktuellen Zustand einen G-Code-Job (GRBL-Treiber).
+/// Gibt den G-Code als Text zurück (oder einen Fehler bei leerem Job).
+#[tauri::command]
+fn generate_gcode(data: State<AppData>) -> Result<String, String> {
+    use luxifer_core::{JobPlan, MachineDriver};
+    use luxifer_driver_grbl::GrblDriver;
+    let s = data.state.lock().unwrap();
+    let plan = JobPlan::from_shapes(&s.shapes, &s.layers);
+    let bytes = GrblDriver::default().compile(&plan, &s.layers)?;
+    String::from_utf8(bytes).map_err(|e| e.to_string())
+}
+
 #[tauri::command]
 fn undo(data: State<AppData>) -> Scene {
     let mut s = data.state.lock().unwrap();
@@ -270,6 +282,7 @@ pub fn run() {
             distribute,
             set_layer_params,
             toggle_layer,
+            generate_gcode,
             clear_selection,
             delete_selected,
             undo,
