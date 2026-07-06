@@ -9,29 +9,53 @@
              x:Class="LuxiFer.App.Controls.LayerPanel"
              x:DataType="vm:MainWindowViewModel">
 
-    <DockPanel Margin="10">
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
-            <Button DockPanel.Dock="Right" Content="+" Width="30"
-                    Command="{Binding AddLayerCommand}" ToolTip.Tip="Layer hinzufügen"/>
-            <TextBlock Text="Schnitte / Ebenen" FontWeight="Bold" VerticalAlignment="Center"/>
+    <UserControl.Styles>
+        <Style Selector="ToggleButton.layericon">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="5"/>
+            <Setter Property="Width" Value="28"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+            <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+        </Style>
+        <Style Selector="ToggleButton.layericon:checked">
+            <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        </Style>
+        <Style Selector="ToggleButton.layericon:pointerover /template/ ContentPresenter">
+            <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+        </Style>
+    </UserControl.Styles>
+
+    <DockPanel Margin="14">
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
+            <Button DockPanel.Dock="Right" Classes="icon" Command="{Binding AddLayerCommand}"
+                    ToolTip.Tip="Layer hinzufügen">
+                <PathIcon Data="{StaticResource IconPlus}" Width="16" Height="16"/>
+            </Button>
+            <TextBlock Text="SCHNITTE / EBENEN" Classes="h" VerticalAlignment="Center"/>
         </DockPanel>
         <ListBox ItemsSource="{Binding Layers}" SelectedItem="{Binding ActiveLayer}"
-                 Background="Transparent" DoubleTapped="OnLayerDoubleTapped">
+                 DoubleTapped="OnLayerDoubleTapped">
             <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="canvas:Layer">
                     <DockPanel>
-                        <Border DockPanel.Dock="Left" Width="14" Height="14" CornerRadius="3"
+                        <Border DockPanel.Dock="Left" Width="16" Height="16" CornerRadius="4"
                                 Background="{Binding ColorHex, Converter={x:Static ctrl:ToolConverters.HexToBrush}}"
                                 VerticalAlignment="Center"/>
-                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Locked}"
-                                  Click="OnLayerToggle" ToolTip.Tip="Gesperrt"
-                                  Margin="4,0,0,0">🔒</CheckBox>
-                        <CheckBox DockPanel.Dock="Right" IsChecked="{Binding Visible}"
-                                  Click="OnLayerToggle" ToolTip.Tip="Sichtbar"
-                                  Margin="4,0,0,0">👁</CheckBox>
-                        <StackPanel VerticalAlignment="Center" Margin="8,0,0,0">
-                            <TextBlock Text="{Binding Name}"/>
-                            <TextBlock FontSize="10" Foreground="#9a9aa0"
+                        <ToggleButton DockPanel.Dock="Right" Classes="layericon"
+                                      IsChecked="{Binding Locked}"
+                                      Click="OnLayerToggle" ToolTip.Tip="Sperre">
+                            <PathIcon Data="{StaticResource IconLock}" Width="15" Height="15"/>
+                        </ToggleButton>
+                        <ToggleButton DockPanel.Dock="Right" Classes="layericon"
+                                      IsChecked="{Binding Visible}"
+                                      Click="OnLayerToggle" ToolTip.Tip="Sichtbar">
+                            <PathIcon Data="{StaticResource IconEye}" Width="16" Height="16"/>
+                        </ToggleButton>
+                        <StackPanel VerticalAlignment="Center" Margin="10,0,0,0" Spacing="1">
+                            <TextBlock Text="{Binding Name}" FontWeight="Medium"/>
+                            <TextBlock Classes="muted" FontSize="11"
                                        Text="{Binding SpeedMmS, StringFormat='{}{0:0} mm/s'}"/>
                         </StackPanel>
                     </DockPanel>

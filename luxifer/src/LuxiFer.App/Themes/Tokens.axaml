@@ -1,0 +1,60 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Zentrale Design-Tokens für LuxiFer. Ein dunkles, ruhiges Farbsystem mit
+        einer Akzentfarbe. Alle Panele/Controls beziehen sich auf diese Werte,
+        damit die Oberfläche als ein System wirkt.
+    -->
+
+    <!-- Flächen (von hinten nach vorn heller) -->
+    <Color x:Key="SurfaceBase">#0F1115</Color>      <!-- Fenster-/Canvas-Hintergrund -->
+    <Color x:Key="SurfacePanel">#181B21</Color>     <!-- Panele -->
+    <Color x:Key="SurfacePanelAlt">#1F232B</Color>  <!-- Eingaben, Zeilen -->
+    <Color x:Key="SurfaceHover">#272C35</Color>
+    <Color x:Key="SurfaceActive">#2E3440</Color>
+
+    <!-- Linien / Trenner -->
+    <Color x:Key="BorderSubtle">#20262E</Color>
+    <Color x:Key="BorderStrong">#2C333D</Color>
+
+    <!-- Text -->
+    <Color x:Key="TextPrimary">#E6E9EF</Color>
+    <Color x:Key="TextSecondary">#9BA3B0</Color>
+    <Color x:Key="TextMuted">#5B6472</Color>
+
+    <!-- Akzent (eine Farbe, konsequent) -->
+    <Color x:Key="Accent">#4C82F7</Color>
+    <Color x:Key="AccentHover">#5F92FF</Color>
+    <Color x:Key="AccentMuted">#2A3B5C</Color>
+
+    <!-- Statusfarben (nur für Aktionen mit klarer Semantik) -->
+    <Color x:Key="Success">#3FB27F</Color>
+    <Color x:Key="Warning">#E0A83B</Color>
+    <Color x:Key="Danger">#E5645D</Color>
+
+    <!-- Brushes -->
+    <SolidColorBrush x:Key="SurfaceBaseBrush" Color="{StaticResource SurfaceBase}"/>
+    <SolidColorBrush x:Key="SurfacePanelBrush" Color="{StaticResource SurfacePanel}"/>
+    <SolidColorBrush x:Key="SurfacePanelAltBrush" Color="{StaticResource SurfacePanelAlt}"/>
+    <SolidColorBrush x:Key="SurfaceHoverBrush" Color="{StaticResource SurfaceHover}"/>
+    <SolidColorBrush x:Key="SurfaceActiveBrush" Color="{StaticResource SurfaceActive}"/>
+    <SolidColorBrush x:Key="BorderSubtleBrush" Color="{StaticResource BorderSubtle}"/>
+    <SolidColorBrush x:Key="BorderStrongBrush" Color="{StaticResource BorderStrong}"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="{StaticResource TextPrimary}"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="{StaticResource TextSecondary}"/>
+    <SolidColorBrush x:Key="TextMutedBrush" Color="{StaticResource TextMuted}"/>
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource Accent}"/>
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="{StaticResource AccentHover}"/>
+    <SolidColorBrush x:Key="AccentMutedBrush" Color="{StaticResource AccentMuted}"/>
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource Success}"/>
+    <SolidColorBrush x:Key="WarningBrush" Color="{StaticResource Warning}"/>
+    <SolidColorBrush x:Key="DangerBrush" Color="{StaticResource Danger}"/>
+
+    <!-- Radien -->
+    <CornerRadius x:Key="RadiusSmall">6</CornerRadius>
+    <CornerRadius x:Key="RadiusMedium">10</CornerRadius>
+    <CornerRadius x:Key="RadiusLarge">14</CornerRadius>
+
+    <!-- Schatten für schwebende Panele -->
+    <BoxShadows x:Key="PanelShadow">0 8 28 0 #66000000</BoxShadows>
+</ResourceDictionary>

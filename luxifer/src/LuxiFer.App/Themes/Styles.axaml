@@ -1,0 +1,179 @@
+<Styles xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        Zentrale Control-Styles für LuxiFer. Setzt auf Tokens.axaml auf und gibt
+        allen Controls ein einheitliches, modernes Erscheinungsbild.
+    -->
+
+    <!-- ===== Basistypografie ===== -->
+    <Style Selector="TextBlock">
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+    </Style>
+    <Style Selector="TextBlock.h">
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="LetterSpacing" Value="0.5"/>
+    </Style>
+    <Style Selector="TextBlock.label">
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="FontSize" Value="12"/>
+        <Setter Property="VerticalAlignment" Value="Center"/>
+    </Style>
+    <Style Selector="TextBlock.muted">
+        <Setter Property="Foreground" Value="{StaticResource TextMutedBrush}"/>
+    </Style>
+
+    <!-- ===== Eingaben ===== -->
+    <Style Selector="TextBox">
+        <Setter Property="Background" Value="{StaticResource SurfacePanelAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="Padding" Value="8,5"/>
+        <Setter Property="MinHeight" Value="32"/>
+    </Style>
+    <Style Selector="TextBox:focus /template/ Border#PART_BorderElement">
+        <Setter Property="BorderBrush" Value="{StaticResource AccentBrush}"/>
+    </Style>
+
+    <Style Selector="ComboBox">
+        <Setter Property="Background" Value="{StaticResource SurfacePanelAltBrush}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderStrongBrush}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="Padding" Value="8,5"/>
+        <Setter Property="MinHeight" Value="32"/>
+    </Style>
+
+    <!-- ===== Buttons ===== -->
+    <Style Selector="Button">
+        <Setter Property="Background" Value="{StaticResource SurfacePanelAltBrush}"/>
+        <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="Padding" Value="12,7"/>
+        <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="Button:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+    </Style>
+    <Style Selector="Button.accent">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+    <Style Selector="Button.accent:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentHoverBrush}"/>
+    </Style>
+    <!-- Kleiner Icon-Button (z. B. "+") -->
+    <Style Selector="Button.icon">
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="Width" Value="30"/>
+        <Setter Property="Height" Value="30"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ===== ToggleButton: Werkzeuge ===== -->
+    <Style Selector="ToggleButton.tool">
+        <Setter Property="Width" Value="42"/>
+        <Setter Property="Height" Value="42"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="ToggleButton.tool:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.tool:checked /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.tool:checked">
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <!-- ===== ToggleButton: Modus / Segment ===== -->
+    <Style Selector="ToggleButton.mode, ToggleButton.seg">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="BorderThickness" Value="0"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="FontWeight" Value="SemiBold"/>
+        <Setter Property="Padding" Value="0,8"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="Cursor" Value="Hand"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked /template/ ContentPresenter, ToggleButton.seg:checked /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <Style Selector="ToggleButton.mode:checked, ToggleButton.seg:checked">
+        <Setter Property="Foreground" Value="White"/>
+    </Style>
+
+    <!-- ===== Anordnen-Button ===== -->
+    <Style Selector="Button.arrange">
+        <Setter Property="Width" Value="36"/>
+        <Setter Property="Height" Value="36"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        <Setter Property="Padding" Value="0"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+    </Style>
+
+    <!-- ===== Laser-Aktionskacheln ===== -->
+    <Style Selector="Button.tile">
+        <Setter Property="Height" Value="76"/>
+        <Setter Property="Background" Value="{StaticResource SurfacePanelAltBrush}"/>
+        <Setter Property="HorizontalAlignment" Value="Stretch"/>
+        <Setter Property="HorizontalContentAlignment" Value="Center"/>
+        <Setter Property="VerticalContentAlignment" Value="Center"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusMedium}"/>
+    </Style>
+    <Style Selector="Button.tile.start">
+        <Setter Property="Background" Value="{StaticResource AccentBrush}"/>
+    </Style>
+    <Style Selector="Button.tile.pause">
+        <Setter Property="Background" Value="#33301A"/>
+    </Style>
+    <Style Selector="Button.tile.stop">
+        <Setter Property="Background" Value="#331E1E"/>
+    </Style>
+
+    <!-- ===== PathIcon (Standardgröße/-farbe) ===== -->
+    <Style Selector="PathIcon">
+        <Setter Property="Width" Value="18"/>
+        <Setter Property="Height" Value="18"/>
+    </Style>
+
+    <!-- ===== Schwebendes Panel ===== -->
+    <Style Selector="Border.floating">
+        <Setter Property="Background" Value="{StaticResource SurfacePanelBrush}"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusLarge}"/>
+        <Setter Property="BoxShadow" Value="{StaticResource PanelShadow}"/>
+        <Setter Property="BorderBrush" Value="{StaticResource BorderSubtleBrush}"/>
+        <Setter Property="BorderThickness" Value="1"/>
+    </Style>
+
+    <!-- ===== ListBox / Layer-Zeilen ===== -->
+    <Style Selector="ListBox">
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="BorderThickness" Value="0"/>
+    </Style>
+    <Style Selector="ListBoxItem">
+        <Setter Property="Padding" Value="8,7"/>
+        <Setter Property="CornerRadius" Value="{StaticResource RadiusSmall}"/>
+        <Setter Property="Margin" Value="0,1"/>
+    </Style>
+    <Style Selector="ListBoxItem:selected /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource AccentMutedBrush}"/>
+    </Style>
+    <Style Selector="ListBoxItem:pointerover /template/ ContentPresenter">
+        <Setter Property="Background" Value="{StaticResource SurfaceHoverBrush}"/>
+    </Style>
+</Styles>

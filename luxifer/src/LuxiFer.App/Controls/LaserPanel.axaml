@@ -2,77 +2,73 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
              xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-             mc:Ignorable="d" d:DesignWidth="280" d:DesignHeight="640"
+             mc:Ignorable="d" d:DesignWidth="300" d:DesignHeight="640"
              x:Class="LuxiFer.App.Controls.LaserPanel">
 
     <UserControl.Styles>
-        <!-- Große, touch-freundliche Aktionskacheln -->
-        <Style Selector="Button.tile">
-            <Setter Property="Height" Value="86"/>
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="VerticalContentAlignment" Value="Center"/>
-            <Setter Property="CornerRadius" Value="8"/>
-            <Setter Property="FontWeight" Value="SemiBold"/>
-        </Style>
-        <Style Selector="Button.tile.start">
-            <Setter Property="Background" Value="#2563EB"/>
-            <Setter Property="Foreground" Value="White"/>
-        </Style>
-        <Style Selector="Button.tile.pause">
-            <Setter Property="Background" Value="#3A331A"/>
-            <Setter Property="Foreground" Value="#EAB308"/>
-        </Style>
-        <Style Selector="Button.tile.stop">
-            <Setter Property="Background" Value="#3A1E1E"/>
-            <Setter Property="Foreground" Value="#EF4444"/>
-        </Style>
         <Style Selector="TextBlock.tilelabel">
             <Setter Property="FontSize" Value="11"/>
-            <Setter Property="HorizontalAlignment" Value="Center"/>
-            <Setter Property="Margin" Value="0,4,0,0"/>
-        </Style>
-        <Style Selector="ToggleButton.seg">
-            <Setter Property="HorizontalAlignment" Value="Stretch"/>
-            <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="Padding" Value="0,8"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+            <Setter Property="HorizontalAlignment" Value="Center"/>
+            <Setter Property="Margin" Value="0,6,0,0"/>
         </Style>
-        <Style Selector="ToggleButton.seg:checked">
-            <Setter Property="Background" Value="#3B82F6"/>
+        <Style Selector="Button.tile PathIcon">
+            <Setter Property="Width" Value="26"/>
+            <Setter Property="Height" Value="26"/>
+            <Setter Property="Foreground" Value="{StaticResource TextSecondaryBrush}"/>
+        </Style>
+        <Style Selector="Button.tile.start PathIcon">
             <Setter Property="Foreground" Value="White"/>
+        </Style>
+        <Style Selector="Button.tile.pause PathIcon">
+            <Setter Property="Foreground" Value="{StaticResource WarningBrush}"/>
+        </Style>
+        <Style Selector="Button.tile.stop PathIcon">
+            <Setter Property="Foreground" Value="{StaticResource DangerBrush}"/>
         </Style>
     </UserControl.Styles>
 
-    <DockPanel>
-        <!-- Kopfzeile: Verbindungsstatus + Geräteauswahl -->
-        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,10">
-            <TextBlock Text="LASER" FontWeight="Bold" VerticalAlignment="Center"/>
-            <ComboBox DockPanel.Dock="Right" Width="130" SelectedIndex="0"
-                      HorizontalAlignment="Right">
+    <DockPanel Margin="14">
+        <!-- Kopfzeile: Titel, Verbindungsstatus, Geräteauswahl -->
+        <TextBlock DockPanel.Dock="Top" Text="LASER" Classes="h" Margin="0,0,0,10"/>
+        <DockPanel DockPanel.Dock="Top" Margin="0,0,0,12">
+            <ComboBox DockPanel.Dock="Right" Width="140" SelectedIndex="0">
                 <ComboBoxItem>Kein Gerät</ComboBoxItem>
             </ComboBox>
-            <StackPanel Orientation="Horizontal" Spacing="6" Margin="12,0"
-                        VerticalAlignment="Center">
-                <Ellipse Width="9" Height="9" Fill="#6B7280"/>
-                <TextBlock Text="Getrennt" Foreground="#9a9aa0" VerticalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal" Spacing="7" VerticalAlignment="Center">
+                <Ellipse Width="9" Height="9" Fill="{StaticResource TextMutedBrush}"/>
+                <TextBlock Text="Getrennt" Classes="muted" VerticalAlignment="Center"/>
             </StackPanel>
         </DockPanel>
 
         <!-- Job / Joggen -->
-        <Grid DockPanel.Dock="Top" ColumnDefinitions="*,*" Margin="0,0,0,10">
-            <ToggleButton Grid.Column="0" Classes="seg" Content="Job" IsChecked="True"/>
-            <ToggleButton Grid.Column="1" Classes="seg" Content="Joggen"/>
-        </Grid>
-
-        <!-- Job-Nullpunkt + Startquelle unten angedockt -->
-        <StackPanel DockPanel.Dock="Bottom" Spacing="10" Margin="0,10,0,0">
-            <CheckBox Content="Nur Auswahl lasern"/>
+        <Border DockPanel.Dock="Top" Background="{StaticResource SurfacePanelAltBrush}"
+                CornerRadius="{StaticResource RadiusSmall}" Padding="3" Margin="0,0,0,12">
             <Grid ColumnDefinitions="*,*">
-                <Button Grid.Column="0" Content="🖈 Kopf" Margin="0,0,4,0"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
-                <Button Grid.Column="1" Content="🖈 Ursprung" Margin="4,0,0,0"
-                        HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"/>
+                <ToggleButton Grid.Column="0" Classes="seg" Content="Job" IsChecked="True"/>
+                <ToggleButton Grid.Column="1" Classes="seg" Content="Joggen"/>
+            </Grid>
+        </Border>
+
+        <!-- Unten angedockt: Optionen + Kopf/Ursprung -->
+        <StackPanel DockPanel.Dock="Bottom" Spacing="10" Margin="0,12,0,0">
+            <CheckBox Content="Nur Auswahl lasern"/>
+            <Grid ColumnDefinitions="*,*" ColumnSpacing="8">
+                <Button Grid.Column="0" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource IconTarget}" Width="15" Height="15"
+                                  Foreground="{StaticResource SuccessBrush}"/>
+                        <TextBlock Text="Kopf"/>
+                    </StackPanel>
+                </Button>
+                <Button Grid.Column="1" HorizontalAlignment="Stretch" HorizontalContentAlignment="Center">
+                    <StackPanel Orientation="Horizontal" Spacing="6">
+                        <PathIcon Data="{StaticResource IconTarget}" Width="15" Height="15"
+                                  Foreground="{StaticResource SuccessBrush}"/>
+                        <TextBlock Text="Ursprung"/>
+                    </StackPanel>
+                </Button>
             </Grid>
         </StackPanel>
 
@@ -80,34 +76,34 @@
         <StackPanel Spacing="8">
             <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
                 <StackPanel Grid.Column="0">
-                    <Button Classes="tile start" Content="▶"/>
+                    <Button Classes="tile start"><PathIcon Data="{StaticResource IconPlay}"/></Button>
                     <TextBlock Classes="tilelabel" Text="START"/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <Button Classes="tile pause" Content="⏸"/>
+                    <Button Classes="tile pause"><PathIcon Data="{StaticResource IconPause}"/></Button>
                     <TextBlock Classes="tilelabel" Text="PAUSE"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2">
-                    <Button Classes="tile stop" Content="⏹"/>
+                    <Button Classes="tile stop"><PathIcon Data="{StaticResource IconStop}"/></Button>
                     <TextBlock Classes="tilelabel" Text="STOPP"/>
                 </StackPanel>
             </Grid>
             <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
                 <StackPanel Grid.Column="0">
-                    <Button Classes="tile" Content="→"/>
+                    <Button Classes="tile"><PathIcon Data="{StaticResource IconHome}"/></Button>
                     <TextBlock Classes="tilelabel" Text="URSPR. ANF."/>
                 </StackPanel>
                 <StackPanel Grid.Column="1">
-                    <Button Classes="tile" Content="⬚"/>
+                    <Button Classes="tile"><PathIcon Data="{StaticResource IconFrame}"/></Button>
                     <TextBlock Classes="tilelabel" Text="RAHMEN"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2">
-                    <Button Classes="tile" Content="◈"/>
+                    <Button Classes="tile"><PathIcon Data="{StaticResource IconRubberband}"/></Button>
                     <TextBlock Classes="tilelabel" Text="GUMMIBAND"/>
                 </StackPanel>
             </Grid>
 
-            <TextBlock Text="Starten von" Foreground="#9a9aa0" FontSize="11" Margin="0,6,0,0"/>
+            <TextBlock Text="Starten von" Classes="label" Margin="0,8,0,0"/>
             <ComboBox HorizontalAlignment="Stretch" SelectedIndex="0">
                 <ComboBoxItem>Absolute Koordinaten</ComboBoxItem>
                 <ComboBoxItem>Aktuelle Position</ComboBoxItem>
