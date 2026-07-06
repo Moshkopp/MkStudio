@@ -20,24 +20,41 @@
   }
   load();
 
-  // Klick auf den Canvas: je nach Werkzeug zeichnen oder auswählen.
-  async function onpick(xmm: number, ymm: number) {
-    try {
-      if (tool === "rect") {
-        scene = await core.addRect(xmm, ymm, 60, 40);
-      } else if (tool === "ellipse") {
-        scene = await core.addEllipse(xmm, ymm, 30, 20);
-      } else {
-        scene = await core.selectAt(xmm, ymm, 2);
-      }
-    } catch (e) {
-      error = String(e);
-    }
+  // --- Canvas-Callbacks (Interaktion geschieht im Canvas, Aktionen im Core) ---
+  async function ondrawrect(x: number, y: number, w: number, h: number) {
+    scene = await core.addRect(x, y, w, h);
+  }
+  async function ondrawellipse(cx: number, cy: number, rx: number, ry: number) {
+    scene = await core.addEllipse(cx, cy, rx, ry);
+  }
+  async function onselectat(x: number, y: number, additive: boolean) {
+    scene = await core.selectAt(x, y, 2, additive);
+  }
+  async function onselectrect(x1: number, y1: number, x2: number, y2: number) {
+    scene = await core.selectRect(x1, y1, x2, y2);
+  }
+  async function onmove(dx: number, dy: number) {
+    scene = await core.moveSelected(dx, dy);
+  }
+  async function onscale(
+    start: [number, number, number, number],
+    target: [number, number, number, number],
+  ) {
+    scene = await core.scaleSelected(start, target);
   }
 
   async function pickColor(c: [number, number, number]) {
     scene = await core.activateColor(c);
   }
+
+  async function doAlign(kind: core.AlignKind) {
+    scene = await core.align(kind);
+  }
+  async function doDistribute(kind: core.DistributeKind) {
+    scene = await core.distribute(kind);
+  }
+
+  const selCount = $derived(scene?.selected.length ?? 0);
 
   async function doUndo() {
     scene = await core.undo();
@@ -58,8 +75,31 @@
   {/if}
 
   {#if scene}
-    <Canvas {scene} {onpick} />
+    <Canvas
+      {scene}
+      {tool}
+      {ondrawrect}
+      {ondrawellipse}
+      {onselectat}
+      {onselectrect}
+      {onmove}
+      {onscale}
+    />
   {/if}
+
+  <!-- Anordnen-Toolbar oben mittig (immer sichtbar; Knöpfe je nach Auswahl aktiv) -->
+  <div class="panel arrange">
+    <button disabled={selCount < 2} onclick={() => doAlign("left")} title="Links ausrichten">⇤</button>
+    <button disabled={selCount < 2} onclick={() => doAlign("hcenter")} title="Horizontal zentrieren">⇔</button>
+    <button disabled={selCount < 2} onclick={() => doAlign("right")} title="Rechts ausrichten">⇥</button>
+    <div class="vsep"></div>
+    <button disabled={selCount < 2} onclick={() => doAlign("top")} title="Oben ausrichten">⤒</button>
+    <button disabled={selCount < 2} onclick={() => doAlign("vcenter")} title="Vertikal zentrieren">⇕</button>
+    <button disabled={selCount < 2} onclick={() => doAlign("bottom")} title="Unten ausrichten">⤓</button>
+    <div class="vsep"></div>
+    <button disabled={selCount < 3} onclick={() => doDistribute("h")} title="Horizontal verteilen">⋯</button>
+    <button disabled={selCount < 3} onclick={() => doDistribute("v")} title="Vertikal verteilen">⋮</button>
+  </div>
 
   <!-- Werkzeugleiste links -->
   <div class="panel tools">
@@ -136,6 +176,25 @@
     background: var(--border);
     margin: 4px 2px;
   }
+  .arrange {
+    left: 50%;
+    top: 12px;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+  .arrange button {
+    width: 34px;
+    height: 34px;
+    font-size: 16px;
+  }
+  .vsep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--border);
+    margin: 3px 4px;
+  }
   .palette {
     left: 50%;
     bottom: 16px;
@@ -198,6 +257,13 @@
   button.active {
     background: var(--accent);
     color: white;
+  }
+  button:disabled {
+    opacity: 0.35;
+    cursor: default;
+  }
+  button:disabled:hover {
+    background: #26282d;
   }
   .error {
     position: absolute;
