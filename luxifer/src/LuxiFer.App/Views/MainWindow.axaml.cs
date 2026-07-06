@@ -16,6 +16,13 @@ public partial class MainWindow : Window
         Canvas.PointerMillimeterMoved += (_, mm) => ViewModel?.ReportCursor(mm.X, mm.Y);
         Canvas.DocumentChanged += (_, _) => ViewModel?.MarkDirty();
         Canvas.ViewChanged += (_, _) => SyncRulers();
+        Canvas.SelectionChanged += (_, sel) =>
+        {
+            if (ViewModel is not { } vm) return;
+            vm.SelectedObjects.Clear();
+            foreach (var o in sel) vm.SelectedObjects.Add(o);
+            vm.OnSelectionChanged();
+        };
 
         DataContextChanged += (_, _) =>
         {
@@ -61,6 +68,10 @@ public partial class MainWindow : Window
                     return;
                 case Key.Y:
                     ViewModel.RedoActionCommand.Execute(null);
+                    e.Handled = true;
+                    return;
+                case Key.A when ViewModel.IsDesignMode:
+                    Canvas.SelectAll();
                     e.Handled = true;
                     return;
             }

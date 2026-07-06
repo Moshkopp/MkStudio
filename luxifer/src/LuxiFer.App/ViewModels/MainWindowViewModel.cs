@@ -184,12 +184,44 @@ public partial class MainWindowViewModel : ViewModelBase
 
     // ----- Auswahl / Eigenschaften-Panel -----
 
+    /// <summary>
+    /// Aktuelle Auswahl als Menge (ADR 0004). Vom Canvas gepflegt. Das
+    /// „primäre" Objekt <see cref="SelectedObject"/> ist das zuletzt
+    /// hinzugefügte und speist die Transform-Palette bei Einzelauswahl.
+    /// </summary>
+    public ObservableCollection<CanvasObject> SelectedObjects { get; } = [];
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection))]
     [NotifyPropertyChangedFor(nameof(ShowNoSelectionHint))]
+    [NotifyPropertyChangedFor(nameof(IsSingleSelection))]
     private CanvasObject? _selectedObject;
 
-    public bool HasSelection => SelectedObject is not null;
+    public bool HasSelection => SelectedObjects.Count > 0;
+    public bool IsSingleSelection => SelectedObjects.Count == 1;
+
+    /// <summary>Ausrichten braucht ≥2, Verteilen ≥3 Objekte (ADR 0004 §5).</summary>
+    public bool CanAlign => SelectedObjects.Count >= 2;
+    public bool CanDistribute => SelectedObjects.Count >= 3;
+
+    /// <summary>Vom Canvas nach jeder Auswahländerung aufzurufen.</summary>
+    public void OnSelectionChanged()
+    {
+        OnPropertyChanged(nameof(HasSelection));
+        OnPropertyChanged(nameof(IsSingleSelection));
+        OnPropertyChanged(nameof(ShowNoSelectionHint));
+        OnPropertyChanged(nameof(CanAlign));
+        OnPropertyChanged(nameof(CanDistribute));
+        AlignLeftCommand.NotifyCanExecuteChanged();
+        AlignHCenterCommand.NotifyCanExecuteChanged();
+        AlignRightCommand.NotifyCanExecuteChanged();
+        AlignTopCommand.NotifyCanExecuteChanged();
+        AlignVCenterCommand.NotifyCanExecuteChanged();
+        AlignBottomCommand.NotifyCanExecuteChanged();
+        DistributeHCommand.NotifyCanExecuteChanged();
+        DistributeVCommand.NotifyCanExecuteChanged();
+        RefreshSelectionFields();
+    }
 
     [ObservableProperty] private double _selX;
     [ObservableProperty] private double _selY;
@@ -207,14 +239,27 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void RefreshSelectionFields()
     {
-        if (SelectedObject is null) return;
+        if (SelectedObjects.Count == 0) return;
         _updatingSelectionFields = true;
-        var (x, y, w, h) = SelectedObject.Bounds;
-        SelX = Math.Round(x, 2);
-        SelY = Math.Round(y, 2);
-        SelWidth = Math.Round(w, 2);
-        SelHeight = Math.Round(h, 2);
-        SelRotation = Math.Round(SelectedObject.Rotation, 1);
+        if (SelectedObjects.Count == 1)
+        {
+            var (x, y, w, h) = SelectedObjects[0].Bounds;
+            SelX = Math.Round(x, 2);
+            SelY = Math.Round(y, 2);
+            SelWidth = Math.Round(w, 2);
+            SelHeight = Math.Round(h, 2);
+            SelRotation = Math.Round(SelectedObjects[0].Rotation, 1);
+        }
+        else
+        {
+            // Mehrfachauswahl: gemeinsame Bounding-Box; nur X/Y sind aktiv.
+            var (x, y, w, h) = Arrange.GroupBounds(SelectedObjects.ToArray());
+            SelX = Math.Round(x, 2);
+            SelY = Math.Round(y, 2);
+            SelWidth = Math.Round(w, 2);
+            SelHeight = Math.Round(h, 2);
+            SelRotation = 0;
+        }
         SelScalePct = 100;
         _updatingSelectionFields = false;
     }
@@ -229,6 +274,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelWidthChanged(double value)
     {
+        if (!IsSingleSelection) return; // Größe nur bei Einzelauswahl
         if (_updatingSelectionFields || !LockAspect) { ApplySelectionBounds(); return; }
         // Seitenverhältnis halten: Höhe proportional zur alten Breite nachziehen.
         var start = _editStartBounds ?? SelectedObject?.Bounds;
@@ -243,6 +289,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelHeightChanged(double value)
     {
+        if (!IsSingleSelection) return; // Größe nur bei Einzelauswahl
         if (_updatingSelectionFields || !LockAspect) { ApplySelectionBounds(); return; }
         var start = _editStartBounds ?? SelectedObject?.Bounds;
         if (start is { H: > 0 } s)
@@ -282,12 +329,30 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void ApplySelectionBounds()
     {
-        if (_updatingSelectionFields || SelectedObject is null) return;
-        _editStartBounds ??= SelectedObject.Bounds;
-        SelectedObject.SetBounds(SelX, SelY, Math.Max(0.1, SelWidth), Math.Max(0.1, SelHeight));
+        if (_updatingSelectionFields || SelectedObjects.Count == 0) return;
+
+        if (IsSingleSelection)
+        {
+            _editStartBounds ??= SelectedObject!.Bounds;
+            SelectedObject!.SetBounds(SelX, SelY, Math.Max(0.1, SelWidth), Math.Max(0.1, SelHeight));
+        }
+        else
+        {
+            // Mehrfachauswahl: X/Y verschieben die gesamte Gruppe um das Delta
+            // zwischen aktueller und eingegebener Gruppen-Position.
+            var (gx, gy, _, _) = Arrange.GroupBounds(SelectedObjects.ToArray());
+            var dx = SelX - gx;
+            var dy = SelY - gy;
+            if (dx == 0 && dy == 0) return;
+            _editStartGroupDelta = (_editStartGroupDelta.Dx + dx, _editStartGroupDelta.Dy + dy);
+            foreach (var o in SelectedObjects) o.MoveBy(dx, dy);
+        }
         Project.ModifiedAt = DateTimeOffset.UtcNow;
         CanvasInvalidateRequested?.Invoke(this, EventArgs.Empty);
     }
+
+    // Aufsummiertes Gruppen-Verschiebe-Delta während einer Panel-Editiersequenz.
+    private (double Dx, double Dy) _editStartGroupDelta;
 
     // Aktualisiert nur die X/Y/B/H-Felder aus dem Objekt (z. B. nach Skalierung).
     private void RefreshBoundsFields()
@@ -308,6 +373,19 @@ public partial class MainWindowViewModel : ViewModelBase
     /// </summary>
     public void CommitSelectionEdit()
     {
+        // Gruppen-Verschiebung über die Panel-Felder als ein Undo-Schritt.
+        if (!IsSingleSelection)
+        {
+            if (_editStartGroupDelta is { Dx: not 0 } or { Dy: not 0 })
+            {
+                var objs = SelectedObjects.ToArray();
+                var deltas = objs.Select(_ => _editStartGroupDelta).ToArray();
+                Undo.Push(new ArrangeObjectsCommand(objs, deltas, "Verschieben"));
+            }
+            _editStartGroupDelta = (0, 0);
+            return;
+        }
+
         if (SelectedObject is null)
         {
             _editStartBounds = null;
@@ -330,4 +408,42 @@ public partial class MainWindowViewModel : ViewModelBase
         SelScalePct = 100;
         _updatingSelectionFields = false;
     }
+
+    // ----- Anordnen (Ausrichten / Verteilen) über die Auswahl (ADR 0004 §5) -----
+
+    private void ApplyArrange(
+        IReadOnlyList<(double Dx, double Dy)> deltas, string label)
+    {
+        if (deltas.All(d => d is { Dx: 0, Dy: 0 })) return;
+        var objects = SelectedObjects.ToArray();
+        Undo.Execute(new ArrangeObjectsCommand(objects, deltas, label));
+        Project.ModifiedAt = DateTimeOffset.UtcNow;
+        RefreshSelectionFields();
+        CanvasInvalidateRequested?.Invoke(this, EventArgs.Empty);
+        StatusText = label;
+    }
+
+    private void DoAlign(AlignKind kind, string label) =>
+        ApplyArrange(Arrange.Align(SelectedObjects.ToArray(), kind), label);
+
+    private void DoDistribute(DistributeKind kind, string label) =>
+        ApplyArrange(Arrange.Distribute(SelectedObjects.ToArray(), kind), label);
+
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignLeft() => DoAlign(AlignKind.Left, "Links ausrichten");
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignHCenter() => DoAlign(AlignKind.HCenter, "Horizontal zentrieren");
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignRight() => DoAlign(AlignKind.Right, "Rechts ausrichten");
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignTop() => DoAlign(AlignKind.Top, "Oben ausrichten");
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignVCenter() => DoAlign(AlignKind.VCenter, "Vertikal zentrieren");
+    [RelayCommand(CanExecute = nameof(CanAlign))]
+    private void AlignBottom() => DoAlign(AlignKind.Bottom, "Unten ausrichten");
+
+    [RelayCommand(CanExecute = nameof(CanDistribute))]
+    private void DistributeH() => DoDistribute(DistributeKind.Horizontal, "Horizontal verteilen");
+    [RelayCommand(CanExecute = nameof(CanDistribute))]
+    private void DistributeV() => DoDistribute(DistributeKind.Vertical, "Vertikal verteilen");
 }

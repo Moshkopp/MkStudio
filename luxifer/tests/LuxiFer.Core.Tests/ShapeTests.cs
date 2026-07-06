@@ -102,4 +102,52 @@ public class ShapeTests
         // Punkt, der ungedreht getroffen hätte, liegt nun außerhalb.
         Assert.False(rect.HitTest(95, 10));
     }
+
+    [Fact]
+    public void Align_richtet_an_gemeinsamer_linker_Kante_aus()
+    {
+        var a = new RectangleObject { X = 10, Y = 0, Width = 20, Height = 10 };
+        var b = new RectangleObject { X = 50, Y = 30, Width = 20, Height = 10 };
+        var deltas = Arrange.Align([a, b], AlignKind.Left);
+        // Linke Gruppen-Kante ist x=10; a bleibt, b wandert um -40.
+        Assert.Equal((0.0, 0.0), deltas[0]);
+        Assert.Equal((-40.0, 0.0), deltas[1]);
+    }
+
+    [Fact]
+    public void Align_zentriert_horizontal_um_Gruppenmitte()
+    {
+        var a = new RectangleObject { X = 0, Y = 0, Width = 20, Height = 10 };
+        var b = new RectangleObject { X = 80, Y = 0, Width = 20, Height = 10 };
+        // Gruppe: x 0..100, Mitte 50. a-Mitte 10 -> +40; b-Mitte 90 -> -40.
+        var deltas = Arrange.Align([a, b], AlignKind.HCenter);
+        Assert.Equal(40.0, deltas[0].Dx, 6);
+        Assert.Equal(-40.0, deltas[1].Dx, 6);
+    }
+
+    [Fact]
+    public void Distribute_verteilt_Startkanten_gleichmaessig()
+    {
+        // Drei Objekte, Startkanten x=0, x=10, x=90. Erwartung: mittleres auf x=45.
+        var a = new RectangleObject { X = 0, Y = 0, Width = 5, Height = 5 };
+        var m = new RectangleObject { X = 10, Y = 0, Width = 5, Height = 5 };
+        var z = new RectangleObject { X = 90, Y = 0, Width = 5, Height = 5 };
+        var deltas = Arrange.Distribute([a, m, z], DistributeKind.Horizontal);
+        // a und z bleiben stehen; m von 10 -> 45 = +35.
+        Assert.Equal((0.0, 0.0), deltas[0]);
+        Assert.Equal(35.0, deltas[1].Dx, 6);
+        Assert.Equal((0.0, 0.0), deltas[2]);
+    }
+
+    [Fact]
+    public void GroupBounds_umschliesst_alle_Objekte()
+    {
+        var a = new RectangleObject { X = 10, Y = 10, Width = 20, Height = 20 };
+        var b = new RectangleObject { X = 50, Y = 5, Width = 10, Height = 40 };
+        var (x, y, w, h) = Arrange.GroupBounds([a, b]);
+        Assert.Equal(10, x);
+        Assert.Equal(5, y);
+        Assert.Equal(50, w);  // 60 - 10
+        Assert.Equal(40, h);  // 45 - 5
+    }
 }

@@ -133,30 +133,38 @@
                     HorizontalAlignment="Center" VerticalAlignment="Top"
                     IsVisible="{Binding IsDesignMode}">
                 <StackPanel Orientation="Horizontal" Spacing="2">
-                    <Button Classes="arrange" ToolTip.Tip="Links ausrichten">
+                    <Button Classes="arrange" ToolTip.Tip="Links ausrichten"
+                            Command="{Binding AlignLeftCommand}">
                         <PathIcon Data="{StaticResource IconAlignLeft}"/>
                     </Button>
-                    <Button Classes="arrange" ToolTip.Tip="Horizontal zentrieren">
+                    <Button Classes="arrange" ToolTip.Tip="Horizontal zentrieren"
+                            Command="{Binding AlignHCenterCommand}">
                         <PathIcon Data="{StaticResource IconAlignHCenter}"/>
                     </Button>
-                    <Button Classes="arrange" ToolTip.Tip="Rechts ausrichten">
+                    <Button Classes="arrange" ToolTip.Tip="Rechts ausrichten"
+                            Command="{Binding AlignRightCommand}">
                         <PathIcon Data="{StaticResource IconAlignRight}"/>
                     </Button>
                     <Rectangle Width="1" Height="22" Fill="{StaticResource BorderStrongBrush}" Margin="5,0"/>
-                    <Button Classes="arrange" ToolTip.Tip="Oben ausrichten">
+                    <Button Classes="arrange" ToolTip.Tip="Oben ausrichten"
+                            Command="{Binding AlignTopCommand}">
                         <PathIcon Data="{StaticResource IconAlignTop}"/>
                     </Button>
-                    <Button Classes="arrange" ToolTip.Tip="Vertikal zentrieren">
+                    <Button Classes="arrange" ToolTip.Tip="Vertikal zentrieren"
+                            Command="{Binding AlignVCenterCommand}">
                         <PathIcon Data="{StaticResource IconAlignVCenter}"/>
                     </Button>
-                    <Button Classes="arrange" ToolTip.Tip="Unten ausrichten">
+                    <Button Classes="arrange" ToolTip.Tip="Unten ausrichten"
+                            Command="{Binding AlignBottomCommand}">
                         <PathIcon Data="{StaticResource IconAlignBottom}"/>
                     </Button>
                     <Rectangle Width="1" Height="22" Fill="{StaticResource BorderStrongBrush}" Margin="5,0"/>
-                    <Button Classes="arrange" ToolTip.Tip="Horizontal verteilen">
+                    <Button Classes="arrange" ToolTip.Tip="Horizontal verteilen"
+                            Command="{Binding DistributeHCommand}">
                         <PathIcon Data="{StaticResource IconDistributeH}"/>
                     </Button>
-                    <Button Classes="arrange" ToolTip.Tip="Vertikal verteilen">
+                    <Button Classes="arrange" ToolTip.Tip="Vertikal verteilen"
+                            Command="{Binding DistributeVCommand}">
                         <PathIcon Data="{StaticResource IconDistributeV}"/>
                     </Button>
                 </StackPanel>
@@ -184,20 +192,26 @@
                             <TextBlock Classes="label" Grid.Row="1" Grid.Column="0" Text="Y mm"/>
                             <TextBox Grid.Row="1" Grid.Column="1" LostFocus="OnSelectionEditCommit"
                                      Text="{Binding SelY, UpdateSourceTrigger=LostFocus}"/>
+                            <!-- Breite/Höhe/Skalierung/Drehung nur bei Einzelauswahl -->
                             <TextBlock Classes="label" Grid.Row="2" Grid.Column="0" Text="Breite mm"/>
                             <TextBox Grid.Row="2" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     IsEnabled="{Binding IsSingleSelection}"
                                      Text="{Binding SelWidth, UpdateSourceTrigger=LostFocus}"/>
                             <TextBlock Classes="label" Grid.Row="3" Grid.Column="0" Text="Höhe mm"/>
                             <TextBox Grid.Row="3" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     IsEnabled="{Binding IsSingleSelection}"
                                      Text="{Binding SelHeight, UpdateSourceTrigger=LostFocus}"/>
                             <CheckBox Grid.Row="4" Grid.Column="1" Margin="0,2"
                                       Content="Seitenverhältnis sperren"
+                                      IsEnabled="{Binding IsSingleSelection}"
                                       IsChecked="{Binding LockAspect}"/>
                             <TextBlock Classes="label" Grid.Row="5" Grid.Column="0" Text="Skalierung %"/>
                             <TextBox Grid.Row="5" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     IsEnabled="{Binding IsSingleSelection}"
                                      Text="{Binding SelScalePct, UpdateSourceTrigger=LostFocus}"/>
                             <TextBlock Classes="label" Grid.Row="6" Grid.Column="0" Text="Drehung °"/>
                             <TextBox Grid.Row="6" Grid.Column="1" LostFocus="OnSelectionEditCommit"
+                                     IsEnabled="{Binding IsSingleSelection}"
                                      Text="{Binding SelRotation, UpdateSourceTrigger=LostFocus}"/>
                         </Grid>
                         <TextBlock Text="Kein Objekt ausgewählt" Classes="muted"

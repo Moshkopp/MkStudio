@@ -22,6 +22,26 @@ public sealed class AddObjectCommand(Layer layer, CanvasObject obj) : IUndoableC
     };
 }
 
+/// <summary>
+/// Bündelt mehrere Commands zu einem Undo-Schritt (z. B. Löschen mehrerer
+/// ausgewählter Objekte). Undo läuft in umgekehrter Reihenfolge.
+/// </summary>
+public sealed class CompositeCommand(
+    IReadOnlyList<IUndoableCommand> commands, string label) : IUndoableCommand
+{
+    public string Label => label;
+
+    public void Do()
+    {
+        for (var i = 0; i < commands.Count; i++) commands[i].Do();
+    }
+
+    public void Undo()
+    {
+        for (var i = commands.Count - 1; i >= 0; i--) commands[i].Undo();
+    }
+}
+
 /// <summary>Entfernt ein Objekt aus einem Layer und merkt sich Position für Undo.</summary>
 public sealed class RemoveObjectCommand(Layer layer, CanvasObject obj) : IUndoableCommand
 {
@@ -83,4 +103,28 @@ public sealed class RotateObjectCommand(
     public void Do() => obj.Rotation = after;
 
     public void Undo() => obj.Rotation = before;
+}
+
+/// <summary>
+/// Verschiebt mehrere Objekte um je ein eigenes Delta (Ausrichten/Verteilen).
+/// Eine Anordnen-Aktion ist damit ein einziger Undo-Schritt (ADR 0004 §5).
+/// </summary>
+public sealed class ArrangeObjectsCommand(
+    IReadOnlyList<CanvasObject> objects,
+    IReadOnlyList<(double Dx, double Dy)> deltas,
+    string label) : IUndoableCommand
+{
+    public string Label => label;
+
+    public void Do()
+    {
+        for (var i = 0; i < objects.Count; i++)
+            objects[i].MoveBy(deltas[i].Dx, deltas[i].Dy);
+    }
+
+    public void Undo()
+    {
+        for (var i = 0; i < objects.Count; i++)
+            objects[i].MoveBy(-deltas[i].Dx, -deltas[i].Dy);
+    }
 }

@@ -88,6 +88,36 @@ public sealed class CanvasControl : Control
         }
     }
 
+    // Auswahl als Menge (ADR 0004). Das primäre Objekt (SelectedObject) ist
+    // stets das letzte Element dieser Liste.
+    private readonly List<CanvasObject> _selection = [];
+
+    /// <summary>Meldet die aktuelle Auswahlmenge (nach jeder Änderung).</summary>
+    public event EventHandler<IReadOnlyList<CanvasObject>>? SelectionChanged;
+
+    /// <summary>Setzt die Auswahl auf genau ein (oder kein) Objekt.</summary>
+    private void SetSingleSelection(CanvasObject? obj)
+    {
+        _selection.Clear();
+        if (obj is not null) _selection.Add(obj);
+        CommitSelection();
+    }
+
+    /// <summary>Fügt ein Objekt hinzu oder entfernt es (Shift/Strg-Klick).</summary>
+    private void ToggleSelection(CanvasObject obj)
+    {
+        if (!_selection.Remove(obj)) _selection.Add(obj);
+        CommitSelection();
+    }
+
+    // Übernimmt die interne Liste als primäres Objekt + meldet sie nach außen.
+    private void CommitSelection()
+    {
+        SelectedObject = _selection.Count > 0 ? _selection[^1] : null;
+        SelectionChanged?.Invoke(this, _selection.ToArray());
+        InvalidateVisual();
+    }
+
     /// <summary>Mausposition in mm, für die Statusleiste.</summary>
     public event EventHandler<Point>? PointerMillimeterMoved;
 
@@ -139,6 +169,10 @@ public sealed class CanvasControl : Control
     private Point _dragStartMm;
     private bool _draggingSelection;
     private Point _moveStartMm;             // Startpunkt eines Verschiebe-Drags
+
+    private bool _rubberBanding;            // Auswahlrechteck wird aufgezogen
+    private Point _rubberStartMm;
+    private Point _rubberCurrentMm;
 
     private ResizeHandle? _activeHandle;
     private (double X, double Y, double W, double H) _resizeStartBounds;
@@ -236,8 +270,34 @@ public sealed class CanvasControl : Control
                     _dragStartMm = mm;
                     break;
                 }
-                SelectedObject = Document.HitTest(mm.X, mm.Y, tolerance: 2 / _zoom);
-                if (SelectedObject is not null)
+
+                var hit = Document.HitTest(mm.X, mm.Y, tolerance: 2 / _zoom);
+                var additive = e.KeyModifiers.HasFlag(KeyModifiers.Shift)
+                    || e.KeyModifiers.HasFlag(KeyModifiers.Control);
+
+                if (hit is null)
+                {
+                    // Klick ins Leere: ohne Modifier Auswahl aufheben und
+                    // Auswahlrechteck (Rubber-Band) aufziehen.
+                    if (!additive) SetSingleSelection(null);
+                    _rubberBanding = true;
+                    _rubberStartMm = mm;
+                    _rubberCurrentMm = mm;
+                    break;
+                }
+
+                if (additive)
+                {
+                    ToggleSelection(hit);
+                }
+                else if (!_selection.Contains(hit))
+                {
+                    // Klick auf ein noch nicht selektiertes Objekt: exklusiv wählen.
+                    SetSingleSelection(hit);
+                }
+                // (Klick auf ein bereits selektiertes Objekt behält die Mehrfachauswahl.)
+
+                if (_selection.Count > 0)
                 {
                     _draggingSelection = true;
                     _dragStartMm = mm;
@@ -336,9 +396,18 @@ public sealed class CanvasControl : Control
             return;
         }
 
-        if (_draggingSelection && SelectedObject is not null)
+        if (_rubberBanding)
         {
-            SelectedObject.MoveBy(mm.X - _dragStartMm.X, mm.Y - _dragStartMm.Y);
+            _rubberCurrentMm = mm;
+            InvalidateVisual();
+            return;
+        }
+
+        if (_draggingSelection && _selection.Count > 0)
+        {
+            var dx = mm.X - _dragStartMm.X;
+            var dy = mm.Y - _dragStartMm.Y;
+            foreach (var o in _selection) o.MoveBy(dx, dy);
             _dragStartMm = mm;
             InvalidateVisual();
         }
@@ -373,18 +442,72 @@ public sealed class CanvasControl : Control
             InvalidateVisual();
         }
 
-        if (_draggingSelection && SelectedObject is not null)
+        if (_rubberBanding)
+        {
+            _rubberBanding = false;
+            SelectRubberBand();
+            InvalidateVisual();
+            return;
+        }
+
+        if (_draggingSelection && _selection.Count > 0)
         {
             _draggingSelection = false;
             var dx = _dragStartMm.X - _moveStartMm.X;
             var dy = _dragStartMm.Y - _moveStartMm.Y;
             if (dx != 0 || dy != 0)
             {
-                // Verschiebung ist bereits live erfolgt → nur als Command ablegen.
-                UndoStack?.Push(new MoveObjectCommand(SelectedObject, dx, dy));
+                // Verschiebung ist bereits live erfolgt → als ein Command über
+                // die gesamte Auswahl ablegen.
+                var objs = _selection.ToArray();
+                var deltas = objs.Select(_ => (dx, dy)).ToArray();
+                UndoStack?.Push(new ArrangeObjectsCommand(objs, deltas, "Verschieben"));
                 RaiseDocumentChanged();
             }
         }
+    }
+
+    /// <summary>Wählt alle sichtbaren, entsperrten Objekte (Strg+A).</summary>
+    public void SelectAll()
+    {
+        if (Document is null) return;
+        _selection.Clear();
+        foreach (var layer in Document.Layers)
+        {
+            if (!layer.Visible || layer.Locked) continue;
+            foreach (var obj in layer.Objects) _selection.Add(obj);
+        }
+        CommitSelection();
+    }
+
+    /// <summary>Wählt alle Objekte, deren Bounds vollständig im Rubber-Band liegen.</summary>
+    private void SelectRubberBand()
+    {
+        if (Document is null) return;
+        var x1 = Math.Min(_rubberStartMm.X, _rubberCurrentMm.X);
+        var y1 = Math.Min(_rubberStartMm.Y, _rubberCurrentMm.Y);
+        var x2 = Math.Max(_rubberStartMm.X, _rubberCurrentMm.X);
+        var y2 = Math.Max(_rubberStartMm.Y, _rubberCurrentMm.Y);
+
+        // Zu kleines Rechteck (versehentlicher Klick) hebt nur die Auswahl auf.
+        if (x2 - x1 < 0.5 && y2 - y1 < 0.5)
+        {
+            CommitSelection();
+            return;
+        }
+
+        _selection.Clear();
+        foreach (var layer in Document.Layers)
+        {
+            if (!layer.Visible || layer.Locked) continue;
+            foreach (var obj in layer.Objects)
+            {
+                var (bx, by, bw, bh) = obj.Bounds;
+                if (bx >= x1 && by >= y1 && bx + bw <= x2 && by + bh <= y2)
+                    _selection.Add(obj);
+            }
+        }
+        CommitSelection();
     }
 
     /// <summary>
@@ -401,7 +524,7 @@ public sealed class CanvasControl : Control
             UndoStack.Execute(new AddObjectCommand(layer, obj));
         else
             layer.Objects.Add(obj);
-        SelectedObject = obj;
+        SetSingleSelection(obj);
         RaiseDocumentChanged();
     }
 
@@ -419,27 +542,32 @@ public sealed class CanvasControl : Control
                 InvalidateVisual();
                 e.Handled = true;
                 break;
-            case Key.Delete or Key.Back when SelectedObject is not null && Document is not null:
+            case Key.Delete or Key.Back when _selection.Count > 0 && Document is not null:
                 DeleteSelected();
                 e.Handled = true;
                 break;
         }
     }
 
-    /// <summary>Löscht das ausgewählte Objekt über die Historie.</summary>
+    /// <summary>Löscht alle ausgewählten Objekte als ein Undo-Schritt.</summary>
     public void DeleteSelected()
     {
-        if (SelectedObject is null || Document is null) return;
-        var obj = SelectedObject;
-        var layer = Document.Layers.FirstOrDefault(l => l.Objects.Contains(obj));
-        if (layer is null) return;
+        if (_selection.Count == 0 || Document is null) return;
+
+        var removes = new List<IUndoableCommand>();
+        foreach (var obj in _selection)
+        {
+            var layer = Document.Layers.FirstOrDefault(l => l.Objects.Contains(obj));
+            if (layer is not null) removes.Add(new RemoveObjectCommand(layer, obj));
+        }
+        if (removes.Count == 0) return;
 
         if (UndoStack is not null)
-            UndoStack.Execute(new RemoveObjectCommand(layer, obj));
+            UndoStack.Execute(new CompositeCommand(removes, removes.Count == 1 ? removes[0].Label : "Löschen"));
         else
-            layer.Objects.Remove(obj);
+            foreach (var r in removes) r.Do();
 
-        SelectedObject = null;
+        SetSingleSelection(null);
         RaiseDocumentChanged();
         InvalidateVisual();
     }
@@ -627,20 +755,35 @@ public sealed class CanvasControl : Control
 
     private void DrawSelection(DrawingContext context)
     {
-        if (SelectedObject is null) return;
+        var selPen = new Pen(Brushes.DeepSkyBlue, 1, dashStyle: DashStyle.Dash);
 
-        var (bx, by, bw, bh) = SelectedObject.Bounds;
-        var tl = ToScreen(bx, by);
-        var selRect = new Rect(tl, new Size(bw * _zoom, bh * _zoom));
+        // Auswahlrechteck (Rubber-Band) beim Aufziehen.
+        if (_rubberBanding)
+        {
+            var r1 = ToScreen(
+                Math.Min(_rubberStartMm.X, _rubberCurrentMm.X),
+                Math.Min(_rubberStartMm.Y, _rubberCurrentMm.Y));
+            var r2 = ToScreen(
+                Math.Max(_rubberStartMm.X, _rubberCurrentMm.X),
+                Math.Max(_rubberStartMm.Y, _rubberCurrentMm.Y));
+            var band = new Rect(r1, r2);
+            context.FillRectangle(new SolidColorBrush(Color.FromArgb(28, 90, 150, 220)), band);
+            context.DrawRectangle(selPen, band);
+        }
 
-        // Auswahlrahmen folgt der Rotation des Objekts.
-        using (PushRotation(context, SelectedObject))
-            context.DrawRectangle(new Pen(Brushes.DeepSkyBlue, 1, dashStyle: DashStyle.Dash), selRect.Inflate(4));
+        if (_selection.Count == 0) return;
 
-        // Größen-Handles nur bei achsenparallelen Objekten anbieten; bei
-        // rotierten Objekten erfolgt die Größenänderung über die Transform-Palette
-        // (das gedrehte Handle-Ziehen wäre sonst irreführend).
-        if (SelectedObject.Rotation != 0) return;
+        // Rahmen um jedes ausgewählte Objekt (rotationsgerecht).
+        foreach (var obj in _selection)
+        {
+            var (bx, by, bw, bh) = obj.Bounds;
+            var selRect = new Rect(ToScreen(bx, by), new Size(bw * _zoom, bh * _zoom));
+            using (PushRotation(context, obj))
+                context.DrawRectangle(selPen, selRect.Inflate(4));
+        }
+
+        // Größen-Handles nur bei genau EINEM, unrotierten Objekt.
+        if (_selection.Count != 1 || SelectedObject!.Rotation != 0) return;
 
         var handleBrush = Brushes.White;
         var handlePen = new Pen(Brushes.DeepSkyBlue, 1);
