@@ -6,6 +6,7 @@
   import ToolsPanel from "./lib/ToolsPanel.svelte";
   import LayersPanel from "./lib/LayersPanel.svelte";
   import PalettePanel from "./lib/PalettePanel.svelte";
+  import ShapesPanel from "./lib/ShapesPanel.svelte";
   import ArrangePanel from "./lib/ArrangePanel.svelte";
   import EditFlyout from "./lib/EditFlyout.svelte";
   import Icon from "./lib/Icon.svelte";
@@ -22,11 +23,14 @@
   } from "./lib/core";
   import { applyTheme } from "./lib/theme";
 
-  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon";
 
   let scene = $state<Scene | null>(null);
   let tool = $state<Tool>("rect");
   let swatches = $state<[number, number, number][]>([]);
+  // Formen-Katalog (datengetrieben aus dem Core) + aktuell gewaehlte Form.
+  let shapes = $state<core.ShapeInfo[]>([]);
+  let activeShape = $state("hex");
   let error = $state<string | null>(null);
   let editLayer = $state<number | null>(null);
   let gcode = $state<string | null>(null);
@@ -43,6 +47,7 @@
     try {
       scene = await core.getScene();
       swatches = await core.swatchColors();
+      shapes = await core.shapeCatalog();
       settings = await core.getUiSettings();
       applyTheme(settings.theme);
     } catch (e) {
@@ -55,6 +60,11 @@
   const layout = $derived(settings?.layouts.find((l) => l.tab === activeTab));
   const panels = $derived<PanelPlacement[]>(layout?.panels ?? []);
   const visibleKinds = $derived<PanelKind[]>(panels.map((p) => p.kind));
+  // Panele, die nur bei Bedarf sichtbar sind (im Editier-Modus zeigt der Host
+  // sie trotzdem). Formen erscheint nur, wenn das Polygon-Werkzeug aktiv ist.
+  const hiddenPanels = $derived<PanelKind[]>(
+    tool === "polygon" ? [] : ["Formen"],
+  );
 
   // Fenstergroesse (reaktiv), damit sich die Bett-Einpassung an Resize anpasst.
   let winW = $state(0);
@@ -81,8 +91,24 @@
     return ins;
   });
 
-  // Settings speichern (debounced ueber ein Microtask reicht hier nicht — wir
-  // speichern direkt, das ist eine kleine lokale JSON).
+  // Settings lokal sofort anwenden (fluessig), Persistieren auf Platte
+  // gedrosselt. Beim Panel-Ziehen darf NICHT jede Mausbewegung eine JSON auf
+  // die Platte schreiben — das war die Ruckel-Ursache im Editier-Modus.
+  let saveTimer: ReturnType<typeof setTimeout> | null = null;
+  function scheduleSave(next: UiSettings) {
+    if (saveTimer) clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      saveTimer = null;
+      try {
+        settings = await core.saveUiSettings($state.snapshot(next));
+        applyTheme(settings.theme);
+      } catch (e) {
+        error = String(e);
+      }
+    }, 250);
+  }
+
+  // Direktes, sofortiges Speichern (z. B. Reset) ohne Drosselung.
   async function persist(next: UiSettings) {
     settings = next;
     applyTheme(next.theme);
@@ -95,13 +121,15 @@
   }
 
   // Ein Panel-Rect im aktuellen Reiter aendern (Drag/Resize aus dem Host).
+  // Lokal sofort setzen (fluessige Vorschau), Speichern gedrosselt.
   function changeRect(i: number, rect: PanelRect) {
     if (!settings) return;
     const next: UiSettings = structuredClone($state.snapshot(settings));
     const l = next.layouts.find((l) => l.tab === activeTab);
     if (l && l.panels[i]) {
       l.panels[i].rect = rect;
-      persist(next);
+      settings = next; // sofort sichtbar
+      scheduleSave(next); // Platte gedrosselt
     }
   }
 
@@ -143,6 +171,14 @@
   }
   async function ondrawpolyline(pts: [number, number][], closed: boolean) {
     scene = await core.addPolyline(pts, closed);
+  }
+  async function ondrawpolygon(shape: string, cx: number, cy: number, r: number, rot: number) {
+    scene = await core.addPolygon(shape, cx, cy, r, rot);
+  }
+  // Form in der Galerie gewaehlt: Form merken und aufs Polygon-Werkzeug wechseln.
+  function pickShape(id: string) {
+    activeShape = id;
+    tool = "polygon";
   }
   async function onselectat(x: number, y: number, additive: boolean) {
     scene = await core.selectAt(x, y, 2, additive);
@@ -268,11 +304,13 @@
     <Canvas
       {scene}
       {tool}
+      {activeShape}
       {insets}
       {ondrawrect}
       {ondrawellipse}
       {ondrawline}
       {ondrawpolyline}
+      {ondrawpolygon}
       {onselectat}
       {onselectrect}
       {onmove}
@@ -321,7 +359,7 @@
 
   <!-- Panel-Host: rendert die Panele des aktiven Reiters aus den Settings -->
   {#if settings && scene}
-    <PanelHost {panels} {editing} onchange={changeRect}>
+    <PanelHost {panels} {editing} hidden={hiddenPanels} onchange={changeRect}>
       {#snippet panel(p: PanelPlacement)}
         {#if p.kind === "Werkzeuge"}
           <ToolsPanel {tool} onpick={(t) => (tool = t)} onaction={doToolAction} />
@@ -329,6 +367,8 @@
           <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} />
         {:else if p.kind === "Farbpalette"}
           <PalettePanel {swatches} onpick={pickColor} />
+        {:else if p.kind === "Formen"}
+          <ShapesPanel {shapes} {activeShape} onpickshape={pickShape} />
         {:else if p.kind === "Anordnen"}
           <ArrangePanel {selCount} onalign={doAlign} ondistribute={doDistribute} />
         {:else if p.kind === "Laser"}

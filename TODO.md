@@ -26,8 +26,12 @@ werden — Fachlogik jeweils in `luxifer-core`, das Frontend zeichnet nur.
 - [ ] `bezier` — Bézier-Feder *(war in ThorBurn schon nur Vorschau)*
 - [ ] `text` — Text (Glyph→Kontur; größerer Brocken, evtl. eigener Meilenstein)
 - [ ] `node` — Knoten/Stützpunkte editieren
-- [ ] `polygon` + **Flyout** mit 9 Formen (tri/quad/penta/hex/octa/star/sun/gear/
-      heart) — Icons liegen in `Icon.svelte` bereit
+- [x] `polygon` mit 9 Formen (tri/quad/penta/hex/octa/star/sun/gear/heart).
+      **Kein Flyout** — stattdessen eine datengetriebene Formen-Galerie im
+      Werkzeug-Panel (erscheint bei aktivem Polygon-Werkzeug). Katalog kommt aus
+      dem Core (`PolyShape::catalog`, Command `shape_catalog`); neue Form = eine
+      Enum-Variante in `core/shapes.rs`, kein neuer Button. Zeichnen: Zentrum +
+      Aufziehen (Radius), Command `add_polygon` erzeugt geschlossene Polyline.
 
 ### Operationen & Hilfsmittel
 - [ ] `offset` — Offset/Versatz (in ThorBurn aktiv, hier noch Stub)

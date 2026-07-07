@@ -18,3 +18,13 @@ serde_json = "1"
 luxifer-core = { path = "../../core" }
 luxifer-driver-grbl = { path = "../../drivers/grbl" }
 luxifer-driver-ruida = { path = "../../drivers/ruida" }
+
+# Dev-Build spuerbar beschleunigen, ohne die Debug-Erfahrung zu opfern:
+# Abhaengigkeiten (Serde, Tauri, luxifer-core) voll optimieren, den eigenen
+# Backend-Code leicht. Das macht die Command-Roundtrips (Serialisierung der
+# Scene) im Dev-Modus deutlich fluessiger.
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

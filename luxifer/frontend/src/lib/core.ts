@@ -64,6 +64,93 @@ export const addLine = (x1: number, y1: number, x2: number, y2: number) =>
 export const addPolyline = (pts: [number, number][], closed: boolean) =>
   invoke<Scene>("add_polyline", { pts, closed });
 
+// Ein Eintrag des Formen-Katalogs (datengetriebene Galerie im Werkzeug-Panel).
+// Spiegelt luxifer-core::ShapeInfo.
+export interface ShapeInfo {
+  id: string; // stabiler Bezeichner, z. B. "hex"
+  label: string; // Anzeigename (deutsch)
+  icon: string; // Icon-Name in Icon.svelte (= id)
+}
+
+export const shapeCatalog = () => invoke<ShapeInfo[]>("shape_catalog");
+
+// Rein visuelle Vorschau-Punkte fuer das Polygon-Rubberband beim Aufziehen.
+// WICHTIG: Das ist KEINE Fachlogik und keine Quelle der Wahrheit — die echte
+// Form-Geometrie erzeugt ausschliesslich der Core (Command `add_polygon`).
+// Diese Naeherung existiert nur, damit die Vorschau ohne Tauri-Roundtrip pro
+// Mausbewegung fluessig bleibt; sie muss nur ungefaehr wie die Zielform aussehen.
+export function polygonPreview(
+  shape: string,
+  cx: number,
+  cy: number,
+  r: number,
+  rot: number,
+): [number, number][] {
+  r = Math.max(0.1, r);
+  const start = -Math.PI / 2 + (rot * Math.PI) / 180;
+  const ring = (n: number, radius: number, offset = 0) =>
+    Array.from({ length: n }, (_, i): [number, number] => {
+      const a = start + offset + (Math.PI * 2 * i) / n;
+      return [cx + radius * Math.cos(a), cy + radius * Math.sin(a)];
+    });
+  const starRing = (pts: number, rin: number): [number, number][] =>
+    Array.from({ length: pts * 2 }, (_, i): [number, number] => {
+      const a = start + (Math.PI * i) / pts;
+      const rr = i % 2 === 0 ? r : rin;
+      return [cx + rr * Math.cos(a), cy + rr * Math.sin(a)];
+    });
+  switch (shape) {
+    case "tri": return ring(3, r);
+    case "quad": return ring(4, r);
+    case "penta": return ring(5, r);
+    case "hex": return ring(6, r);
+    case "octa": return ring(8, r);
+    case "star": return starRing(5, r * 0.382);
+    case "sun": return starRing(12, r * 0.78);
+    case "gear": {
+      const teeth = 10, rin = r * 0.72, step = (Math.PI * 2) / teeth, q = step / 4;
+      const out: [number, number][] = [];
+      for (let i = 0; i < teeth; i++) {
+        const c = start + step * i;
+        for (const [off, rr] of [[-q, rin], [-q, r], [q, r], [q, rin]] as const) {
+          const a = c + off;
+          out.push([cx + rr * Math.cos(a), cy + rr * Math.sin(a)]);
+        }
+      }
+      return out;
+    }
+    case "heart": {
+      const SEGS = 40;
+      const raw: [number, number][] = [];
+      let max = 0;
+      for (let i = 0; i < SEGS; i++) {
+        const t = (Math.PI * 2 * i) / SEGS;
+        const x = 16 * Math.sin(t) ** 3;
+        const y = -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t));
+        max = Math.max(max, Math.abs(x), Math.abs(y));
+        raw.push([x, y]);
+      }
+      const sc = max > 0 ? r / max : 1;
+      const s = Math.sin((rot * Math.PI) / 180), co = Math.cos((rot * Math.PI) / 180);
+      return raw.map(([x, y]): [number, number] => {
+        const px = x * sc, py = y * sc;
+        return [cx + px * co - py * s, cy + px * s + py * co];
+      });
+    }
+    default: return ring(6, r);
+  }
+}
+
+// Fügt eine parametrische Form (Katalog-`id`) mit Zentrum, Außenradius und
+// Drehung (Grad) hinzu.
+export const addPolygon = (
+  shape: string,
+  cx: number,
+  cy: number,
+  r: number,
+  rot: number,
+) => invoke<Scene>("add_polygon", { shape, cx, cy, r, rot });
+
 export const activateColor = (color: [number, number, number]) =>
   invoke<Scene>("activate_color", { color });
 
@@ -140,7 +227,8 @@ export type PanelKind =
   | "Farbpalette"
   | "Anordnen"
   | "Laser"
-  | "JobStatus";
+  | "JobStatus"
+  | "Formen";
 
 export interface PanelRect {
   x: number; // linke obere Ecke, Bruchteil 0…1

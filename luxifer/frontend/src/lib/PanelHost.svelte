@@ -6,20 +6,28 @@
   // Im Editier-Modus bekommt jedes Panel eine Bounding-Box wie eine selektierte
   // Shape im Canvas: duenner Rahmen plus Greifpunkte. Verschieben durch Ziehen
   // der Flaeche, Skalieren ueber die Ecken/Kanten — frei, ohne Raster-Snap.
-  import type { PanelPlacement, PanelRect } from "./core";
+  import type { PanelPlacement, PanelRect, PanelKind } from "./core";
   import type { Snippet } from "svelte";
 
   let {
     panels,
     editing,
+    hidden,
     panel,
     onchange,
   }: {
     panels: PanelPlacement[];
     editing: boolean;
+    // Panel-Arten, die im Normalbetrieb NICHT gerendert werden (aber im Layout
+    // bleiben — Position gemerkt). Im Editier-Modus werden sie trotzdem
+    // gezeigt, damit man sie positionieren kann.
+    hidden?: PanelKind[];
     panel: Snippet<[PanelPlacement]>;
     onchange: (i: number, rect: PanelRect) => void;
   } = $props();
+
+  // Wird ein Panel aktuell versteckt? (Im Editier-Modus nie — dort alles sichtbar.)
+  const isHidden = (kind: PanelKind) => !editing && !!hidden?.includes(kind);
 
   let host = $state<HTMLDivElement>();
 
@@ -132,6 +140,7 @@
   onpointercancel={endDrag}
 >
   {#each panels as p, i (p.kind)}
+    {#if !isHidden(p.kind)}
     <div class="slot" style={style(p.rect)}>
       <!-- Das eigentliche Panel: Glass-Flaeche mit seinem Inhalt, wie im
            Normalbetrieb. Im Editier-Modus fangen wir Klicks nur zum Verschieben
@@ -162,6 +171,7 @@
         </div>
       {/if}
     </div>
+    {/if}
   {/each}
 </div>
 

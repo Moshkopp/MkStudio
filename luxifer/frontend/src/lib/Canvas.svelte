@@ -1,16 +1,18 @@
 <script lang="ts">
-  import { rgb, type Scene, type Shape } from "./core";
+  import { rgb, polygonPreview, type Scene, type Shape } from "./core";
 
-  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon";
 
   let {
     scene,
     tool,
+    activeShape,
     insets,
     ondrawrect,
     ondrawellipse,
     ondrawline,
     ondrawpolyline,
+    ondrawpolygon,
     onselectat,
     onselectrect,
     onmove,
@@ -18,6 +20,8 @@
   }: {
     scene: Scene;
     tool: Tool;
+    // Aktuell gewaehlte Polygon-Form (Katalog-`id`, z. B. "hex").
+    activeShape: string;
     // Freie Raender in Pixeln, in die das Bett beim Start eingepasst wird
     // (verdeckt von Header/Panels). Optional; Default 0.
     insets?: { top: number; right: number; bottom: number; left: number };
@@ -25,13 +29,17 @@
     ondrawellipse: (cx: number, cy: number, rx: number, ry: number) => void;
     ondrawline: (x1: number, y1: number, x2: number, y2: number) => void;
     ondrawpolyline: (pts: [number, number][], closed: boolean) => void;
+    // Polygon: Form-`id`, Zentrum, Aussenradius, Drehung (Grad).
+    ondrawpolygon: (shape: string, cx: number, cy: number, r: number, rot: number) => void;
     onselectat: (x: number, y: number, additive: boolean) => void;
     onselectrect: (x1: number, y1: number, x2: number, y2: number) => void;
-    onmove: (dx: number, dy: number) => void;
+    // Geben ein Promise zurueck, damit der Canvas die Live-Vorschau erst nach
+    // dem Core-Update loesen kann (verhindert das Aufblitzen an der alten Stelle).
+    onmove: (dx: number, dy: number) => void | Promise<void>;
     onscale: (
       start: [number, number, number, number],
       target: [number, number, number, number],
-    ) => void;
+    ) => void | Promise<void>;
   } = $props();
 
   let canvasEl: HTMLCanvasElement;
@@ -55,12 +63,24 @@
     const bw = scene.bed_w_mm, bh = scene.bed_h_mm;
     if (bw <= 0 || bh <= 0) return;
     const margin = 0.9; // etwas Luft rundherum
-    zoom = Math.min(availW / bw, availH / bh) * margin;
+    const nz = Math.min(availW / bw, availH / bh) * margin;
     // Bett-Mitte auf die Mitte des freien Bereichs legen.
     const freeCx = ins.left + availW / 2;
     const freeCy = ins.top + availH / 2;
-    panX = freeCx - (bw / 2) * zoom;
-    panY = freeCy - (bh / 2) * zoom;
+    const nx = freeCx - (bw / 2) * nz;
+    const ny = freeCy - (bh / 2) * nz;
+    // Nur schreiben, wenn sich wirklich etwas aendert. Sonst triggert jede
+    // Aktion (neue Scene → neues insets-Objekt) den Effect, fitBed setzt
+    // identische Werte neu und loest eine ueberfluessige Redraw-Kaskade aus.
+    if (
+      Math.abs(nz - zoom) > 1e-6 ||
+      Math.abs(nx - panX) > 1e-3 ||
+      Math.abs(ny - panY) > 1e-3
+    ) {
+      zoom = nz;
+      panX = nx;
+      panY = ny;
+    }
   }
 
   const HANDLE_PX = 8;
@@ -166,17 +186,45 @@
     const right = handle === "e" || handle === "ne" || handle === "se";
     const top = handle === "n" || handle === "nw" || handle === "ne";
     const bottom = handle === "s" || handle === "sw" || handle === "se";
-    if (left) { x += dx; w -= dx; }
-    if (right) { w += dx; }
-    if (top) { y += dy; h -= dy; }
-    if (bottom) { h += dy; }
+    const corner = (left || right) && (top || bottom);
+    if (corner) {
+      // Eck-Handle: Seitenverhaeltnis wahren. Ein gemeinsamer Faktor aus dem
+      // groesseren relativen Delta, verankert an der gegenueberliegenden Ecke.
+      const sw0 = start[2], sh0 = start[3];
+      const fx = 1 + (right ? dx : -dx) / sw0;
+      const fy = 1 + (bottom ? dy : -dy) / sh0;
+      const f = Math.max(0.001, Math.max(fx, fy)); // dominante Achse fuehrt
+      w = sw0 * f;
+      h = sh0 * f;
+      // Gegenueberliegende Ecke fix halten.
+      if (left) x = start[0] + start[2] - w;
+      if (top) y = start[1] + start[3] - h;
+    } else {
+      if (left) { x += dx; w -= dx; }
+      if (right) { w += dx; }
+      if (top) { y += dy; h -= dy; }
+      if (bottom) { h += dy; }
+    }
     if (w < 0.1) w = 0.1;
     if (h < 0.1) h = 0.1;
     return [x, y, w, h];
   }
 
   // ---- Zeichnen -------------------------------------------------------------
+  // Gedrosselt ueber requestAnimationFrame: Egal wie oft `draw()` pro Frame
+  // gerufen wird (mehrere Effects + Event-Handler), es wird nur EINMAL pro
+  // Frame tatsaechlich neu gezeichnet. Das war die Hauptquelle des Ruckelns —
+  // eine Mausbewegung loeste vorher 3–4 synchrone Full-Redraws aus.
+  let rafId = 0;
   function draw() {
+    if (rafId) return;
+    rafId = requestAnimationFrame(() => {
+      rafId = 0;
+      renderNow();
+    });
+  }
+
+  function renderNow() {
     if (!canvasEl) return;
     const ctx = canvasEl.getContext("2d");
     if (!ctx) return;
@@ -186,7 +234,8 @@
     ctx.fillRect(0, 0, w, h);
     drawGrid(ctx, w, h);
     drawBed(ctx);
-    for (const s of scene.shapes) drawShape(ctx, s);
+    // Index einmal ueber die Schleife fuehren statt pro Shape indexOf (O(n²)→O(n)).
+    scene.shapes.forEach((s, i) => drawShape(ctx, s, i));
     drawSelection(ctx);
     drawGesturePreview(ctx);
     drawPolyPreview(ctx);
@@ -291,23 +340,33 @@
     return !!l && (l.mode === "Fill" || l.mode === "Raster");
   }
 
-  // Live-Verschiebe-/Skalier-Offset einer Form beim Ziehen (nur visuell).
-  function shapeDrawBox(s: Shape, idx: number): [number, number, number, number] {
-    let box = shapeBBox(s);
+  // Wendet das laufende Move-/Scale-Delta (nur visuell, waehrend der Geste) auf
+  // EINEN Weltpunkt der Form `idx` an. So wandert die eigentliche Geometrie
+  // (auch Polylinien-Punkte) live mit — nicht nur die Bounding-Box.
+  function liveTransformPoint(px: number, py: number, idx: number): [number, number] {
     if (drag?.kind === "move" && scene.selected.includes(idx)) {
-      box = [box[0] + drag.dx, box[1] + drag.dy, box[2], box[3]];
-    } else if (drag?.kind === "scale" && scene.selected.includes(idx)) {
+      return [px + drag.dx, py + drag.dy];
+    }
+    if (drag?.kind === "scale" && scene.selected.includes(idx)) {
       const [sx, sy, sw, sh] = drag.start;
       const [tx, ty, tw, th] = drag.cur;
       const fx = sw > 0 ? tw / sw : 1, fy = sh > 0 ? th / sh : 1;
-      const rx = sw > 0 ? (box[0] - sx) / sw : 0, ry = sh > 0 ? (box[1] - sy) / sh : 0;
-      box = [tx + rx * tw, ty + ry * th, box[2] * fx, box[3] * fy];
+      return [tx + (px - sx) * fx, ty + (py - sy) * fy];
     }
-    return box;
+    return [px, py];
   }
 
-  function drawShape(ctx: CanvasRenderingContext2D, s: Shape) {
-    const idx = scene.shapes.indexOf(s);
+  // Live-Verschiebe-/Skalier-Box einer Form beim Ziehen (nur visuell). Baut auf
+  // liveTransformPoint auf, damit Box und Geometrie garantiert deckungsgleich
+  // wandern (obere-linke + untere-rechte Ecke transformieren).
+  function shapeDrawBox(s: Shape, idx: number): [number, number, number, number] {
+    const [x, y, w, h] = shapeBBox(s);
+    const [ax, ay] = liveTransformPoint(x, y, idx);
+    const [bx, by] = liveTransformPoint(x + w, y + h, idx);
+    return [Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)];
+  }
+
+  function drawShape(ctx: CanvasRenderingContext2D, s: Shape, idx: number) {
     const color = layerColor(s);
     const [bx, by, bw, bh] = shapeDrawBox(s, idx);
     ctx.save();
@@ -324,12 +383,12 @@
     if ("Ellipse" in s.geo) {
       ctx.ellipse(sx + (bw * zoom) / 2, sy + (bh * zoom) / 2, (bw * zoom) / 2, (bh * zoom) / 2, 0, 0, Math.PI * 2);
     } else if ("Polyline" in s.geo) {
-      // Polyline: Punkte mit Live-Offset (nur move unterstützt genau; sonst BBox-Rahmen)
+      // Polyline: jeden Punkt live transformieren (move UND scale), damit die
+      // Form waehrend der Geste mitwandert und nicht erst am Ende springt.
       const { pts, closed } = s.geo.Polyline;
-      const offx = drag?.kind === "move" && scene.selected.includes(idx) ? drag.dx : 0;
-      const offy = drag?.kind === "move" && scene.selected.includes(idx) ? drag.dy : 0;
       pts.forEach((p, i) => {
-        const [px, py] = toScreen(p[0] + offx, p[1] + offy);
+        const [wx, wy] = liveTransformPoint(p[0], p[1], idx);
+        const [px, py] = toScreen(wx, wy);
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
       });
       if (closed) ctx.closePath();
@@ -382,6 +441,20 @@
         ctx.moveTo(ax, ay);
         ctx.lineTo(bx, by);
         ctx.stroke();
+      } else if (tool === "polygon") {
+        // Vorschau-Umriss (Naeherung, nur visuell). Zentrum = Startpunkt,
+        // Radius = Abstand zur Maus.
+        const r = Math.hypot(drag.cx - drag.sx, drag.cy - drag.sy);
+        const pts = polygonPreview(activeShape, drag.sx, drag.sy, r, 0);
+        if (pts.length >= 3) {
+          ctx.beginPath();
+          pts.forEach((p, i) => {
+            const [px, py] = toScreen(p[0], p[1]);
+            if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+          });
+          ctx.closePath();
+          ctx.stroke();
+        }
       } else {
         const x = Math.min(drag.sx, drag.cx), y = Math.min(drag.sy, drag.cy);
         const w = Math.abs(drag.cx - drag.sx), h = Math.abs(drag.cy - drag.sy);
@@ -425,7 +498,8 @@
     if (ev.button !== 0) return;
     const [mx, my] = toMm(px, py);
 
-    if (tool === "rect" || tool === "ellipse" || tool === "line") {
+    if (tool === "rect" || tool === "ellipse" || tool === "line" || tool === "polygon") {
+      // Polygon: Startpunkt = Zentrum, Ziehen bestimmt den Aussenradius.
       drag = { kind: "draw", sx: mx, sy: my, cx: mx, cy: my };
       return;
     }
@@ -504,15 +578,24 @@
     return 0;
   }
 
-  function onPointerUp(ev: PointerEvent) {
+  async function onPointerUp(ev: PointerEvent) {
     if (!drag) return;
     const g = drag;
-    drag = null;
+    // WICHTIG: Bei move/scale bleibt `drag` (und damit die Live-Vorschau an der
+    // NEUEN Stelle) bestehen, bis der Core die aktualisierte Scene liefert.
+    // Sonst zeigt ein Frame die Form kurz an der alten Position ("aufblitzen"),
+    // weil `drag=null` sofort greift, die neue Scene aber erst async ankommt.
     if (g.kind === "draw") {
+      drag = null;
       if (tool === "line") {
         // Echte Endpunkte A→B, Mindestlänge 1 mm.
         const len = Math.hypot(g.cx - g.sx, g.cy - g.sy);
         if (len > 1) ondrawline(g.sx, g.sy, g.cx, g.cy);
+      } else if (tool === "polygon") {
+        // Radius aus der Ziehstrecke; Mindestradius 1 mm. Der Core erzeugt die
+        // echte Form (add_polygon) — die Vorschau war nur eine Naeherung.
+        const r = Math.hypot(g.cx - g.sx, g.cy - g.sy);
+        if (r > 1) ondrawpolygon(activeShape, g.sx, g.sy, r, 0);
       } else {
         const x = Math.min(g.sx, g.cx), y = Math.min(g.sy, g.cy);
         const w = Math.abs(g.cx - g.sx), h = Math.abs(g.cy - g.sy);
@@ -522,12 +605,18 @@
         }
       }
     } else if (g.kind === "marquee") {
+      drag = null;
       const w = Math.abs(g.cx - g.sx), h = Math.abs(g.cy - g.sy);
       if (w > 0.5 || h > 0.5) onselectrect(g.sx, g.sy, g.cx, g.cy);
     } else if (g.kind === "move") {
-      if (g.dx !== 0 || g.dy !== 0) onmove(g.dx, g.dy);
+      // Erst den Core anwenden lassen, DANN die Vorschau loesen — nahtlos.
+      if (g.dx !== 0 || g.dy !== 0) await onmove(g.dx, g.dy);
+      drag = null;
     } else if (g.kind === "scale") {
-      onscale(g.start, g.cur);
+      await onscale(g.start, g.cur);
+      drag = null;
+    } else {
+      drag = null;
     }
   }
 
@@ -585,22 +674,34 @@
 
   function resize() {
     if (!wrapEl || !canvasEl) return;
-    canvasEl.width = wrapEl.clientWidth;
-    canvasEl.height = wrapEl.clientHeight;
+    const nw = wrapEl.clientWidth, nh = wrapEl.clientHeight;
+    // WICHTIG: `canvas.width/height` NUR setzen, wenn sich die Groesse wirklich
+    // aendert. Das Zuweisen loescht den Canvas komplett (Schwarz-Blitz) — vorher
+    // passierte das bei jeder Aktion, weil resize() unkonditioniert lief.
+    if (canvasEl.width !== nw || canvasEl.height !== nh) {
+      canvasEl.width = nw;
+      canvasEl.height = nh;
+    }
     // Solange der Nutzer die Ansicht nicht selbst bewegt hat, Bett einpassen.
     if (!viewTouched) fitBed();
     draw();
   }
 
-  $effect(() => { scene; zoom; panX; panY; drag; draw(); });
+  // Ein einziger Redraw-Effect fuer alle zeichenrelevanten Zustaende. draw()
+  // ist rAF-gedrosselt, mehrere Trigger pro Frame ergeben also einen Redraw.
+  $effect(() => {
+    scene; zoom; panX; panY; drag;
+    polyPts; polyCursor; polyNearStart;
+    draw();
+  });
   // Aendern sich die freien Raender (Reiterwechsel, Panel verschoben) und der
   // Nutzer hat die Ansicht noch nicht selbst bewegt, das Bett neu einpassen.
   $effect(() => {
     insets;
     if (!viewTouched) { fitBed(); draw(); }
   });
-  // Polylinien-Zug neu zeichnen, wenn sich Punkte/Cursor aendern.
-  $effect(() => { polyPts; polyCursor; polyNearStart; draw(); });
+  // rAF beim Unmount abbrechen (kein Redraw auf totem Canvas).
+  $effect(() => () => { if (rafId) cancelAnimationFrame(rafId); });
   // Werkzeugwechsel bricht einen laufenden Polylinien-Zug ab.
   $effect(() => {
     if (tool !== "polyline" && polyPts.length > 0) polyCancel();
@@ -628,5 +729,13 @@
 
 <style>
   .wrap { position: absolute; inset: 0; }
-  canvas { display: block; touch-action: none; }
+  /* Eigenes GPU-Layer fuer den Canvas. Unter WebKitGTK/Wayland (dev.sh setzt
+     WEBKIT_DISABLE_COMPOSITING_MODE=1) flackert eine Vollflaechen-Neuzeichnung
+     sonst sichtbar; der Layer-Hint entkoppelt die Canvas-Repaints vom Rest. */
+  canvas {
+    display: block;
+    touch-action: none;
+    transform: translateZ(0);
+    will-change: transform;
+  }
 </style>

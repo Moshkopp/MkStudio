@@ -29,6 +29,7 @@
     { kind: "Werkzeuge", label: "Werkzeuge", tabs: ["Design"] },
     { kind: "Ebenen", label: "Ebenen", tabs: ["Design", "Laser"] },
     { kind: "Farbpalette", label: "Farbpalette", tabs: ["Design"] },
+    { kind: "Formen", label: "Formen", tabs: ["Design"] },
     { kind: "Anordnen", label: "Anordnen", tabs: ["Design"] },
     { kind: "Laser", label: "Laser-Control", tabs: ["Laser"] },
     { kind: "JobStatus", label: "Job-Status", tabs: ["Monitor"] },

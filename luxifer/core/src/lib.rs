@@ -19,6 +19,7 @@ pub mod job;
 pub mod model;
 pub mod project;
 pub mod scanline;
+pub mod shapes;
 pub mod state;
 pub mod ui_settings;
 
@@ -29,6 +30,7 @@ pub use job::{JobLayer, JobPlan, LayerWork, MachineDriver, Path};
 pub use model::{Layer, LayerMode, Shape, SWATCH_COLORS};
 pub use project::{ProjectFile, ProjectInfo};
 pub use scanline::FillSegment;
+pub use shapes::{PolyShape, ShapeInfo};
 pub use state::AppState;
 pub use ui_settings::{
     PanelKind, PanelPlacement, PanelRect, Tab, TabLayout, Theme, ThemeColor, UiSettings,

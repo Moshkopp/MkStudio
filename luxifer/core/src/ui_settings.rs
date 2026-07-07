@@ -53,6 +53,9 @@ pub enum PanelKind {
     Anordnen,
     Laser,
     JobStatus,
+    /// Formen-Galerie (Polygon-Auswahl). Standardmäßig ausgeblendet und erst
+    /// bei Bedarf einblendbar; später auch für Muster-Füllung nutzbar.
+    Formen,
 }
 
 /// Position und Größe eines Panels als **Bruchteile** des Fensters (0…1).
@@ -281,6 +284,10 @@ pub fn default_layout(tab: Tab) -> TabLayout {
             p(PanelKind::Farbpalette, r(0.80, 0.66, 0.20, 0.18, 0)),
             // Anordnen-Toolbar oben mittig, flach.
             p(PanelKind::Anordnen, r(0.30, 0.09, 0.40, 0.08, 0)),
+            // Formen-Galerie links neben den Werkzeugen. Im Normalbetrieb nur
+            // sichtbar, wenn das Polygon-Werkzeug aktiv ist (bzw. im Editier-
+            // Modus); die Position wird aber hier vorgehalten.
+            p(PanelKind::Formen, r(0.10, 0.09, 0.16, 0.40, 0)),
         ],
         Tab::Laser => vec![
             p(PanelKind::Ebenen, r(0.0, 0.09, 0.20, 0.55, 0)),

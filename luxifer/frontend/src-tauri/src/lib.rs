@@ -3,7 +3,7 @@
 
 use std::sync::Mutex;
 
-use luxifer_core::{AppState, Geo, Layer, Shape, Tab, UiSettings};
+use luxifer_core::{AppState, Geo, Layer, PolyShape, Shape, ShapeInfo, Tab, UiSettings};
 use serde::Serialize;
 use tauri::{Manager, State};
 
@@ -82,6 +82,28 @@ fn add_polyline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Sce
     let mut s = data.state.lock().unwrap();
     if pts.len() >= 2 {
         s.add_shape(Geo::Polyline { pts, closed });
+    }
+    Scene::from_state(&s)
+}
+
+/// Katalog der parametrischen Formen für die Galerie im Werkzeug-Panel.
+/// Datengetrieben: eine neue Form im Core erscheint hier automatisch.
+#[tauri::command]
+fn shape_catalog() -> Vec<ShapeInfo> {
+    PolyShape::catalog()
+}
+
+/// Fügt eine parametrische Form als geschlossene Polylinie hinzu.
+/// `shape` = stabiler Bezeichner aus dem Katalog (z. B. "hex"); unbekannte
+/// Bezeichner werden ignoriert (Zustand bleibt unverändert).
+#[tauri::command]
+fn add_polygon(data: State<AppData>, shape: String, cx: f64, cy: f64, r: f64, rot: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    if let Some(kind) = PolyShape::from_id(&shape) {
+        let pts = kind.points(cx, cy, r, rot);
+        if pts.len() >= 3 {
+            s.add_shape(Geo::Polyline { pts, closed: true });
+        }
     }
     Scene::from_state(&s)
 }
@@ -369,6 +391,8 @@ pub fn run() {
             add_ellipse,
             add_line,
             add_polyline,
+            shape_catalog,
+            add_polygon,
             activate_color,
             select_at,
             select_rect,
