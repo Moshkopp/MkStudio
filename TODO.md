@@ -20,7 +20,8 @@ werden — Fachlogik jeweils in `luxifer-core`, das Frontend zeichnet nur.
 ### Zeichnen & Formen
 - [x] `line` — Linie (offene 2-Punkt-`Geo::Polyline`; Command `add_line`,
       Canvas zeichnet A→B mit Vorschau)
-- [ ] `polyline` — Polylinie (mehrere Punkte, Enter/Doppelklick schließt ab)
+- [x] `polyline` — Polylinie (Klicks setzen Punkte, Gummiband-Vorschau,
+      Doppelklick/Enter schließt ab, Escape bricht ab; Command `add_polyline`)
 - [ ] `spline` — Spline
 - [ ] `bezier` — Bézier-Feder *(war in ThorBurn schon nur Vorschau)*
 - [ ] `text` — Text (Glyph→Kontur; größerer Brocken, evtl. eigener Meilenstein)

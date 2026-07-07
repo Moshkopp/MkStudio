@@ -61,6 +61,9 @@ export const addEllipse = (cx: number, cy: number, rx: number, ry: number) =>
 export const addLine = (x1: number, y1: number, x2: number, y2: number) =>
   invoke<Scene>("add_line", { x1, y1, x2, y2 });
 
+export const addPolyline = (pts: [number, number][], closed: boolean) =>
+  invoke<Scene>("add_polyline", { pts, closed });
+
 export const activateColor = (color: [number, number, number]) =>
   invoke<Scene>("activate_color", { color });
 

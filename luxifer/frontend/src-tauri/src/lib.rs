@@ -75,6 +75,17 @@ fn add_line(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Scene {
     Scene::from_state(&s)
 }
 
+/// Fügt eine Polylinie aus den gelieferten Punkten hinzu. `closed` schließt die
+/// Kontur (letzter → erster Punkt). Wird ignoriert, wenn < 2 Punkte kommen.
+#[tauri::command]
+fn add_polyline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    if pts.len() >= 2 {
+        s.add_shape(Geo::Polyline { pts, closed });
+    }
+    Scene::from_state(&s)
+}
+
 #[tauri::command]
 fn activate_color(data: State<AppData>, color: [u8; 3]) -> Scene {
     let mut s = data.state.lock().unwrap();
@@ -357,6 +368,7 @@ pub fn run() {
             add_rect,
             add_ellipse,
             add_line,
+            add_polyline,
             activate_color,
             select_at,
             select_rect,

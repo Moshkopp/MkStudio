@@ -6,7 +6,7 @@
   // hier — die liegen im Header bzw. auf der Entf-Taste.
   import Icon, { type IconName } from "./Icon.svelte";
 
-  type Tool = "select" | "rect" | "ellipse" | "line";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline";
   // Sofort-Befehle auf der Auswahl (kein Zeichenmodus), z. B. Spiegeln.
   type Action = "mirror_h" | "mirror_v";
   let {
@@ -42,7 +42,7 @@
       { name: "ellipse", icon: "ellipse", tip: "Ellipse", active: true },
       { name: "polygon", icon: "polygon", tip: "Polygon (Form wählen)" },
       { name: "line", icon: "line", tip: "Linie", active: true },
-      { name: "polyline", icon: "polyline", tip: "Polylinie" },
+      { name: "polyline", icon: "polyline", tip: "Polylinie (Klicks setzen Punkte, Doppelklick/Enter schließt ab)", active: true },
       { name: "spline", icon: "spline", tip: "Spline" },
       { name: "bezier", icon: "bezier", tip: "Bézier-Feder" },
       { name: "text", icon: "text", tip: "Text" },

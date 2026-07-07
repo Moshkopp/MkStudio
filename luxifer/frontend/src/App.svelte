@@ -22,7 +22,7 @@
   } from "./lib/core";
   import { applyTheme } from "./lib/theme";
 
-  type Tool = "select" | "rect" | "ellipse" | "line";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline";
 
   let scene = $state<Scene | null>(null);
   let tool = $state<Tool>("rect");
@@ -140,6 +140,9 @@
   }
   async function ondrawline(x1: number, y1: number, x2: number, y2: number) {
     scene = await core.addLine(x1, y1, x2, y2);
+  }
+  async function ondrawpolyline(pts: [number, number][], closed: boolean) {
+    scene = await core.addPolyline(pts, closed);
   }
   async function onselectat(x: number, y: number, additive: boolean) {
     scene = await core.selectAt(x, y, 2, additive);
@@ -269,6 +272,7 @@
       {ondrawrect}
       {ondrawellipse}
       {ondrawline}
+      {ondrawpolyline}
       {onselectat}
       {onselectrect}
       {onmove}

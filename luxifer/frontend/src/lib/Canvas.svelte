@@ -1,7 +1,7 @@
 <script lang="ts">
   import { rgb, type Scene, type Shape } from "./core";
 
-  type Tool = "select" | "rect" | "ellipse" | "line";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline";
 
   let {
     scene,
@@ -10,6 +10,7 @@
     ondrawrect,
     ondrawellipse,
     ondrawline,
+    ondrawpolyline,
     onselectat,
     onselectrect,
     onmove,
@@ -23,6 +24,7 @@
     ondrawrect: (x: number, y: number, w: number, h: number) => void;
     ondrawellipse: (cx: number, cy: number, rx: number, ry: number) => void;
     ondrawline: (x1: number, y1: number, x2: number, y2: number) => void;
+    ondrawpolyline: (pts: [number, number][], closed: boolean) => void;
     onselectat: (x: number, y: number, additive: boolean) => void;
     onselectrect: (x1: number, y1: number, x2: number, y2: number) => void;
     onmove: (dx: number, dy: number) => void;
@@ -80,6 +82,24 @@
     | { kind: "pan"; px: number; py: number; ox: number; oy: number }
     | null;
   let drag = $state<Drag>(null);
+
+  // ---- Polylinien-Modus (mehrere Klicks; lebt ueber die einzelne Geste) ------
+  // Gesetzte Stuetzpunkte in mm; `polyCursor` ist die aktuelle Mausposition
+  // fuers Gummiband. Beides ist fluechtiger UI-Zustand, kein Wahrheitszustand:
+  // erst der Abschluss schickt EINE fertige Polylinie an den Core.
+  let polyPts = $state<[number, number][]>([]);
+  let polyCursor = $state<[number, number] | null>(null);
+  // Cursor nah genug am ersten Punkt, um die Kontur zu schliessen? (>= 3 Punkte)
+  let polyNearStart = $state(false);
+  // Fangradius um den ersten Punkt in Bildschirm-Pixeln.
+  const POLY_CLOSE_PX = 10;
+
+  // Liegt die Bildschirmposition (px,py) im Fangradius des ersten Punkts?
+  function nearFirstPoint(px: number, py: number): boolean {
+    if (polyPts.length < 3) return false;
+    const [fx, fy] = toScreen(...polyPts[0]);
+    return Math.hypot(px - fx, py - fy) <= POLY_CLOSE_PX;
+  }
 
   type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
 
@@ -169,6 +189,57 @@
     for (const s of scene.shapes) drawShape(ctx, s);
     drawSelection(ctx);
     drawGesturePreview(ctx);
+    drawPolyPreview(ctx);
+  }
+
+  // Vorschau des laufenden Polylinien-Zugs: gesetzte Segmente, Gummiband zur
+  // Maus und kleine Marker an den Stuetzpunkten.
+  function drawPolyPreview(ctx: CanvasRenderingContext2D) {
+    if (tool !== "polyline" || polyPts.length === 0) return;
+    ctx.strokeStyle = "rgba(255,255,255,0.7)";
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    polyPts.forEach((p, i) => {
+      const [px, py] = toScreen(p[0], p[1]);
+      if (i === 0) ctx.moveTo(px, py);
+      else ctx.lineTo(px, py);
+    });
+    ctx.stroke();
+    // Gummiband vom letzten Punkt zur Maus (gestrichelt). Sind wir im Fangradius
+    // des Startpunkts, zieht das Band stattdessen zum ersten Punkt (Schliessen).
+    if (polyCursor) {
+      const [lx, ly] = toScreen(...polyPts[polyPts.length - 1]);
+      const [tx, ty] = polyNearStart
+        ? toScreen(...polyPts[0])
+        : toScreen(...polyCursor);
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = "rgba(255,255,255,0.4)";
+      ctx.beginPath();
+      ctx.moveTo(lx, ly);
+      ctx.lineTo(tx, ty);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    // Punkt-Marker. Der erste Punkt wird hervorgehoben, sobald der Cursor ihn
+    // fangen kann — Signal, dass ein Klick die Kontur schliesst.
+    polyPts.forEach((p, i) => {
+      const [px, py] = toScreen(p[0], p[1]);
+      if (i === 0 && polyNearStart) {
+        // Groesserer, andersfarbiger Ring + Fuellung.
+        ctx.fillStyle = "#3fb27f";
+        ctx.strokeStyle = "#3fb27f";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(px, py, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(px, py, 9, 0, Math.PI * 2);
+        ctx.stroke();
+      } else {
+        ctx.fillStyle = "#4c82f7";
+        ctx.fillRect(px - 3, py - 3, 6, 6);
+      }
+    });
   }
 
   function drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number) {
@@ -353,6 +424,19 @@
       drag = { kind: "draw", sx: mx, sy: my, cx: mx, cy: my };
       return;
     }
+    if (tool === "polyline") {
+      // Klick auf den ersten Punkt (im Fangradius) schliesst die Kontur.
+      if (nearFirstPoint(px, py)) {
+        polyCommit(true);
+        return;
+      }
+      // Sonst: jeder Klick setzt einen Stuetzpunkt (Abschluss per Doppelklick/
+      // Enter offen, oder Klick auf den Startpunkt geschlossen).
+      polyPts = [...polyPts, [mx, my]];
+      polyCursor = [mx, my];
+      draw();
+      return;
+    }
     // select-Werkzeug
     const h = hitHandle(px, py);
     if (h) {
@@ -380,6 +464,12 @@
   function onPointerMove(ev: PointerEvent) {
     const [px, py] = localXY(ev);
     const [mx, my] = toMm(px, py);
+    // Polylinien-Gummiband: Cursor verfolgen, auch ohne aktiven Drag.
+    if (tool === "polyline" && polyPts.length > 0) {
+      polyCursor = [mx, my];
+      polyNearStart = nearFirstPoint(px, py);
+      draw();
+    }
     if (!drag) return;
     if (drag.kind === "pan") {
       viewTouched = true;
@@ -447,6 +537,47 @@
     draw();
   }
 
+  // ---- Polylinien-Modus: Abschluss / Abbruch --------------------------------
+  // Schliesst den aktuellen Zug ab: bei >= 2 Punkten als offene Polylinie an den
+  // Core, sonst verwerfen. `closed` schliesst die Kontur.
+  function polyCommit(closed = false) {
+    if (polyPts.length >= 2) {
+      ondrawpolyline([...polyPts], closed);
+    }
+    polyPts = [];
+    polyCursor = null;
+    polyNearStart = false;
+  }
+  function polyCancel() {
+    polyPts = [];
+    polyCursor = null;
+    polyNearStart = false;
+    draw();
+  }
+
+  // Doppelklick schliesst die Polylinie ab. Der Doppelklick hat ueber
+  // pointerdown schon einen (nahezu deckungsgleichen) Extrapunkt gesetzt — den
+  // entfernen wir, wenn er auf dem vorherigen liegt.
+  function onDblClick() {
+    if (tool !== "polyline" || polyPts.length < 2) return;
+    const n = polyPts.length;
+    const [ax, ay] = polyPts[n - 1];
+    const [bx, by] = polyPts[n - 2];
+    if (Math.hypot(ax - bx, ay - by) < 0.5) polyPts = polyPts.slice(0, n - 1);
+    polyCommit(false);
+  }
+
+  function onKeydown(ev: KeyboardEvent) {
+    if (polyPts.length === 0) return;
+    if (ev.key === "Enter") {
+      ev.preventDefault();
+      polyCommit(false);
+    } else if (ev.key === "Escape") {
+      ev.preventDefault();
+      polyCancel();
+    }
+  }
+
   function resize() {
     if (!wrapEl || !canvasEl) return;
     canvasEl.width = wrapEl.clientWidth;
@@ -463,6 +594,12 @@
     insets;
     if (!viewTouched) { fitBed(); draw(); }
   });
+  // Polylinien-Zug neu zeichnen, wenn sich Punkte/Cursor aendern.
+  $effect(() => { polyPts; polyCursor; polyNearStart; draw(); });
+  // Werkzeugwechsel bricht einen laufenden Polylinien-Zug ab.
+  $effect(() => {
+    if (tool !== "polyline" && polyPts.length > 0) polyCancel();
+  });
   $effect(() => {
     resize();
     const ro = new ResizeObserver(resize);
@@ -471,12 +608,15 @@
   });
 </script>
 
+<svelte:window onkeydown={onKeydown} />
+
 <div class="wrap" bind:this={wrapEl}>
   <canvas
     bind:this={canvasEl}
     onpointerdown={onPointerDown}
     onpointermove={onPointerMove}
     onpointerup={onPointerUp}
+    ondblclick={onDblClick}
     onwheel={onWheel}
   ></canvas>
 </div>
