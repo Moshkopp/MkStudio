@@ -23,7 +23,7 @@ pub mod state;
 pub mod ui_settings;
 
 pub use arrange::{Align, Distribute};
-pub use geometry::{BBox, Geo, Pt};
+pub use geometry::{Axis, BBox, Geo, Pt};
 pub use interact::Handle;
 pub use job::{JobLayer, JobPlan, LayerWork, MachineDriver, Path};
 pub use model::{Layer, LayerMode, Shape, SWATCH_COLORS};

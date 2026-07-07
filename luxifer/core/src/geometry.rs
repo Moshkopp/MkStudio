@@ -53,6 +53,14 @@ impl BBox {
     }
 }
 
+/// Spiegelachse für `Geo::mirror`. `Vertical` spiegelt an einer senkrechten
+/// Linie x=coord (tauscht links↔rechts), `Horizontal` an y=coord (oben↔unten).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Axis {
+    Vertical,
+    Horizontal,
+}
+
 /// Die vier Geometrie-Typen einer Form. Maße in mm.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum Geo {
@@ -150,6 +158,36 @@ impl Geo {
                 for p in pts.iter_mut() {
                     p.0 += dx;
                     p.1 += dy;
+                }
+            }
+        }
+    }
+
+    /// Spiegelt die Form an einer Achse durch `coord`.
+    /// `Axis::Vertical` spiegelt x-Koordinaten an x=coord, `Axis::Horizontal`
+    /// y-Koordinaten an y=coord. Rect/Ellipse behalten ihre Größe (nur die Lage
+    /// klappt um); die Polyline spiegelt jeden Punkt einzeln.
+    pub fn mirror(&mut self, axis: Axis, coord: f64) {
+        // Spiegelt einen Skalarwert v an der Achsenposition c: v' = 2c - v.
+        let flip = |v: f64| 2.0 * coord - v;
+        match (axis, self) {
+            (Axis::Vertical, Geo::Rect { x, w, .. }) => {
+                // Rechte Kante wird zur neuen linken: x' = flip(x + w).
+                *x = flip(*x + *w);
+            }
+            (Axis::Horizontal, Geo::Rect { y, h, .. }) => {
+                *y = flip(*y + *h);
+            }
+            (Axis::Vertical, Geo::Ellipse { cx, .. }) => *cx = flip(*cx),
+            (Axis::Horizontal, Geo::Ellipse { cy, .. }) => *cy = flip(*cy),
+            (Axis::Vertical, Geo::Polyline { pts, .. }) => {
+                for p in pts.iter_mut() {
+                    p.0 = flip(p.0);
+                }
+            }
+            (Axis::Horizontal, Geo::Polyline { pts, .. }) => {
+                for p in pts.iter_mut() {
+                    p.1 = flip(p.1);
                 }
             }
         }
@@ -364,6 +402,77 @@ mod tests {
             assert_eq!(pts[0], (5.0, 5.0));
             assert_eq!(pts[1], (25.0, 25.0));
         }
+    }
+
+    #[test]
+    fn mirror_rect_vertikal_behaelt_groesse() {
+        let mut r = Geo::Rect {
+            x: 10.0,
+            y: 5.0,
+            w: 20.0,
+            h: 8.0,
+        };
+        // Achse x=50: rechte Kante (30) → 70, also neue linke Kante 70.
+        r.mirror(Axis::Vertical, 50.0);
+        let b = r.bbox();
+        assert_eq!((b.x, b.y, b.w, b.h), (70.0, 5.0, 20.0, 8.0));
+    }
+
+    #[test]
+    fn mirror_rect_horizontal() {
+        let mut r = Geo::Rect {
+            x: 10.0,
+            y: 5.0,
+            w: 20.0,
+            h: 8.0,
+        };
+        // Achse y=0: untere Kante (13) → -13, neue obere Kante -13.
+        r.mirror(Axis::Horizontal, 0.0);
+        let b = r.bbox();
+        assert_eq!((b.x, b.y, b.w, b.h), (10.0, -13.0, 20.0, 8.0));
+    }
+
+    #[test]
+    fn mirror_ellipse_spiegelt_mittelpunkt() {
+        let mut e = Geo::Ellipse {
+            cx: 20.0,
+            cy: 30.0,
+            rx: 5.0,
+            ry: 3.0,
+        };
+        e.mirror(Axis::Vertical, 0.0);
+        if let Geo::Ellipse { cx, cy, rx, ry } = e {
+            assert_eq!((cx, cy, rx, ry), (-20.0, 30.0, 5.0, 3.0));
+        } else {
+            panic!("kein Ellipse");
+        }
+    }
+
+    #[test]
+    fn mirror_polyline_spiegelt_punkte() {
+        let mut p = Geo::Polyline {
+            pts: vec![(0.0, 0.0), (10.0, 4.0)],
+            closed: false,
+        };
+        p.mirror(Axis::Vertical, 5.0);
+        if let Geo::Polyline { pts, .. } = &p {
+            assert_eq!(pts[0], (10.0, 0.0));
+            assert_eq!(pts[1], (0.0, 4.0));
+        }
+    }
+
+    #[test]
+    fn mirror_zweimal_ist_identitaet() {
+        let mut r = Geo::Rect {
+            x: 3.0,
+            y: 7.0,
+            w: 11.0,
+            h: 13.0,
+        };
+        let orig = r.clone();
+        r.mirror(Axis::Vertical, 42.0);
+        r.mirror(Axis::Vertical, 42.0);
+        assert_eq!(r, orig);
     }
 
     #[test]

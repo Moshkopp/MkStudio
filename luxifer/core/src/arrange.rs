@@ -4,7 +4,7 @@
 //! Auswahl-Objekt ein Verschiebe-Delta (dx, dy) in mm; das Anwenden übernimmt
 //! `AppState`.
 
-use crate::geometry::BBox;
+use crate::geometry::{Axis, BBox};
 use crate::state::AppState;
 
 /// Ausricht-Art.
@@ -50,6 +50,35 @@ impl AppState {
             let b = s.bbox();
             let (dx, dy) = align_delta(kind, &g, &b);
             s.geo.translate(dx, dy);
+        }
+        self.dirty = true;
+    }
+
+    /// Spiegelbar, sobald mindestens eine Form selektiert ist.
+    pub fn can_mirror(&self) -> bool {
+        !self.selected.is_empty()
+    }
+
+    /// Spiegelt die Auswahl an der Mittelachse ihrer gemeinsamen Bounding-Box
+    /// (ein Undo-Punkt). `Axis::Vertical` klappt links↔rechts, `Axis::Horizontal`
+    /// oben↔unten. Bei mehreren Formen spiegeln auch die Lagen zueinander.
+    pub fn mirror_selection(&mut self, axis: Axis) {
+        if !self.can_mirror() {
+            return;
+        }
+        let Some(g) = self.selection_bbox() else {
+            return;
+        };
+        let coord = match axis {
+            Axis::Vertical => g.x + g.w / 2.0,
+            Axis::Horizontal => g.y + g.h / 2.0,
+        };
+        self.push_undo();
+        let sel = self.selected.clone();
+        for idx in sel {
+            if let Some(s) = self.shapes.get_mut(idx) {
+                s.geo.mirror(axis, coord);
+            }
         }
         self.dirty = true;
     }
@@ -152,6 +181,47 @@ mod tests {
         assert!((s.shapes[1].bbox().x - 45.0).abs() < 1e-9);
         assert_eq!(s.shapes[0].bbox().x, 0.0);
         assert_eq!(s.shapes[2].bbox().x, 90.0);
+    }
+
+    #[test]
+    fn mirror_vertikal_klappt_gruppe_um_ihre_mitte() {
+        let mut s = AppState::new();
+        s.add_shape(rect(0.0, 0.0, 10.0, 10.0)); // links
+        s.add_shape(rect(90.0, 0.0, 10.0, 10.0)); // rechts
+        s.selected = vec![0, 1];
+        // Gruppen-BBox 0..100, Achse x=50. Formen tauschen die Seite.
+        s.mirror_selection(Axis::Vertical);
+        assert_eq!(s.shapes[0].bbox().x, 90.0);
+        assert_eq!(s.shapes[1].bbox().x, 0.0);
+    }
+
+    #[test]
+    fn mirror_einzeln_asymmetrisch_spiegelt_form() {
+        let mut s = AppState::new();
+        s.add_shape(Geo::Polyline {
+            pts: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 5.0)],
+            closed: true,
+        });
+        s.selected = vec![0];
+        // BBox 0..10 in x → Achse x=5.
+        s.mirror_selection(Axis::Vertical);
+        if let Geo::Polyline { pts, .. } = &s.shapes[0].geo {
+            assert_eq!(pts[0], (10.0, 0.0));
+            assert_eq!(pts[1], (0.0, 0.0));
+            assert_eq!(pts[2], (0.0, 5.0));
+        } else {
+            panic!("kein Polyline");
+        }
+    }
+
+    #[test]
+    fn mirror_ohne_auswahl_ist_noop() {
+        let mut s = AppState::new();
+        s.add_shape(rect(0.0, 0.0, 10.0, 10.0));
+        s.selected.clear();
+        assert!(!s.can_mirror());
+        s.mirror_selection(Axis::Horizontal); // no-op
+        assert_eq!(s.shapes[0].bbox().y, 0.0);
     }
 
     #[test]
