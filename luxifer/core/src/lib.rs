@@ -18,6 +18,7 @@ pub mod geometry;
 pub mod interact;
 pub mod job;
 pub mod model;
+pub mod preview;
 pub mod project;
 pub mod scanline;
 pub mod shapes;

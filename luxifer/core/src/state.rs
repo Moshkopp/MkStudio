@@ -211,6 +211,55 @@ impl AppState {
         };
     }
 
+    /// Verschiebt einen Layer von Position `from` an Position `to` (ADR 0005 §0).
+    ///
+    /// Die **Reihenfolge der `layers`-Liste IST die Brenn-Reihenfolge** (Index 0
+    /// zuerst). Weil Shapes ihren Layer per **Index** (`layer_id`) referenzieren,
+    /// werden hier in **derselben Operation alle `shape.layer_id`** und der
+    /// `active_layer` remappt, sodass jede Form nach dem Verschieben auf denselben
+    /// Layer wie vorher zeigt. Legt einen Undo-Punkt an.
+    ///
+    /// Ungültige Indizes oder `from == to` sind No-Ops (kein Undo-Punkt).
+    pub fn move_layer(&mut self, from: usize, to: usize) {
+        let n = self.layers.len();
+        if from >= n || to >= n || from == to {
+            return;
+        }
+        self.push_undo();
+
+        // Layer physisch umsortieren: entnehmen und an Zielposition einfügen.
+        let layer = self.layers.remove(from);
+        self.layers.insert(to, layer);
+
+        // Permutations-Remap alt_idx -> neu_idx aufbauen. Nur die Indizes im
+        // Bereich [min(from,to), max(from,to)] verschieben sich um eins; alle
+        // anderen bleiben. Wir bauen die Abbildung generisch aus der Bewegung.
+        let remap = |old: usize| -> usize {
+            if old == from {
+                to
+            } else if from < to {
+                // Layer zwischen from+1..=to rücken um eins nach vorne.
+                if old > from && old <= to {
+                    old - 1
+                } else {
+                    old
+                }
+            } else {
+                // from > to: Layer zwischen to..from rücken um eins nach hinten.
+                if old >= to && old < from {
+                    old + 1
+                } else {
+                    old
+                }
+            }
+        };
+
+        for shape in &mut self.shapes {
+            shape.layer_id = remap(shape.layer_id);
+        }
+        self.active_layer = remap(self.active_layer);
+    }
+
     // ---- Shapes anlegen ---------------------------------------------------
 
     /// Fügt eine gezeichnete Geometrie als neue Shape hinzu. Die Farbe/der Layer
@@ -548,5 +597,120 @@ mod tests {
             LayerMode::Image,
             "verbleibender Layer ist der Form-Layer"
         );
+    }
+
+    // ---- move_layer (Layer-Reihenfolge, ADR 0005 §0) ----------------------
+
+    /// Baut drei Layer (0,1,2) mit je genau einer Form, jeweils andere Farbe.
+    /// Rückgabe-Reihenfolge der Layer entspricht der Anlage-Reihenfolge.
+    fn state_three_layers() -> AppState {
+        let mut s = AppState::new();
+        let colors = [[10, 0, 0], [0, 20, 0], [0, 0, 30]];
+        for (i, c) in colors.iter().enumerate() {
+            s.selected.clear();
+            s.activate_color(*c); // pending Farbe
+            s.add_shape(Geo::Rect {
+                x: (i * 20) as f64,
+                y: 0.0,
+                w: 10.0,
+                h: 10.0,
+            });
+        }
+        assert_eq!(s.layers.len(), 3);
+        // Shape i liegt auf Layer i.
+        for i in 0..3 {
+            assert_eq!(s.shapes[i].layer_id, i);
+        }
+        s
+    }
+
+    #[test]
+    fn move_layer_aendert_reihenfolge_und_haelt_shape_zuordnung() {
+        let mut s = state_three_layers();
+        let farbe_von =
+            |s: &AppState, shape_idx: usize| s.layers[s.shapes[shape_idx].layer_id].color;
+        // Vor dem Verschieben: Shape i hat Farbe der Anlage.
+        let f0 = farbe_von(&s, 0);
+        let f2 = farbe_von(&s, 2);
+
+        // Letzten Layer ganz nach vorne holen (typisch: Schneiden zuletzt → vorziehen).
+        s.move_layer(2, 0);
+
+        // Reihenfolge ist jetzt [alt2, alt0, alt1].
+        assert_eq!(s.layers[0].color, [0, 0, 30]);
+        assert_eq!(s.layers[1].color, [10, 0, 0]);
+        assert_eq!(s.layers[2].color, [0, 20, 0]);
+
+        // Entscheidend: Jede Form zeigt weiterhin auf IHREN Layer (gleiche Farbe).
+        assert_eq!(farbe_von(&s, 0), f0, "Shape 0 folgt seinem Layer");
+        assert_eq!(farbe_von(&s, 2), f2, "Shape 2 folgt seinem Layer");
+    }
+
+    #[test]
+    fn move_layer_vorwaerts_remappt_korrekt() {
+        let mut s = state_three_layers();
+        // Ersten Layer nach hinten schieben: [0,1,2] -> [1,2,0].
+        s.move_layer(0, 2);
+        assert_eq!(s.layers[0].color, [0, 20, 0]);
+        assert_eq!(s.layers[1].color, [0, 0, 30]);
+        assert_eq!(s.layers[2].color, [10, 0, 0]);
+        // Shape, das auf dem verschobenen Layer lag, zeigt jetzt auf Index 2.
+        assert_eq!(s.shapes[0].layer_id, 2);
+        // Die anderen beiden sind je einen nach vorne gerückt.
+        assert_eq!(s.shapes[1].layer_id, 0);
+        assert_eq!(s.shapes[2].layer_id, 1);
+    }
+
+    #[test]
+    fn move_layer_haelt_active_layer_stabil() {
+        let mut s = state_three_layers();
+        s.active_layer = 2; // der hinterste Layer ist aktiv
+        let aktive_farbe = s.layers[s.active_layer].color;
+        s.move_layer(2, 0); // ihn nach vorne holen
+                            // active_layer zeigt weiter auf denselben Layer (jetzt Index 0).
+        assert_eq!(s.layers[s.active_layer].color, aktive_farbe);
+        assert_eq!(s.active_layer, 0);
+    }
+
+    #[test]
+    fn move_layer_noop_bei_gleichem_index_oder_ungueltig() {
+        let mut s = state_three_layers();
+        let before = s.layers.clone();
+        // Zählt, wie viele Undo-Schritte aktuell möglich sind.
+        let undo_tiefe = |s: &AppState| {
+            let mut c = s.clone();
+            let mut n = 0;
+            while c.undo() {
+                n += 1;
+            }
+            n
+        };
+        let tiefe_vorher = undo_tiefe(&s);
+
+        s.move_layer(1, 1); // gleich → No-Op
+        assert_eq!(s.layers, before);
+        s.move_layer(0, 9); // Ziel außerhalb → No-Op
+        assert_eq!(s.layers, before);
+        s.move_layer(5, 0); // Quelle außerhalb → No-Op
+        assert_eq!(s.layers, before);
+
+        // Kein No-Op darf einen zusätzlichen Undo-Punkt angelegt haben.
+        assert_eq!(
+            undo_tiefe(&s),
+            tiefe_vorher,
+            "No-Op legt keinen Undo-Punkt an"
+        );
+    }
+
+    #[test]
+    fn move_layer_ist_per_undo_zuruecknehmbar() {
+        let mut s = state_three_layers();
+        let before = s.layers.clone();
+        let shapes_before = s.shapes.clone();
+        s.move_layer(2, 0);
+        assert_ne!(s.layers, before);
+        assert!(s.undo(), "move_layer ist eine mutierende Aktion mit Undo");
+        assert_eq!(s.layers, before, "alte Reihenfolge wiederhergestellt");
+        assert_eq!(s.shapes, shapes_before, "layer_id der Shapes zurückgesetzt");
     }
 }
