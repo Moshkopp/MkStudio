@@ -268,6 +268,36 @@ export type LayerToggle = "visible" | "enabled" | "air_assist" | "locked";
 export const toggleLayer = (index: number, field: LayerToggle) =>
   invoke<Scene>("toggle_layer", { index, field });
 
+// Verschiebt einen Layer in der Brenn-Reihenfolge (ADR 0005 §0). Der Core
+// remappt dabei alle shape.layer_id; ein Undo-Punkt entsteht nur bei Bewegung.
+export const moveLayer = (from: number, to: number) =>
+  invoke<Scene>("move_layer", { from, to });
+
+// ---- Laser-Preview (ADR 0005) ---------------------------------------------
+
+// Art eines Bewegungssegments. "Travel" = Leerfahrt (Laser aus).
+export type MoveKind = "Cut" | "Fill" | "Raster" | "Travel";
+
+// Ein Bewegungssegment der Vorschau in mm, in Ausführungsreihenfolge.
+export interface PreviewMove {
+  from: [number, number];
+  to: [number, number];
+  kind: MoveKind;
+  layer_id: number;
+  seq: number;
+}
+
+// Die komplette Laser-Vorschau (abgeleitet aus dem JobPlan im Core).
+export interface JobPreview {
+  moves: PreviewMove[];
+  bbox: [number, number, number, number] | null;
+  total_len_mm: number;
+}
+
+// Leitet die Laser-Vorschau aus dem aktuellen Zustand ab (reine Ableitung,
+// keine Mutation).
+export const jobPreview = () => invoke<JobPreview>("job_preview");
+
 export const generateGcode = () => invoke<string>("generate_gcode");
 
 export const ruidaPing = (ip: string) => invoke<boolean>("ruida_ping", { ip });

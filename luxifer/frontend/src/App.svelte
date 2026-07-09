@@ -1,5 +1,6 @@
 <script lang="ts">
   import Canvas from "./lib/Canvas.svelte";
+  import PreviewCanvas from "./lib/PreviewCanvas.svelte";
   import LayerDialog from "./lib/LayerDialog.svelte";
   import LaserPanel from "./lib/LaserPanel.svelte";
   import PanelHost from "./lib/PanelHost.svelte";
@@ -266,6 +267,10 @@
   async function toggleLayer(i: number, field: core.LayerToggle) {
     scene = await core.toggleLayer(i, field);
   }
+  // Layer in der Brenn-Reihenfolge verschieben (ADR 0005 §0, Drag & Drop).
+  async function moveLayer(from: number, to: number) {
+    scene = await core.moveLayer(from, to);
+  }
   async function generateGcode() {
     try {
       gcode = await core.generateGcode();
@@ -487,7 +492,7 @@
     <div class="error">Fehler: {error}</div>
   {/if}
 
-  {#if scene}
+  {#if scene && activeTab !== "Preview"}
     <Canvas
       {scene}
       {tool}
@@ -504,6 +509,11 @@
       {onscale}
       oneditimage={(i) => (editImage = i)}
     />
+  {/if}
+
+  <!-- Laser-Vorschau (ADR 0005): eigener Canvas, gleiche Kamera-Einpassung. -->
+  {#if scene && activeTab === "Preview"}
+    <PreviewCanvas {scene} {insets} />
   {/if}
 
   <!-- Header über volle Breite: links Logo + Name + Undo/Redo, Reiter mittig
@@ -567,7 +577,7 @@
         {#if p.kind === "Werkzeuge"}
           <ToolsPanel {tool} onpick={(t) => (tool = t)} onaction={doToolAction} />
         {:else if p.kind === "Ebenen"}
-          <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} />
+          <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} onmovelayer={moveLayer} />
         {:else if p.kind === "Farbpalette"}
           <PalettePanel {swatches} onpick={pickColor} />
         {:else if p.kind === "Formen"}
@@ -598,14 +608,11 @@
     />
   {/if}
 
-  <!-- Weitere noch leere Reiter: dezenter Hinweis mittig. -->
-  {#if settings && panels.length === 0 && activeTab !== "Projekt"}
+  <!-- Weitere noch leere Reiter: dezenter Hinweis mittig. Der Preview-Reiter
+       hat einen eigenen Canvas (oben) und ist daher ausgenommen. -->
+  {#if settings && panels.length === 0 && activeTab !== "Projekt" && activeTab !== "Preview"}
     <div class="empty-tab">
-      {#if activeTab === "Preview"}
-        Laser-Vorschau folgt als eigener Meilenstein.
-      {:else}
-        Dieser Reiter ist noch leer.
-      {/if}
+      Dieser Reiter ist noch leer.
     </div>
   {/if}
 
