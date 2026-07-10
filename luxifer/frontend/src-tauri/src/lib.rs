@@ -130,10 +130,25 @@ struct PreviewMoveDto {
     seq: u32,
 }
 
+/// Ein Bild-Layer als Textur fürs Frontend (ADR 0008 §2). Die Pixel (1 Byte je
+/// Rasterzelle, 255 = gebrannt) als Base64 — kompakt, statt Hunderttausender
+/// Segmente. Das Frontend lädt sie als GPU-Textur an ihrer mm-Box.
+#[derive(Serialize)]
+struct RasterTextureDto {
+    /// Base64 der Texel-Bytes (row-major, width*height).
+    pixels_b64: String,
+    width: u32,
+    height: u32,
+    /// Tisch-Box (mm): x, y, w, h.
+    rect: [f64; 4],
+}
+
 /// Die komplette Laser-Vorschau fürs Frontend.
 #[derive(Serialize)]
 struct PreviewDto {
     moves: Vec<PreviewMoveDto>,
+    /// Bild-Layer als Texturen (statt Raster-Moves).
+    rasters: Vec<RasterTextureDto>,
     /// (min_x, min_y, max_x, max_y) in mm, oder `None` bei leerem Job.
     bbox: Option<[f64; 4]>,
     total_len_mm: f64,
@@ -157,6 +172,16 @@ impl PreviewDto {
                     kind: kind_str(m.kind),
                     layer_id: m.layer_id,
                     seq: m.seq,
+                })
+                .collect(),
+            rasters: p
+                .rasters
+                .iter()
+                .map(|t| RasterTextureDto {
+                    pixels_b64: base64_encode(&t.pixels),
+                    width: t.width,
+                    height: t.height,
+                    rect: [t.x, t.y, t.w, t.h],
                 })
                 .collect(),
             bbox: p.bbox.map(|(a, b, c, d)| [a, b, c, d]),

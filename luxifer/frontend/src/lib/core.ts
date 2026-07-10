@@ -287,9 +287,19 @@ export interface PreviewMove {
   seq: number;
 }
 
+// Ein Bild-Layer als Textur (ADR 0008 §2): Pixel als Base64 (1 Byte/Texel,
+// 255 = gebrannt) + Maße + Tisch-Box in mm. Das Frontend lädt sie als GPU-Textur.
+export interface RasterTexture {
+  pixels_b64: string;
+  width: number;
+  height: number;
+  rect: [number, number, number, number]; // x, y, w, h in mm
+}
+
 // Die komplette Laser-Vorschau (abgeleitet aus dem JobPlan im Core).
 export interface JobPreview {
   moves: PreviewMove[];
+  rasters: RasterTexture[];
   bbox: [number, number, number, number] | null;
   total_len_mm: number;
 }

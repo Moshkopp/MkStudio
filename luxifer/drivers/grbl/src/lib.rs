@@ -93,7 +93,7 @@ impl GrblDriver {
                             g.push_str("M5\n");
                         }
                     }
-                    LayerWork::Raster { rows } => {
+                    LayerWork::Raster { rows, .. } => {
                         // Bild-Raster: jeder An-Run einer Zeile wie ein Fill-Segment.
                         for row in rows {
                             for &(x0, x1) in &row.runs {

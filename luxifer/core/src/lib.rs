@@ -46,7 +46,7 @@ pub use project::{
     delete_project, list_projects, projects_dir, rename_project, version_thumb_path, ProjectFile,
     ProjectInfo, VersionInfo,
 };
-pub use raster::{raster_rows, Placement, RasterImage, RasterRow};
+pub use raster::{raster_rows, raster_texture, Placement, RasterImage, RasterRow, RasterTexture};
 pub use scanline::FillSegment;
 pub use shapes::{PolyShape, ShapeInfo};
 pub use state::AppState;

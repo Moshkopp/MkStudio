@@ -27,6 +27,22 @@ pub struct RasterRow {
     pub runs: Vec<(f64, f64)>,
 }
 
+/// Bild-Layer als **Textur** für die Vorschau (ADR 0008 §2): ein Byte je
+/// Rasterzelle (0 = nicht gebrannt, 255 = gebrannt), row-major. Aus denselben
+/// `RasterRow`s wie der Job — lügt nicht, ist nur die Pixel-Sicht. Das Frontend
+/// lädt `pixels` als GPU-Textur und zeichnet sie an (`x`,`y`,`w`,`h`) mm.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RasterTexture {
+    pub pixels: Vec<u8>,
+    pub width: u32,
+    pub height: u32,
+    /// Platzierung auf dem Tisch (mm), linke obere Ecke + Größe.
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+}
+
 /// Ein Graustufenbild als Rasterquelle: row-major `u8`-Pixel + Pixelmaße.
 #[derive(Debug, Clone, Copy)]
 pub struct RasterImage<'a> {
@@ -46,48 +62,56 @@ pub struct Placement {
     pub step_mm: f64,
 }
 
-/// Rastert ein Graustufenbild in die mm-Fläche der `Placement`.
-///
-/// Ergebnis sind Zeilen von An/Aus-Runs in mm-Koordinaten. Leere Zeilen (keine
-/// schwarzen Pixel) entfallen. `invert` wählt das Laser-Invert (schwarz↔weiß).
+/// Gemeinsamer Kern: schwellt das Bild auf die Zielrasterung und gibt das
+/// 1-Bit-`bw`-Feld (0/255, row-major) samt Zielmaßen `(tw, th)` zurück. Leere/
+/// entartete Eingaben ⇒ `None`. Basis für `raster_rows` (→ Job-Runs) UND
+/// `raster_texture` (→ Vorschau-Pixel) — eine Wahrheit für beide.
 ///
 /// Ablauf für scharfe Kanten (siehe Modul-Doc): Tonwert-LUT + Schwelle auf der
 /// **Originalauflösung** (1-Bit, maximal scharf), dann auf die Zielzeilenzahl
 /// skalieren, dann erneut schwellen.
-pub fn raster_rows(
+fn rasterize(
     img: RasterImage,
     place: Placement,
     params: &ImageParams,
     invert: bool,
-) -> Vec<RasterRow> {
+) -> Option<(Vec<u8>, usize, usize)> {
     let RasterImage { pixels, px_w, px_h } = img;
-    let Placement {
-        x,
-        y,
-        w,
-        h,
-        step_mm,
-    } = place;
+    let Placement { w, h, step_mm, .. } = place;
     if px_w == 0 || px_h == 0 || pixels.len() != px_w * px_h || w <= 0.0 || h <= 0.0 {
-        return Vec::new();
+        return None;
     }
     let step = step_mm.max(0.01);
-
     // Zielraster: eine Job-Zeile je `step` mm, mindestens eine Zeile/Spalte.
     let th = ((h / step).round() as usize).max(1);
     let tw = ((w / step).round() as usize).max(1);
 
-    // 1. Auf Originalauflösung schwellen (scharf), dann skalieren, dann erneut
-    //    schwellen (Zwischengrau vom Skalieren wieder hart machen). Rastern ist
-    //    hier immer An/Aus — auch ein als Grayscale markierter Layer wird hart
-    //    geschwellt (echtes Grau kommt später über Dithering, ADR 0004 §5).
+    // Auf Originalauflösung schwellen (scharf), dann skalieren, dann erneut
+    // schwellen (Zwischengrau vom Skalieren wieder hart machen). Rastern ist
+    // hier immer An/Aus — auch ein als Grayscale markierter Layer wird hart
+    // geschwellt (echtes Grau kommt später über Dithering, ADR 0004 §5).
     let tp = ImageParams {
         mode: ImageMode::Threshold,
         ..*params
     };
     let bw_src = apply_params(pixels, &tp, invert);
     let scaled = scale_gray(&bw_src, px_w, px_h, tw, th);
-    let bw = threshold_128(&scaled);
+    Some((threshold_128(&scaled), tw, th))
+}
+
+/// Rastert ein Graustufenbild in die mm-Fläche der `Placement` zu **Job-Runs**:
+/// Zeilen von An/Aus-Strecken in mm (der Treiber fährt sie). Leere Zeilen
+/// entfallen. `invert` wählt das Laser-Invert (schwarz↔weiß).
+pub fn raster_rows(
+    img: RasterImage,
+    place: Placement,
+    params: &ImageParams,
+    invert: bool,
+) -> Vec<RasterRow> {
+    let Placement { x, y, w, h, .. } = place;
+    let Some((bw, tw, th)) = rasterize(img, place, params, invert) else {
+        return Vec::new();
+    };
 
     // 2. Pro Zeile die schwarzen (= zu brennenden) Runs sammeln und auf mm mappen.
     let mm_per_col = w / tw as f64;
@@ -119,6 +143,31 @@ pub fn raster_rows(
         }
     }
     rows
+}
+
+/// Wie `raster_rows`, liefert aber die **Textur** für die Vorschau (ADR 0008 §2):
+/// ein Byte je Rasterzelle (255 = gebrannt, 0 = nicht), row-major, plus Maße und
+/// Tisch-Platzierung. Aus demselben geschwellten Feld wie die Job-Runs — exakt
+/// dasselbe Ergebnis, nur als Pixel. `None` bei leeren/entarteten Eingaben.
+pub fn raster_texture(
+    img: RasterImage,
+    place: Placement,
+    params: &ImageParams,
+    invert: bool,
+) -> Option<RasterTexture> {
+    let Placement { x, y, w, h, .. } = place;
+    let (bw, tw, th) = rasterize(img, place, params, invert)?;
+    // bw: 255 = weiß/nicht gebrannt, <128 = gebrannt. Textur: 255 = gebrannt.
+    let pixels: Vec<u8> = bw.iter().map(|&v| if v < 128 { 255 } else { 0 }).collect();
+    Some(RasterTexture {
+        pixels,
+        width: tw as u32,
+        height: th as u32,
+        x,
+        y,
+        w,
+        h,
+    })
 }
 
 /// Harte Schwelle bei 128 auf einen Graustufen-Puffer (nach dem Skalieren, um

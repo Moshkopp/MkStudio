@@ -197,7 +197,7 @@ impl RuidaDriver {
                     add(seg.y, seg.x0, seg.x1);
                 }
             }
-            LayerWork::Raster { rows } => {
+            LayerWork::Raster { rows, .. } => {
                 for row in rows {
                     for &(x0, x1) in &row.runs {
                         add(row.y, x0, x1);
@@ -594,6 +594,7 @@ mod tests {
                         y: 1.0,
                         runs: vec![(0.0, 4.0)],
                     }],
+                    texture: None,
                 },
             }],
             bbox: Some((0.0, 1.0, 4.0, 1.0)),

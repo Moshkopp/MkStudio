@@ -11,6 +11,7 @@
 
 use crate::geometry::Pt;
 use crate::job::{JobPlan, LayerWork};
+use crate::raster::RasterTexture;
 
 /// Art eines Bewegungssegments.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -51,6 +52,9 @@ impl PreviewMove {
 #[derive(Debug, Clone, PartialEq)]
 pub struct JobPreview {
     pub moves: Vec<PreviewMove>,
+    /// Bild-Layer als Texturen (ADR 0008 §2) — NICHT als Moves, sonst wären es
+    /// Hunderttausende Segmente. Das Frontend zeichnet sie als GPU-Textur.
+    pub rasters: Vec<RasterTexture>,
     /// Bounding-Box aller Geometrie (mm), aus dem Plan übernommen.
     pub bbox: Option<(f64, f64, f64, f64)>,
     /// Summe aller Segmentlängen (Arbeit + Travel) in mm.
@@ -64,6 +68,7 @@ impl JobPreview {
     /// dessen Startpunkt nicht schon der aktuellen Kopf-Position entspricht.
     pub fn from_plan(plan: &JobPlan) -> JobPreview {
         let mut moves: Vec<PreviewMove> = Vec::new();
+        let mut rasters: Vec<RasterTexture> = Vec::new();
         let mut seq: u32 = 0;
         // Aktuelle Kopf-Position; None = noch nichts gefahren (kein Anfahr-Travel
         // ab dem Ursprung, das erste Arbeitssegment beginnt einfach dort).
@@ -146,22 +151,12 @@ impl JobPreview {
                         );
                     }
                 }
-                LayerWork::Raster { rows } => {
-                    // Jede Zeile: ihre Runs als Raster-Moves (Laser an). Travel
-                    // zwischen Runs/Zeilen ergänzt `emit` automatisch, wenn der
-                    // Kopf woanders steht.
-                    for row in rows {
-                        for &(x0, x1) in &row.runs {
-                            emit(
-                                &mut moves,
-                                &mut head,
-                                &mut seq,
-                                (x0, row.y),
-                                (x1, row.y),
-                                MoveKind::Raster,
-                                jl.layer_id,
-                            );
-                        }
+                LayerWork::Raster { texture, .. } => {
+                    // Bild-Layer NICHT als Moves (das wären Hunderttausende, ADR
+                    // 0008 §2), sondern als Textur — das Frontend zeichnet sie als
+                    // GPU-Textur. `head` bleibt unverändert (kein Move-Cursor).
+                    if let Some(tex) = texture {
+                        rasters.push(tex.clone());
                     }
                 }
             }
@@ -170,14 +165,15 @@ impl JobPreview {
         let total_len_mm = moves.iter().map(|m| m.len_mm()).sum();
         JobPreview {
             moves,
+            rasters,
             bbox: plan.bbox,
             total_len_mm,
         }
     }
 
-    /// Ob die Vorschau überhaupt Bewegungen enthält.
+    /// Ob die Vorschau überhaupt Inhalt enthält (Bewegungen oder Bild-Texturen).
     pub fn is_empty(&self) -> bool {
-        self.moves.is_empty()
+        self.moves.is_empty() && self.rasters.is_empty()
     }
 }
 
@@ -311,6 +307,47 @@ mod tests {
             "Fill-Layer erzeugt Fill-Segmente"
         );
         assert!(!preview.moves.iter().any(|m| m.kind == MoveKind::Cut));
+    }
+
+    #[test]
+    fn bild_layer_wird_textur_nicht_moves() {
+        // Ein Raster-Layer mit Textur → landet in `rasters`, erzeugt KEINE Moves
+        // (ADR 0008 §2: Bilder als Textur, nicht Hunderttausende Segmente).
+        use crate::job::{JobLayer, JobPlan, LayerWork};
+        use crate::raster::{RasterRow, RasterTexture};
+        let plan = JobPlan {
+            layers: vec![JobLayer {
+                layer_id: 0,
+                color: [0, 0, 0],
+                speed_mm_s: 100.0,
+                power_pct: 50.0,
+                min_power_pct: 0.0,
+                passes: 1,
+                air_assist: false,
+                bidirectional: false,
+                work: LayerWork::Raster {
+                    rows: vec![RasterRow {
+                        y: 0.0,
+                        runs: vec![(0.0, 4.0)],
+                    }],
+                    texture: Some(RasterTexture {
+                        pixels: vec![255, 0, 0, 255],
+                        width: 2,
+                        height: 2,
+                        x: 0.0,
+                        y: 0.0,
+                        w: 4.0,
+                        h: 4.0,
+                    }),
+                },
+            }],
+            bbox: Some((0.0, 0.0, 4.0, 4.0)),
+        };
+        let preview = JobPreview::from_plan(&plan);
+        assert!(preview.moves.is_empty(), "Bild erzeugt keine Moves");
+        assert_eq!(preview.rasters.len(), 1, "Bild landet als Textur");
+        assert_eq!(preview.rasters[0].width, 2);
+        assert!(!preview.is_empty(), "Textur zählt als Inhalt");
     }
 
     #[test]

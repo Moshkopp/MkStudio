@@ -3,8 +3,14 @@
   // Ausfuehrungsreihenfolge inkl. Verfahrwege. EIGENSTAENDIGER Canvas fuer den
   // Preview-Reiter — der Design-Canvas bleibt unangetastet. Die Segmente kommen
   // aus dem Core (jobPreview); das Frontend zeichnet nur (CLAUDE.md Regel 1/2).
+  //
+  // Rendering auf der GPU (ADR 0008): EIN Draw-Call pro Batch statt CPU-stroke()
+  // pro Segment — ein Bild mit zehntausenden Rasterzeilen bleibt so flüssig.
   import { onMount } from "svelte";
   import { jobPreview, type JobPreview, type Scene } from "./core";
+  import { GlRenderer, type LineBatch, type GlBatch, type GlTexture } from "./gl/renderer";
+  import { toScreen as camToScreen, toMm as camToMm, type Camera } from "./gl/camera";
+  import { previewToBatches } from "./gl/preview-render";
 
   interface Props {
     // Aktueller Zustand — liefert Bettgroesse und triggert das Neuladen der
@@ -22,11 +28,14 @@
   let wrapEl: HTMLDivElement;
   let canvasEl: HTMLCanvasElement;
   let rafId = 0;
+  let gl: GlRenderer | null = null;
 
   let preview = $state<JobPreview | null>(null);
   let loading = $state(false);
-  // Verfahrwege (Leerfahrten) ein-/ausblendbar.
-  let showTravel = $state(true);
+  // Verfahrwege (Leerfahrten) ein-/ausblendbar. Standard aus — bei vielen
+  // Rasterzeilen ist die Leerfahrt-Wolke sonst dominant; der Nutzer blendet
+  // sie bei Bedarf ein.
+  let showTravel = $state(false);
 
   // Ansicht (wie Canvas.svelte).
   let zoom = $state(1.2);
@@ -34,8 +43,9 @@
   let panY = $state(40);
   let viewTouched = false;
 
-  const toScreen = (x: number, y: number): [number, number] => [x * zoom + panX, y * zoom + panY];
-  const toMm = (px: number, py: number): [number, number] => [(px - panX) / zoom, (py - panY) / zoom];
+  const cam = (): Camera => ({ zoom, panX, panY });
+  const toScreen = (x: number, y: number): [number, number] => camToScreen(cam(), x, y);
+  const toMm = (px: number, py: number): [number, number] => camToMm(cam(), px, py);
 
   function fitBed() {
     if (!canvasEl) return;
@@ -59,13 +69,6 @@
     }
   }
 
-  // Reihenfolge-Verlauf: fruehe Segmente kuehl (blau), spaete warm (magenta).
-  // t in 0..1 entlang seq. Ergibt einen gut lesbaren Start→Ende-Verlauf.
-  function seqColor(t: number): string {
-    const h = 210 - 210 * t; // 210° (blau) → 0° (rot)
-    return `hsl(${h}, 85%, 60%)`;
-  }
-
   async function reload() {
     loading = true;
     try {
@@ -73,6 +76,7 @@
     } finally {
       loading = false;
     }
+    rebuild(); // Daten neu → Batches + Texturen einmal hochladen
     draw();
   }
 
@@ -84,96 +88,118 @@
     });
   }
 
-  function render() {
-    if (!canvasEl) return;
-    const ctx = canvasEl.getContext("2d");
-    if (!ctx) return;
-    const w = canvasEl.width, h = canvasEl.height;
-    ctx.clearRect(0, 0, w, h);
-    ctx.fillStyle = "#141518";
-    ctx.fillRect(0, 0, w, h);
-    drawGrid(ctx, w, h);
-    drawBed(ctx);
-    drawMoves(ctx);
+  // Hochgeladene GPU-Batches der Job-Geometrie. EINMAL bei Datenänderung gebaut
+  // (rebuild), NICHT pro Frame — das ist der Kern der GPU-Performance: bei
+  // Pan/Zoom ändert sich nur die Kamera-Matrix, die 79k Segmente bleiben oben.
+  let workBatch: GlBatch | null = null;
+  let travelBatch: GlBatch | null = null;
+  let markerBatch: GlBatch | null = null;
+  // Bild-Layer als hochgeladene GPU-Texturen (ADR 0008 §2).
+  let texBatches: GlTexture[] = [];
+
+  // Job-Daten neu auf die GPU laden (nur wenn sich preview/showTravel ändern).
+  function rebuild() {
+    if (!gl) return;
+    if (workBatch) { gl.free(workBatch); workBatch = null; }
+    if (travelBatch) { gl.free(travelBatch); travelBatch = null; }
+    if (markerBatch) { gl.free(markerBatch); markerBatch = null; }
+    for (const t of texBatches) gl.freeTexture(t);
+    texBatches = [];
+    if (!preview) return;
+
+    // Bild-Texturen: Base64 → Bytes → GPU-Textur an ihrer mm-Box.
+    for (const r of preview.rasters) {
+      const bytes = b64ToBytes(r.pixels_b64);
+      texBatches.push(gl.uploadTexture(bytes, r.width, r.height, r.rect));
+    }
+
+    if (preview.moves.length === 0) return;
+    const { work, travel, markers } = previewToBatches(preview, showTravel);
+    workBatch = gl.upload(work.positions, work.colors);
+    if (travel.positions.length) travelBatch = gl.upload(travel.positions, travel.colors);
+    if (markers.positions.length) markerBatch = gl.upload(markers.positions, markers.colors);
   }
 
-  function drawGrid(ctx: CanvasRenderingContext2D, w: number, h: number) {
+  function render() {
+    if (!canvasEl || !gl) return;
+    // Kontextverlust: Renderer + Batches neu aufbauen.
+    if (gl.isLost()) {
+      try { gl = new GlRenderer(canvasEl); rebuild(); } catch { return; }
+    }
+    const w = canvasEl.width, h = canvasEl.height;
+    gl.begin(cam(), w, h, [0.078, 0.082, 0.094]); // #141518
+
+    // Grid/Bett sind winzig (Dutzende Linien) und hängen vom Sichtbereich ab →
+    // pro Frame ok. Die Job-Batches/Texturen dagegen sind vorab hochgeladen.
+    const grid = gridBatch(w, h);
+    const grbatch = gl.upload(grid.positions, grid.colors);
+    gl.drawBatch(grbatch, "lines");
+    gl.free(grbatch);
+    const bed = bedBatch();
+    const bbatch = gl.upload(bed.positions, bed.colors);
+    gl.drawBatch(bbatch, "lines");
+    gl.free(bbatch);
+
+    // Bild-Texturen (hell gebrannt) zuerst, dann Vektoren/Marker darüber.
+    for (const t of texBatches) gl.drawTexture(t, [0.9, 0.92, 0.96]);
+    if (travelBatch) gl.drawBatch(travelBatch, "lines");
+    if (workBatch) gl.drawBatch(workBatch, "lines");
+    if (markerBatch) gl.drawBatch(markerBatch, "points");
+  }
+
+  // Base64 → Uint8Array (Textur-Bytes). atob ist im WebView verfügbar.
+  function b64ToBytes(b64: string): Uint8Array {
+    const bin = atob(b64);
+    const out = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+    return out;
+  }
+
+  // Grid als Line-Batch in mm (der Shader rechnet mm→Clip). Schrittweite so,
+  // dass die Linien am Bildschirm nicht zu dicht liegen.
+  function gridBatch(w: number, h: number): LineBatch {
     let step = 50;
     while (step * zoom < 8) step *= 2;
     const [tlx, tly] = toMm(0, 0);
     const [brx, bry] = toMm(w, h);
-    ctx.lineWidth = 1;
-    ctx.strokeStyle = "rgba(255,255,255,0.06)";
-    ctx.beginPath();
+    const pos: number[] = [];
     for (let x = Math.floor(tlx / step) * step; x <= brx; x += step) {
-      const sx = toScreen(x, 0)[0];
-      ctx.moveTo(sx, 0); ctx.lineTo(sx, h);
+      pos.push(x, tly, x, bry);
     }
     for (let y = Math.floor(tly / step) * step; y <= bry; y += step) {
-      const sy = toScreen(0, y)[1];
-      ctx.moveTo(0, sy); ctx.lineTo(w, sy);
+      pos.push(tlx, y, brx, y);
     }
-    ctx.stroke();
+    return solidBatch(pos, [1, 1, 1, 0.06]);
   }
 
-  function drawBed(ctx: CanvasRenderingContext2D) {
-    const [x0, y0] = toScreen(0, 0);
-    ctx.strokeStyle = "rgba(90,150,220,0.9)";
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(x0, y0, bedW * zoom, bedH * zoom);
-    ctx.strokeStyle = "rgb(240,180,60)";
-    ctx.lineWidth = 2.5;
-    ctx.beginPath();
-    ctx.moveTo(x0, y0); ctx.lineTo(x0 + 18, y0);
-    ctx.moveTo(x0, y0); ctx.lineTo(x0, y0 + 18);
-    ctx.stroke();
+  // Bett-Rechteck (blau) + Ursprungsmarker (gelb, konstante Bildschirmgröße).
+  function bedBatch(): LineBatch {
+    const pos: number[] = [], col: number[] = [];
+    const push = (x0: number, y0: number, x1: number, y1: number, c: number[]) => {
+      pos.push(x0, y0, x1, y1);
+      for (let k = 0; k < 2; k++) col.push(c[0], c[1], c[2], c[3]);
+    };
+    const blue = [0.35, 0.59, 0.86, 0.9];
+    push(0, 0, bedW, 0, blue);
+    push(bedW, 0, bedW, bedH, blue);
+    push(bedW, bedH, 0, bedH, blue);
+    push(0, bedH, 0, 0, blue);
+    // Ursprungsmarker: 18 px in mm umgerechnet, damit konstant groß.
+    const m = 18 / zoom;
+    const gold = [0.94, 0.71, 0.24, 1];
+    push(0, 0, m, 0, gold);
+    push(0, 0, 0, m, gold);
+    return { positions: new Float32Array(pos), colors: new Float32Array(col) };
   }
 
-  function drawMoves(ctx: CanvasRenderingContext2D) {
-    if (!preview || preview.moves.length === 0) return;
-    const n = preview.moves.length;
-
-    // Verfahrwege zuerst (blass, gestrichelt), damit die Arbeit obenauf liegt.
-    if (showTravel) {
-      ctx.setLineDash([4, 4]);
-      ctx.strokeStyle = "rgba(255,255,255,0.22)";
-      ctx.lineWidth = 1;
-      ctx.beginPath();
-      for (const m of preview.moves) {
-        if (m.kind !== "Travel") continue;
-        const [ax, ay] = toScreen(m.from[0], m.from[1]);
-        const [bx, by] = toScreen(m.to[0], m.to[1]);
-        ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-      }
-      ctx.stroke();
-      ctx.setLineDash([]);
+  // Hilfs-Batch: alle Segmente in einer Farbe.
+  function solidBatch(pos: number[], rgba: number[]): LineBatch {
+    const col = new Float32Array((pos.length / 2) * 4);
+    for (let i = 0; i < pos.length / 2; i++) {
+      col[i * 4] = rgba[0]; col[i * 4 + 1] = rgba[1];
+      col[i * 4 + 2] = rgba[2]; col[i * 4 + 3] = rgba[3];
     }
-
-    // Arbeitssegmente mit Reihenfolge-Verlauf (Start kuehl → Ende warm).
-    ctx.lineWidth = 1.8;
-    ctx.lineCap = "round";
-    for (const m of preview.moves) {
-      if (m.kind === "Travel") continue;
-      const t = n > 1 ? m.seq / (n - 1) : 0;
-      ctx.strokeStyle = seqColor(t);
-      const [ax, ay] = toScreen(m.from[0], m.from[1]);
-      const [bx, by] = toScreen(m.to[0], m.to[1]);
-      ctx.beginPath();
-      ctx.moveTo(ax, ay); ctx.lineTo(bx, by);
-      ctx.stroke();
-    }
-
-    // Start-Marker (gruen) und End-Marker (rot) fuer die Fahrtrichtung.
-    const work = preview.moves.filter((m) => m.kind !== "Travel");
-    if (work.length > 0) {
-      const first = work[0], last = work[work.length - 1];
-      const [sx, sy] = toScreen(first.from[0], first.from[1]);
-      const [ex, ey] = toScreen(last.to[0], last.to[1]);
-      ctx.fillStyle = "#3fb27f";
-      ctx.beginPath(); ctx.arc(sx, sy, 5, 0, Math.PI * 2); ctx.fill();
-      ctx.fillStyle = "#ff5c62";
-      ctx.beginPath(); ctx.arc(ex, ey, 5, 0, Math.PI * 2); ctx.fill();
-    }
+    return { positions: new Float32Array(pos), colors: col };
   }
 
   // ---- Pan / Zoom (nur Ansicht, kein Bearbeiten) ---------------------------
@@ -226,6 +252,11 @@
   }
 
   onMount(() => {
+    try {
+      gl = new GlRenderer(canvasEl);
+    } catch (e) {
+      console.error("WebGL-Init fehlgeschlagen:", e);
+    }
     resize();
     const ro = new ResizeObserver(resize);
     if (wrapEl) ro.observe(wrapEl);
@@ -234,8 +265,10 @@
 
   // Bei Sichtbarwerden / Zustandsaenderung neu vom Core laden.
   $effect(() => { scene; reload(); });
-  // Redraw bei Ansichts-/Filteraenderung.
-  $effect(() => { zoom; panX; panY; showTravel; preview; insets; draw(); });
+  // Travel ein-/ausblenden ändert die Daten → Batches neu hochladen.
+  $effect(() => { showTravel; rebuild(); draw(); });
+  // Reines Redraw bei Ansichtsänderung (Zoom/Pan) — KEIN Batch-Neuaufbau.
+  $effect(() => { zoom; panX; panY; insets; draw(); });
 
   // Kurz-Statistik fuer die Legende.
   const cutCount = $derived(preview?.moves.filter((m) => m.kind === "Cut").length ?? 0);
@@ -257,7 +290,7 @@
   <div class="bar glass">
     {#if loading}
       <span class="muted">Vorschau wird berechnet…</span>
-    {:else if !preview || preview.moves.length === 0}
+    {:else if !preview || (preview.moves.length === 0 && preview.rasters.length === 0)}
       <span class="muted">Kein Job — nichts zu fahren.</span>
     {:else}
       <span class="stat"><span class="dot start"></span>Start</span>

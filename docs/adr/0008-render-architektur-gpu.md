@@ -127,23 +127,50 @@ Ergebnis, nicht ein Extra-Feature:
   auf, bis bei starkem Zoom große Zeilenabstände und die **Kantensauberkeit** der
   Runs erkennbar sind.
 
-Beides sind **dieselben** Rasterzeilen-Daten (`LayerWork::Raster`, eine Wahrheit
-mit dem Job) — nur unterschiedlich dicht auf dem Schirm. Es braucht **kein**
-separates Bitmap (der in dieser Session verworfene Ansatz): ein statisches Bild
-wäre beim Reinzoomen matschig und würde Scrubber/Zoom-Schärfe zerstören. Die GPU
-zeichnet die echten Linien in ~0 ms — scharf auf jeder Zoomstufe.
+**Bild-Layer werden als GPU-Textur gezeichnet, nicht als Segmente.** Messung
+(dieses Setup): ein reales Ausmalbild erzeugt **~445.000** Rasterzeilen-Runs. Die
+als einzelne `PreviewMove`-Segmente durch IPC zu schicken und im JS zu Vertex-
+Arrays zu bauen kostet mehrere Sekunden *pro Laden* (1,5 s IPC/Core + 2 s
+Array-Aufbau) — unabhängig vom Zeichnen, das dank GPU flüssig ist. Ein Bild ist
+kein Haufen Linien; die richtige Datenform für die Anzeige ist eine **Textur**.
 
-Der **Scrubber/Play** (ADR 0005 §4) bleibt damit für **alle** Arbeitsarten
-erhalten (Cut/Fill/Raster), weil die Segmente einzeln adressierbar bleiben (`seq`)
-— anders als bei einem Bitmap.
+Wichtig — das ist **nicht** das in dieser Session verworfene Bitmap:
+
+- **Verworfenes Bitmap:** ein fertig gerendertes PNG in *Anzeige*-Größe → beim
+  Reinzoomen matschig (feste Auflösung).
+- **Diese Textur:** **ein Texel pro Rasterzelle** (native Job-Auflösung, aus
+  denselben `LayerWork::Raster`-Zeilen wie der Job), gezeichnet mit `NEAREST`-
+  Sampling. Rausgezoomt = saubere Fläche; reingezoomt werden die Texel scharf
+  größer → man sieht die **einzelnen Rasterzeilen** als scharfe Pixelreihen.
+
+Sie **lügt nicht** (anders als „Runs zusammenfassen", das bewusst verworfen
+wird): jeder gebrannte Texel ist gesetzt, jeder nicht-gebrannte leer — exakt das
+Brennergebnis, nur als Pixel statt als Striche. Eine Wahrheit mit dem Job bleibt.
+
+**Der Core baut die Textur, das Frontend rechnet nichts** (CLAUDE.md Regel 1).
+Die Bild-Pixel (ein Texel je Rasterzelle) werden **im Core** aus den
+`LayerWork::Raster`-Zeilen erzeugt und dem Frontend als kompakte Bytes + Tisch-
+Position/Maße geliefert. Das Frontend lädt sie nur per `texImage2D` hoch und
+zeichnet ein texturiertes Quad — **keine Pixelrechnerei im Canvas**. Das ist
+bewusst anders als ältere Ansätze (Referenzversionen), die das Bitmap im
+Frontend „backten": Bildaufbau ist Fachlogik und gehört in den Core. Der IPC
+transportiert dann eine kompakte Textur statt Hunderttausender Segmente — das
+löst die gemessene Lade-/Transferzeit.
+
+**Cut/Fill bleiben Segmente** (davon gibt es wenige) und werden weiter als Linien
+gezeichnet — mit vollem **Scrubber/Play** (ADR 0005 §4), wo er Sinn ergibt
+(überschaubare Konturen, Reihenfolge wichtig). Für ein Rasterbild mit
+Hunderttausenden Zeilen ist ein Move-für-Move-Scrubber ohnehin sinnlos.
 
 ### 3. Revision von ADR 0005 (Preview)
 
 ADR 0005 bleibt in seiner **Architektur** gültig (Preview = Visualisierung des
-`JobPlan`, eine Wahrheit, Ableitung im Core). Revidiert wird nur die **Render-
-Technik** der Umsetzung: Der Preview-Canvas zeichnet die `PreviewMove`s **nicht**
-mehr als einzelne CPU-`stroke()`-Aufrufe, sondern über die GPU-Render-API (§1).
-`MoveKind::Raster` wird als echte Scanline gezeichnet (§2), nicht als Bitmap.
+`JobPlan`, eine Wahrheit, Ableitung im Core). Revidiert wird die **Render-Technik**
+der Umsetzung: Cut/Fill-`PreviewMove`s werden **nicht** mehr als einzelne
+CPU-`stroke()`-Aufrufe gezeichnet, sondern über die GPU-Render-Schicht (§1).
+Bild-Layer erscheinen **nicht** als `MoveKind::Raster`-Segmente in der Preview,
+sondern als **Textur** (§2) — die Rasterzeilen bleiben im `JobPlan`/Job die
+Wahrheit, die Preview zeigt sie nur als Pixel statt als Hunderttausende Segmente.
 
 ### 4. Reihenfolge-Einfärbung GPU-tauglich
 

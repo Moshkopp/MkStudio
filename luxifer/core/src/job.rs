@@ -6,7 +6,9 @@
 
 use crate::geometry::{rotate_point, Geo, Pt};
 use crate::model::{Layer, LayerMode, Shape};
-use crate::raster::{raster_rows, Placement, RasterImage, RasterRow};
+use crate::raster::{
+    raster_rows, raster_texture, Placement, RasterImage, RasterRow, RasterTexture,
+};
 use crate::scanline::{fill_segments, Contour, FillSegment};
 
 /// Ein zusammenhängender Pfad in mm (Polygonzug). `closed` = Kontur schließt sich.
@@ -24,8 +26,13 @@ pub enum LayerWork {
     /// Fläche mit horizontalen Linien füllen (Even-Odd-Scanline).
     Fill { segments: Vec<FillSegment> },
     /// Bild rastern: An/Aus-Zeilen aus einem geschwellten Graustufenbild
-    /// (raster.rs). Jede Zeile trägt ihre durchzubrennenden Runs.
-    Raster { rows: Vec<RasterRow> },
+    /// (raster.rs). `rows` = die durchzubrennenden Runs (der Treiber fährt sie).
+    /// `texture` = dieselbe Rasterung als Pixel für die Vorschau (ADR 0008 §2);
+    /// aus denselben Daten, damit die Vorschau nicht 445k Segmente braucht.
+    Raster {
+        rows: Vec<RasterRow>,
+        texture: Option<RasterTexture>,
+    },
 }
 
 /// Ein Layer-Block des Jobs: Parameter + Arbeit. Referenziert den Original-Layer.
@@ -77,7 +84,7 @@ impl JobLayer {
                     acc(s.x1, s.y);
                 }
             }
-            LayerWork::Raster { rows } => {
+            LayerWork::Raster { rows, .. } => {
                 for r in rows {
                     for &(x0, x1) in &r.runs {
                         acc(x0, r.y);
@@ -139,7 +146,7 @@ impl JobPlan {
             // Bild-Layer: Shapes werden gerastert (Schwellwert), nicht als
             // Kontur/Fill behandelt. Nur die Bild-Shapes des Layers zählen.
             if layer.mode == LayerMode::Image {
-                let rows = raster_image_layer(shapes, li, layer, &mut resolve);
+                let (rows, texture) = raster_image_layer(shapes, li, layer, &mut resolve);
                 if rows.is_empty() {
                     continue;
                 }
@@ -152,7 +159,7 @@ impl JobPlan {
                     passes: layer.passes,
                     air_assist: layer.air_assist,
                     bidirectional: layer.bidirectional,
-                    work: LayerWork::Raster { rows },
+                    work: LayerWork::Raster { rows, texture },
                 });
                 continue;
             }
@@ -216,11 +223,14 @@ fn raster_image_layer<'a, F>(
     li: usize,
     layer: &Layer,
     resolve: &mut F,
-) -> Vec<RasterRow>
+) -> (Vec<RasterRow>, Option<RasterTexture>)
 where
     F: FnMut(&str) -> Option<(std::borrow::Cow<'a, [u8]>, usize, usize)>,
 {
     let mut out: Vec<RasterRow> = Vec::new();
+    // Vorschau-Textur: beim Regelfall (ein Bild je Layer) die des Bildes. Bei
+    // mehreren Bildern auf einem Layer trägt die Textur nur das erste (Randfall).
+    let mut texture: Option<RasterTexture> = None;
     for s in shapes.iter().filter(|s| s.layer_id == li) {
         let Geo::Image {
             asset,
@@ -241,25 +251,24 @@ where
         // Strecke tragen, und ein „schiefes" Raster ist für Ausmalbilder ein
         // Randfall. Offen für später, falls gedrehte Bilder gebraucht werden
         // (dann müssten Runs echte 2D-Strecken sein).
-        let rows = raster_rows(
-            RasterImage {
-                pixels: &pixels,
-                px_w,
-                px_h,
-            },
-            Placement {
-                x: *x,
-                y: *y,
-                w: *w,
-                h: *h,
-                step_mm: layer.line_step_mm,
-            },
-            params,
-            params.invert_laser,
-        );
-        out.extend(rows);
+        let src = RasterImage {
+            pixels: &pixels,
+            px_w,
+            px_h,
+        };
+        let place = Placement {
+            x: *x,
+            y: *y,
+            w: *w,
+            h: *h,
+            step_mm: layer.line_step_mm,
+        };
+        out.extend(raster_rows(src, place, params, params.invert_laser));
+        if texture.is_none() {
+            texture = raster_texture(src, place, params, params.invert_laser);
+        }
     }
-    out
+    (out, texture)
 }
 
 /// Wandelt eine Shape (inkl. Rotation) in einen mm-Pfad.
@@ -324,7 +333,7 @@ fn bounding_box(layers: &[JobLayer]) -> Option<(f64, f64, f64, f64)> {
                     acc(s.x1, s.y);
                 }
             }
-            LayerWork::Raster { rows } => {
+            LayerWork::Raster { rows, .. } => {
                 for r in rows {
                     for &(x0, x1) in &r.runs {
                         acc(x0, r.y);
@@ -641,7 +650,7 @@ mod tests {
         });
 
         assert_eq!(plan.layers.len(), 1);
-        let LayerWork::Raster { rows } = &plan.layers[0].work else {
+        let LayerWork::Raster { rows, .. } = &plan.layers[0].work else {
             panic!("Raster erwartet, war {:?}", plan.layers[0].work)
         };
         // Nur die schwarze Zeile (oben) erzeugt einen Run über die volle Breite.
@@ -681,7 +690,7 @@ mod tests {
             Some((std::borrow::Cow::Owned(px), w as usize, h as usize))
         });
 
-        let LayerWork::Raster { rows } = &plan.layers[0].work else {
+        let LayerWork::Raster { rows, .. } = &plan.layers[0].work else {
             panic!("Raster erwartet")
         };
         // Vier Zeilen, jede mit einem Run über die linke (schwarze) Hälfte 0..4 mm.
