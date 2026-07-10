@@ -732,6 +732,28 @@ fn offset_op(data: State<AppData>, dist: f64) -> Scene {
     scene_with(&s, &data)
 }
 
+/// Haltesteg an der Klickstelle (x,y in mm): Lücke von `width` mm in die
+/// getroffene Kontur schneiden.
+#[tauri::command]
+fn bridge_op(data: State<AppData>, x: f64, y: f64, tol: f64, width: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.bridge_at(x, y, tol, width);
+    scene_with(&s, &data)
+}
+
+/// Verrundet NUR die angeklickten Ecken einer Shape (Punkt-Indizes).
+#[tauri::command]
+fn fillet_corners_op(
+    data: State<AppData>,
+    shape_index: usize,
+    corners: Vec<usize>,
+    radius: f64,
+) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.fillet_shape_corners(shape_index, &corners, radius);
+    scene_with(&s, &data)
+}
+
 /// Ecken der selektierten Shapes mit Radius (mm) verrunden.
 #[tauri::command]
 fn fillet_op(data: State<AppData>, radius: f64) -> Scene {
@@ -745,6 +767,22 @@ fn fillet_op(data: State<AppData>, radius: f64) -> Scene {
 fn nest_op(data: State<AppData>, gap: f64) -> Scene {
     let mut s = data.state.lock().unwrap();
     s.nest_selected(gap);
+    scene_with(&s, &data)
+}
+
+/// Füllt das Bett mit Kopien der zuerst selektierten Form (Nesting v3-Modus).
+#[tauri::command]
+fn nest_fill_op(data: State<AppData>, gap: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.nest_fill_selected(gap);
+    scene_with(&s, &data)
+}
+
+/// Fügt die 4×2-Untersetzer-Vorlage ein (100 mm, 20 mm Lücke, zentriert).
+#[tauri::command]
+fn insert_coasters(data: State<AppData>, round: bool) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.insert_coasters(round);
     scene_with(&s, &data)
 }
 
@@ -1520,7 +1558,11 @@ pub fn run() {
             upload_font,
             offset_op,
             fillet_op,
+            fillet_corners_op,
+            bridge_op,
             nest_op,
+            nest_fill_op,
+            insert_coasters,
             set_layer_params,
             toggle_layer,
             move_layer,

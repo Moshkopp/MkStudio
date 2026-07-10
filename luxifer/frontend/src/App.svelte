@@ -31,7 +31,7 @@
   } from "./lib/core";
   import { applyTheme } from "./lib/theme";
 
-  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure";
 
   let scene = $state<Scene | null>(null);
   let tool = $state<Tool>("select");
@@ -293,6 +293,23 @@
   async function doNest(gap: number) {
     scene = await core.nestOp(gap);
   }
+  // BBox der Auswahl (für die Größen-Eingabe im Anordnen-Panel).
+  const selBBox = $derived.by((): [number, number, number, number] | null => {
+    if (!scene || scene.selected.length === 0) return null;
+    let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+    for (const i of scene.selected) {
+      const s = scene.shapes[i];
+      if (!s) continue;
+      const [x, y, w, h] = core.shapeBBox(s);
+      a = Math.min(a, x); b = Math.min(b, y);
+      c = Math.max(c, x + w); d = Math.max(d, y + h);
+    }
+    return isFinite(a) ? [a, b, c - a, d - b] : null;
+  });
+  async function doResize(w: number, h: number) {
+    if (!selBBox) return;
+    scene = await core.scaleSelected(selBBox, [selBBox[0], selBBox[1], w, h]);
+  }
   // Bild vektorisieren (aus dem Bild-Editor). Schließt den Dialog bei Erfolg.
   async function doTraceImage(threshold: number, invert: boolean) {
     if (editImage === null) return;
@@ -306,10 +323,28 @@
   // Sofort-Befehle aus der Werkzeugleiste. Spiegeln wirkt auf die Auswahl;
   // "text" öffnet den Text-Dialog (Text→Pfad).
   async function doToolAction(
-    a: "mirror_h" | "mirror_v" | "text" | "boolean" | "fillet" | "offset" | "pattern-fill",
+    a:
+      | "mirror_h"
+      | "mirror_v"
+      | "text"
+      | "boolean"
+      | "fillet"
+      | "offset"
+      | "pattern-fill"
+      | "coaster_rect"
+      | "coaster_circle"
+      | "bridge",
   ) {
     if (a === "text") {
       textOpen = true;
+      return;
+    }
+    if (a === "coaster_rect" || a === "coaster_circle") {
+      scene = await core.insertCoasters(a === "coaster_circle");
+      return;
+    }
+    if (a === "bridge") {
+      bridgePick = !bridgePick;
       return;
     }
     // Geometrie-Werkzeuge (Referenz-UX): Button öffnet die Optionen,
@@ -326,6 +361,36 @@
   }
   // Offener Geometrie-Werkzeug-Dialog (oder null).
   let geoTool = $state<null | "boolean" | "fillet" | "offset" | "pattern">(null);
+  // Ecken-Pick-Modus fürs Fillet (Referenz-UX: Ecken einzeln anklicken).
+  let filletPick = $state(false);
+  // Haltesteg-Modus: Klick auf Konturen schneidet Lücken.
+  let bridgePick = $state(false);
+  let bridgeWidth = $state(2.0);
+  async function doBridgeAt(x: number, y: number, tol: number) {
+    scene = await core.bridgeOp(x, y, tol, bridgeWidth);
+  }
+  let filletRadius = $state(2.0);
+  let filletCorners = $state<string[]>([]);
+  function toggleFilletCorner(shape: number, corner: number) {
+    const key = `${shape}:${corner}`;
+    filletCorners = filletCorners.includes(key)
+      ? filletCorners.filter((k) => k !== key)
+      : [...filletCorners, key];
+  }
+  async function applyFilletCorners() {
+    // Nach Shape gruppieren und je Shape anwenden (absteigend — Indizes stabil,
+    // da Fillet die Shape ersetzt, nicht entfernt).
+    const byShape = new Map<number, number[]>();
+    for (const k of filletCorners) {
+      const [si, ci] = k.split(":").map(Number);
+      byShape.set(si, [...(byShape.get(si) ?? []), ci]);
+    }
+    for (const [si, corners] of byShape) {
+      scene = await core.filletCornersOp(si, corners, filletRadius);
+    }
+    filletCorners = [];
+    filletPick = false;
+  }
   async function doPatternFill(
     p: core.PatternKind,
     gapX: number,
@@ -692,6 +757,11 @@
       laserOrigin={laserOrigin}
       oneditimage={(i) => (editImage = i)}
       onedittext={openTextEdit}
+      filletpick={filletPick}
+      filletsel={filletCorners}
+      onfilletcorner={toggleFilletCorner}
+      bridgepick={bridgePick}
+      onbridgeat={doBridgeAt}
     />
   {/if}
 
@@ -771,8 +841,11 @@
             onalign={doAlign}
             ondistribute={doDistribute}
             onnest={doNest}
+            onnestfill={async (g) => (scene = await core.nestFillOp(g))}
             ongroup={async () => (scene = await core.groupOp())}
             onungroup={async () => (scene = await core.ungroupOp())}
+            {selBBox}
+            onresize={doResize}
           />
         {:else if p.kind === "Laser"}
           <LaserPanel
@@ -833,10 +906,30 @@
       {selCount}
       onboolean={(op) => { doBoolean(op); geoTool = null; }}
       onfillet={(r) => { doFillet(r); geoTool = null; }}
+      onfilletpick={(r) => { filletRadius = r; filletCorners = []; filletPick = true; geoTool = null; }}
       onoffset={(d) => { doOffset(d); geoTool = null; }}
       onpattern={doPatternFill}
       onclose={() => (geoTool = null)}
     />
+  {/if}
+
+  <!-- Haltesteg-Modus: schwebende Leiste -->
+  {#if bridgePick}
+    <div class="fillet-bar glass">
+      <span>Haltesteg: Kontur anklicken</span>
+      <label>Breite <input type="number" step="0.5" min="0.2" bind:value={bridgeWidth} /> mm</label>
+      <button class="mini" onclick={() => (bridgePick = false)}>Fertig</button>
+    </div>
+  {/if}
+
+  <!-- Fillet-Ecken-Modus: schwebende Leiste -->
+  {#if filletPick}
+    <div class="fillet-bar glass">
+      <span>Ecken anklicken ({filletCorners.length} gewählt)</span>
+      <label>Radius <input type="number" step="0.5" min="0.1" bind:value={filletRadius} /></label>
+      <button class="mini primary" disabled={filletCorners.length === 0} onclick={applyFilletCorners}>Anwenden</button>
+      <button class="mini" onclick={() => { filletPick = false; filletCorners = []; }}>Abbrechen</button>
+    </div>
   {/if}
 
   <!-- Text-Werkzeug (Text→Pfad) -->
@@ -1151,5 +1244,39 @@
   .primary {
     background: var(--accent);
     color: white;
+  }
+  .fillet-bar {
+    position: absolute;
+    top: 70px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    color: var(--text);
+    z-index: 60;
+  }
+  .fillet-bar label {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted);
+  }
+  .fillet-bar input {
+    width: 60px;
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 4px 6px;
+  }
+  .fillet-bar .primary {
+    background: var(--accent);
+    color: #fff;
+    border-color: var(--accent);
   }
 </style>

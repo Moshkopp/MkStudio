@@ -87,6 +87,105 @@ impl AppState {
     }
 }
 
+impl AppState {
+    /// Füllt das Bett mit **Kopien** der zuerst selektierten Form (v3-Modus:
+    /// „Kopien eines Teils in einen Rahmen packen"). `gap_mm` = Abstand
+    /// zwischen den Kopien; es entstehen so viele, wie aufs Bett passen
+    /// (inklusive des Originals, das mit einsortiert wird). Ein Undo-Punkt.
+    pub fn nest_fill_selected(&mut self, gap_mm: f64) {
+        let Some(&first) = self.selected.first() else {
+            return;
+        };
+        let Some(proto) = self.shapes.get(first).cloned() else {
+            return;
+        };
+        let b = proto.bbox();
+        if b.w <= 0.0 || b.h <= 0.0 {
+            return;
+        }
+        // Wie viele passen? Kapazität über das Shelf-Packing ermitteln.
+        let gap = gap_mm.max(0.0);
+        let cols = ((self.bed_w_mm - gap) / (b.w + gap)).floor() as usize;
+        let rows = ((self.bed_h_mm - gap) / (b.h + gap)).floor() as usize;
+        let count = cols * rows;
+        if count < 2 {
+            return; // es passt nur das Original — nichts zu tun
+        }
+        let sizes = vec![(b.w, b.h); count];
+        let placements = nest(&sizes, self.bed_w_mm, self.bed_h_mm, gap);
+
+        self.push_undo();
+        self.selected.clear();
+        let mut placed_first = false;
+        for p in placements.into_iter().flatten() {
+            let (tx, ty) = p;
+            if !placed_first {
+                // Das Original an die erste Position schieben.
+                if let Some(s) = self.shapes.get_mut(first) {
+                    let bb = s.bbox();
+                    s.geo.translate(tx - bb.x, ty - bb.y);
+                }
+                self.selected.push(first);
+                placed_first = true;
+            } else {
+                let mut copy = proto.clone();
+                copy.group_id = None;
+                copy.text_meta = None;
+                let bb = copy.bbox();
+                copy.geo.translate(tx - bb.x, ty - bb.y);
+                let idx = self.shapes.len();
+                self.shapes.push(copy);
+                self.selected.push(idx);
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Fügt die 4×2-Untersetzer-Vorlage ein (Referenz: 100 mm, 20 mm Lücke,
+    /// zentriert aufs Bett). `round` = runde statt eckige Untersetzer.
+    /// Ein Undo-Punkt; die acht Formen sind danach selektiert.
+    pub fn insert_coasters(&mut self, round: bool) {
+        const COLS: usize = 4;
+        const ROWS: usize = 2;
+        const SIZE: f64 = 100.0;
+        const GAP: f64 = 20.0;
+        let total_w = COLS as f64 * SIZE + (COLS as f64 - 1.0) * GAP;
+        let total_h = ROWS as f64 * SIZE + (ROWS as f64 - 1.0) * GAP;
+        let ox = (self.bed_w_mm - total_w) / 2.0;
+        let oy = (self.bed_h_mm - total_h) / 2.0;
+
+        self.push_undo();
+        let layer_id = self.layer_for_new_shape();
+        self.selected.clear();
+        for row in 0..ROWS {
+            for col in 0..COLS {
+                let x = ox + col as f64 * (SIZE + GAP);
+                let y = oy + row as f64 * (SIZE + GAP);
+                let geo = if round {
+                    crate::geometry::Geo::Ellipse {
+                        cx: x + SIZE / 2.0,
+                        cy: y + SIZE / 2.0,
+                        rx: SIZE / 2.0,
+                        ry: SIZE / 2.0,
+                    }
+                } else {
+                    crate::geometry::Geo::Rect {
+                        x,
+                        y,
+                        w: SIZE,
+                        h: SIZE,
+                    }
+                };
+                let idx = self.shapes.len();
+                self.shapes.push(crate::model::Shape::new(layer_id, geo));
+                self.selected.push(idx);
+            }
+        }
+        self.pending_color = None;
+        self.dirty = true;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

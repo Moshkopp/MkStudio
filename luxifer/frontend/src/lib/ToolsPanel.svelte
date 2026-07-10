@@ -6,9 +6,9 @@
   // hier — die liegen im Header bzw. auf der Entf-Taste.
   import Icon, { type IconName } from "./Icon.svelte";
 
-  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure";
   // Sofort-Befehle auf der Auswahl (kein Zeichenmodus), z. B. Spiegeln.
-  type Action = "mirror_h" | "mirror_v" | "text" | "boolean" | "fillet" | "offset" | "pattern-fill";
+  type Action = "mirror_h" | "mirror_v" | "text" | "boolean" | "fillet" | "offset" | "pattern-fill" | "coaster_rect" | "coaster_circle" | "bridge";
   let {
     tool,
     onpick,
@@ -51,12 +51,12 @@
     // 3: Operationen & Hilfsmittel
     [
       { name: "trim", icon: "trim", tip: "Trimmen" },
-      { name: "bridge", icon: "bridge", tip: "Haltesteg" },
+      { name: "bridge", icon: "bridge", tip: "Haltesteg: Lücke in Kontur schneiden (Teil bleibt hängen)", action: true },
       { name: "boolean", icon: "boolean", tip: "Boolean: Vereinigen/Schneiden/Abziehen (Auswahl)", action: true },
       { name: "fillet", icon: "fillet", tip: "Ecken verrunden (Auswahl)", action: true },
       { name: "pattern-fill", icon: "pattern-fill", tip: "Muster füllen: Linien/Kreise/Slots/Waben (Auswahl)", action: true },
       { name: "offset", icon: "offset", tip: "Offset / parallele Kontur (Auswahl)", action: true },
-      { name: "measure", icon: "measure", tip: "Messen" },
+      { name: "measure", icon: "measure", tip: "Messen (Klicken+Ziehen: Abstand in mm)", active: true },
     ],
     // 4: Spiegeln (Sofort-Befehle auf der Auswahl)
     [
@@ -65,8 +65,8 @@
     ],
     // 5: Untersetzer-Schnelleinfügung
     [
-      { name: "coaster_rect", icon: "coaster-rect", tip: "4×2 eckige Untersetzer" },
-      { name: "coaster_circle", icon: "coaster-circle", tip: "4×2 runde Untersetzer" },
+      { name: "coaster_rect", icon: "coaster-rect", tip: "4×2 eckige Untersetzer (100 mm) einfügen", action: true },
+      { name: "coaster_circle", icon: "coaster-circle", tip: "4×2 runde Untersetzer (100 mm) einfügen", action: true },
     ],
   ];
 

@@ -104,6 +104,12 @@ pub fn offset(points: &[Pt], closed: bool, dist: f64) -> Vec<Vec<Pt>> {
 /// den Radius zu kurz sind, bleiben spitz. Offene Konturen behalten Anfangs-
 /// und Endpunkt.
 pub fn fillet(points: &[Pt], closed: bool, r: f64) -> Vec<Pt> {
+    fillet_corners(points, closed, r, None)
+}
+
+/// Wie [`fillet`], aber optional nur an den Ecken mit den angegebenen
+/// **Punkt-Indizes** (Referenz-UX: Ecken einzeln anklicken). `None` = alle.
+pub fn fillet_corners(points: &[Pt], closed: bool, r: f64, only: Option<&[usize]>) -> Vec<Pt> {
     let n = points.len();
     if n < 3 || r <= 0.0 {
         return points.to_vec();
@@ -124,9 +130,10 @@ pub fn fillet(points: &[Pt], closed: bool, r: f64) -> Vec<Pt> {
             (k, k + 1, k + 2)
         };
         let (a, p, b) = (points[ia], points[ip], points[ib]);
-        match corner_arc(a, p, b, r, ARC_SEGS) {
+        let wanted = only.map(|list| list.contains(&ip)).unwrap_or(true);
+        match wanted.then(|| corner_arc(a, p, b, r, ARC_SEGS)).flatten() {
             Some(arc) => out.extend(arc),
-            None => out.push(p), // zu kurze Schenkel/kollinear: Ecke bleibt
+            None => out.push(p), // nicht gewählt / zu kurze Schenkel: Ecke bleibt
         }
     }
     if !closed {
@@ -190,6 +197,118 @@ fn unit(from: Pt, to: Pt) -> Option<((f64, f64), f64)> {
         return None;
     }
     Some(((dx / l, dy / l), l))
+}
+
+/// Haltesteg: schneidet eine Lücke der Breite `width` (mm) in die Kontur,
+/// zentriert am kontur-nächsten Punkt zu `near` — das Teil bleibt beim
+/// Schneiden am Restmaterial hängen. Geschlossene Konturen werden zu EINER
+/// offenen Polylinie (Lücke = Steg), offene zu zwei Teilstücken. `None`,
+/// wenn die Kontur zu kurz für den Steg ist.
+pub fn insert_bridge(
+    points: &[Pt],
+    closed: bool,
+    near: Pt,
+    width: f64,
+) -> Option<Vec<(Vec<Pt>, bool)>> {
+    let n = points.len();
+    if n < 2 || width <= 0.0 {
+        return None;
+    }
+    let edges = if closed { n } else { n - 1 };
+    // Bogenlängen am Kantenanfang + Gesamtlänge; nächste Stelle (Kante, t).
+    let mut acc = Vec::with_capacity(edges);
+    let mut total = 0.0;
+    let mut best = (0usize, 0.0f64, f64::MAX);
+    for i in 0..edges {
+        let a = points[i];
+        let b = points[(i + 1) % n];
+        acc.push(total);
+        let (dx, dy) = (b.0 - a.0, b.1 - a.1);
+        let len2 = dx * dx + dy * dy;
+        let t = if len2 > 1e-18 {
+            (((near.0 - a.0) * dx + (near.1 - a.1) * dy) / len2).clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let (px, py) = (a.0 + dx * t, a.1 + dy * t);
+        let d2 = (px - near.0).powi(2) + (py - near.1).powi(2);
+        if d2 < best.2 {
+            best = (i, t, d2);
+        }
+        total += len2.sqrt();
+    }
+    if total <= width * 2.0 {
+        return None;
+    }
+    let (ei, et, _) = best;
+    let elen = {
+        let a = points[ei];
+        let b = points[(ei + 1) % n];
+        (b.0 - a.0).hypot(b.1 - a.1)
+    };
+    let s_mid = acc[ei] + elen * et;
+    let s0 = (s_mid - width / 2.0).rem_euclid(total);
+    let s1 = (s_mid + width / 2.0).rem_euclid(total);
+
+    // Punkt an Bogenlänge s (0..total).
+    let point_at = |s: f64| -> Pt {
+        let mut rest = s;
+        for i in 0..edges {
+            let a = points[i];
+            let b = points[(i + 1) % n];
+            let l = (b.0 - a.0).hypot(b.1 - a.1);
+            if rest <= l || i == edges - 1 {
+                let t = if l > 1e-12 {
+                    (rest / l).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                };
+                return (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+            }
+            rest -= l;
+        }
+        points[0]
+    };
+    // Punkte von s_from vorwärts nach s_to (zyklisch), Original-Ecken dazwischen.
+    let collect = |s_from: f64, s_to: f64| -> Vec<Pt> {
+        let mut out = vec![point_at(s_from)];
+        let mut verts: Vec<(f64, Pt)> = Vec::new();
+        let in_range = |v: f64| {
+            if s_from <= s_to {
+                v > s_from && v < s_to
+            } else {
+                v > s_from || v < s_to
+            }
+        };
+        for i in 0..edges {
+            if in_range(acc[i]) {
+                verts.push((acc[i], points[i]));
+            }
+        }
+        verts.sort_by(|x, y| {
+            let dx = (x.0 - s_from).rem_euclid(total);
+            let dy = (y.0 - s_from).rem_euclid(total);
+            dx.partial_cmp(&dy).unwrap()
+        });
+        out.extend(verts.into_iter().map(|(_, p)| p));
+        out.push(point_at(s_to));
+        out
+    };
+
+    if closed {
+        Some(vec![(collect(s1, s0), false)])
+    } else {
+        let part1 = collect(0.0, s0);
+        let part2 = collect(s1, total - 1e-9);
+        let mut out = Vec::new();
+        if part1.len() >= 2 {
+            out.push((part1, false));
+        }
+        if part2.len() >= 2 {
+            out.push((part2, false));
+        }
+        (!out.is_empty()).then_some(out)
+    }
 }
 
 // ── AppState-Anbindung (Muster wie arrange.rs) ───────────────────────────────
@@ -318,6 +437,84 @@ impl AppState {
             let idx = self.shapes.len();
             self.shapes.push(crate::model::Shape::new(layer_id, geo));
             self.selected.push(idx);
+        }
+        self.dirty = true;
+    }
+
+    /// Fügt einen Haltesteg an der Klickstelle ein: trifft der Punkt (Toleranz
+    /// `tol`) eine Vektor-Kontur, wird dort eine Lücke von `width` mm
+    /// geschnitten (das Teil bleibt beim Schneiden hängen). Ein Undo-Punkt.
+    /// Gibt `true` zurück, wenn ein Steg entstanden ist.
+    pub fn bridge_at(&mut self, x: f64, y: f64, tol: f64, width: f64) -> bool {
+        // Oberstes getroffenes Vektor-Shape suchen (spätere liegen oben).
+        let Some(idx) = (0..self.shapes.len()).rev().find(|&i| {
+            let s = &self.shapes[i];
+            !matches!(s.geo, Geo::Image { .. }) && s.hit_test(x, y, tol)
+        }) else {
+            return false;
+        };
+        let s = &self.shapes[idx];
+        let (mut pts, closed) = s.geo.outline_points();
+        if pts.len() < 2 {
+            return false;
+        }
+        let rotation = s.rotation;
+        let center = s.bbox().center();
+        if rotation != 0.0 {
+            for p in pts.iter_mut() {
+                *p = rotate_point(p.0, p.1, center.0, center.1, rotation);
+            }
+        }
+        let Some(pieces) = insert_bridge(&pts, closed, (x, y), width) else {
+            return false;
+        };
+        self.push_undo();
+        let layer_id = self.shapes[idx].layer_id;
+        let group_id = self.shapes[idx].group_id;
+        self.shapes.remove(idx);
+        self.selected.clear();
+        for (piece, closed) in pieces {
+            let i = self.shapes.len();
+            let mut sh = crate::model::Shape::new(layer_id, Geo::Polyline { pts: piece, closed });
+            sh.group_id = group_id;
+            self.shapes.push(sh);
+            self.selected.push(i);
+        }
+        self.dirty = true;
+        true
+    }
+
+    /// Verrundet NUR die angegebenen Ecken einer Shape (Punkt-Indizes der
+    /// Kontur; Referenz-UX: Ecken anklicken). Ein Undo-Punkt.
+    pub fn fillet_shape_corners(&mut self, idx: usize, corners: &[usize], radius: f64) {
+        if radius <= 0.0 || corners.is_empty() {
+            return;
+        }
+        let Some(s) = self.shapes.get(idx) else {
+            return;
+        };
+        if matches!(s.geo, Geo::Image { .. } | Geo::Ellipse { .. }) {
+            return;
+        }
+        let (mut pts, closed) = s.geo.outline_points();
+        if pts.len() < 3 {
+            return;
+        }
+        let rotation = s.rotation;
+        let center = s.bbox().center();
+        if rotation != 0.0 {
+            for p in pts.iter_mut() {
+                *p = rotate_point(p.0, p.1, center.0, center.1, rotation);
+            }
+        }
+        self.push_undo();
+        let rounded = fillet_corners(&pts, closed, radius, Some(corners));
+        if let Some(s) = self.shapes.get_mut(idx) {
+            s.rotation = 0.0;
+            s.geo = Geo::Polyline {
+                pts: rounded,
+                closed,
+            };
         }
         self.dirty = true;
     }

@@ -1,7 +1,7 @@
 <script lang="ts">
   import { rgb, polygonPreview, imageRender, type Scene, type Shape, type ImageParams } from "./core";
 
-  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline";
+  type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure";
 
   let {
     scene,
@@ -19,6 +19,11 @@
     onscale,
     oneditimage,
     onedittext,
+    filletpick = false,
+    filletsel = [],
+    onfilletcorner,
+    bridgepick = false,
+    onbridgeat,
     laserHead,
     laserOrigin,
   }: {
@@ -47,6 +52,14 @@
     // Doppelklick auf ein Bild-Shape: Editor oeffnen (Shape-Index).
     oneditimage?: (index: number) => void;
     onedittext?: (index: number) => void;
+    // Ecken-Pick-Modus (Fillet): Ecken werden markiert und sind klickbar.
+    filletpick?: boolean;
+    // Gewählte Ecken als "shapeIdx:cornerIdx".
+    filletsel?: string[];
+    onfilletcorner?: (shape: number, corner: number) => void;
+    // Haltesteg-Modus: Klick auf eine Kontur meldet die mm-Position.
+    bridgepick?: boolean;
+    onbridgeat?: (x: number, y: number, tol: number) => void;
     // Laser-Positionen (mm) fuer Marker: Kopf und Benutzerursprung. Optional.
     laserHead?: [number, number] | null;
     laserOrigin?: [number, number] | null;
@@ -149,6 +162,7 @@
 
   // ---- Interaktions-Zustand (lokal, nur während einer Geste) ----------------
   type Drag =
+    | { kind: "measure" }
     | { kind: "draw"; sx: number; sy: number; cx: number; cy: number }
     | { kind: "marquee"; sx: number; sy: number; cx: number; cy: number }
     | { kind: "move"; sx: number; sy: number; dx: number; dy: number }
@@ -303,6 +317,108 @@
     drawGesturePreview(ctx);
     drawPolyPreview(ctx);
     drawLaserMarkers(ctx);
+    drawMeasure(ctx);
+    drawFilletMarkers(ctx);
+    drawRulers(ctx, w, h);
+  }
+
+  // ---- Lineale (mm) oben + links ------------------------------------------
+  const RULER_PX = 22;
+  function drawRulers(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    // Tick-Schritt wie das Grid an den Zoom anpassen.
+    let step = 1;
+    while (step * zoom < 40) step *= step % 3 === 2 ? 2.5 : 2; // 1,2,5,10,…
+    step = Math.round(step * 100) / 100;
+
+    ctx.fillStyle = "rgba(20, 21, 24, 0.92)";
+    ctx.fillRect(0, 0, w, RULER_PX);
+    ctx.fillRect(0, 0, RULER_PX, h);
+    ctx.strokeStyle = "rgba(255,255,255,0.15)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-1, -1, w + 2, RULER_PX + 1);
+    ctx.strokeRect(-1, -1, RULER_PX + 1, h + 2);
+
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.font = "9px system-ui";
+    ctx.strokeStyle = "rgba(255,255,255,0.4)";
+    const [x0mm] = toMm(RULER_PX, 0);
+    const [x1mm] = toMm(w, 0);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    for (let x = Math.floor(x0mm / step) * step; x <= x1mm; x += step) {
+      const sx = toScreen(x, 0)[0];
+      if (sx < RULER_PX) continue;
+      ctx.beginPath();
+      ctx.moveTo(sx, RULER_PX - 6);
+      ctx.lineTo(sx, RULER_PX);
+      ctx.stroke();
+      ctx.fillText(String(Math.round(x)), sx + 2, 2);
+    }
+    const [, y0mm] = toMm(0, RULER_PX);
+    const [, y1mm] = toMm(0, h);
+    for (let y = Math.floor(y0mm / step) * step; y <= y1mm; y += step) {
+      const sy = toScreen(0, y)[1];
+      if (sy < RULER_PX) continue;
+      ctx.beginPath();
+      ctx.moveTo(RULER_PX - 6, sy);
+      ctx.lineTo(RULER_PX, sy);
+      ctx.stroke();
+      ctx.save();
+      ctx.translate(2, sy + 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.textAlign = "right";
+      ctx.fillText(String(Math.round(y)), 0, 0);
+      ctx.restore();
+    }
+    // Ecke abdecken.
+    ctx.fillStyle = "rgba(20, 21, 24, 1)";
+    ctx.fillRect(0, 0, RULER_PX, RULER_PX);
+  }
+
+  // ---- Messen-Werkzeug (reine Anzeige, keine Wahrheit) ----------------------
+  let measureA = $state<[number, number] | null>(null);
+  let measureB = $state<[number, number] | null>(null);
+  // Messung verschwindet beim Werkzeugwechsel.
+  $effect(() => {
+    if (tool !== "measure" && (measureA || measureB)) {
+      measureA = null;
+      measureB = null;
+      draw();
+    }
+  });
+  function drawMeasure(ctx: CanvasRenderingContext2D) {
+    if (!measureA || !measureB) return;
+    const [ax, ay] = toScreen(measureA[0], measureA[1]);
+    const [bx, by] = toScreen(measureB[0], measureB[1]);
+    ctx.strokeStyle = "#f0a500";
+    ctx.lineWidth = 1.4;
+    ctx.setLineDash([5, 4]);
+    ctx.beginPath();
+    ctx.moveTo(ax, ay);
+    ctx.lineTo(bx, by);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    for (const [px, py] of [[ax, ay], [bx, by]]) {
+      ctx.beginPath();
+      ctx.arc(px, py, 3, 0, Math.PI * 2);
+      ctx.fillStyle = "#f0a500";
+      ctx.fill();
+    }
+    const dx = measureB[0] - measureA[0];
+    const dy = measureB[1] - measureA[1];
+    const d = Math.hypot(dx, dy);
+    const label = `${d.toFixed(2)} mm  (Δx ${dx.toFixed(1)}, Δy ${dy.toFixed(1)})`;
+    const mx = (ax + bx) / 2, my = (ay + by) / 2;
+    ctx.font = "12px system-ui";
+    const tw = ctx.measureText(label).width;
+    ctx.fillStyle = "rgba(20,21,24,0.85)";
+    ctx.fillRect(mx - tw / 2 - 6, my - 22, tw + 12, 18);
+    ctx.fillStyle = "#f0a500";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(label, mx, my - 13);
+    ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
   }
 
   // Marker fuer die zuletzt gelesene Laser-Position: Kopf (Fadenkreuz) und
@@ -516,6 +632,44 @@
     ctx.restore();
   }
 
+  // Ecken einer Vektor-Shape in mm (Rotation eingerechnet) für den Fillet-Pick.
+  function shapeCorners(s: Shape): [number, number][] {
+    let pts: [number, number][] = [];
+    if ("Rect" in s.geo) {
+      const { x, y, w, h } = s.geo.Rect;
+      pts = [[x, y], [x + w, y], [x + w, y + h], [x, y + h]];
+    } else if ("Polyline" in s.geo) {
+      pts = s.geo.Polyline.pts.map(([a, b]) => [a, b]);
+    } else {
+      return [];
+    }
+    if (s.rotation) {
+      const [bx, by, bw, bh] = shapeBBox(s);
+      const cx = bx + bw / 2, cy = by + bh / 2;
+      const rad = (s.rotation * Math.PI) / 180;
+      const co = Math.cos(rad), si = Math.sin(rad);
+      pts = pts.map(([x, y]) => [cx + (x - cx) * co - (y - cy) * si, cy + (x - cx) * si + (y - cy) * co]);
+    }
+    return pts;
+  }
+
+  function drawFilletMarkers(ctx: CanvasRenderingContext2D) {
+    if (!filletpick) return;
+    scene.shapes.forEach((s, i) => {
+      for (const [c, [wx, wy]] of shapeCorners(s).entries()) {
+        const [px, py] = toScreen(wx, wy);
+        const on = filletsel.includes(`${i}:${c}`);
+        ctx.beginPath();
+        ctx.arc(px, py, on ? 6 : 4.5, 0, Math.PI * 2);
+        ctx.fillStyle = on ? "#f0a500" : "rgba(255,255,255,0.85)";
+        ctx.fill();
+        ctx.strokeStyle = "#1c1e24";
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+      }
+    });
+  }
+
   function drawSelection(ctx: CanvasRenderingContext2D) {
     if (!scene.selected.length) return;
     ctx.strokeStyle = "#4c82f7";
@@ -614,6 +768,34 @@
     if (ev.button !== 0) return;
     const [mx, my] = toMm(px, py);
 
+    if (bridgepick) {
+      onbridgeat?.(mx, my, 4 / zoom);
+      return;
+    }
+    if (filletpick) {
+      // Nächstgelegene Ecke innerhalb 10 px togglen.
+      let best: [number, number] | null = null;
+      let bestD = 10;
+      scene.shapes.forEach((s, i) => {
+        for (const [c, [wx, wy]] of shapeCorners(s).entries()) {
+          const [cx2, cy2] = toScreen(wx, wy);
+          const d = Math.hypot(cx2 - px, cy2 - py);
+          if (d < bestD) {
+            bestD = d;
+            best = [i, c];
+          }
+        }
+      });
+      if (best) onfilletcorner?.(best[0], best[1]);
+      return;
+    }
+    if (tool === "measure") {
+      measureA = [mx, my];
+      measureB = [mx, my];
+      drag = { kind: "measure" };
+      draw();
+      return;
+    }
     if (tool === "rect" || tool === "ellipse" || tool === "line" || tool === "polygon") {
       // Polygon: Startpunkt = Zentrum, Ziehen bestimmt den Aussenradius.
       drag = { kind: "draw", sx: mx, sy: my, cx: mx, cy: my };
@@ -670,6 +852,9 @@
       viewTouched = true;
       panX = drag.ox + (px - drag.px);
       panY = drag.oy + (py - drag.py);
+    } else if (drag.kind === "measure") {
+      measureB = [mx, my];
+      draw();
     } else if (drag.kind === "draw" || drag.kind === "marquee") {
       drag = { ...drag, cx: mx, cy: my };
     } else if (drag.kind === "move") {
@@ -701,6 +886,10 @@
     // NEUEN Stelle) bestehen, bis der Core die aktualisierte Scene liefert.
     // Sonst zeigt ein Frame die Form kurz an der alten Position ("aufblitzen"),
     // weil `drag=null` sofort greift, die neue Scene aber erst async ankommt.
+    if (g.kind === "measure") {
+      drag = null; // Messung bleibt sichtbar, bis neu gemessen/Tool gewechselt
+      return;
+    }
     if (g.kind === "draw") {
       drag = null;
       if (tool === "line") {

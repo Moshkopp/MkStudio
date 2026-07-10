@@ -95,6 +95,28 @@ export interface Scene {
   project: ProjectMeta | null;
 }
 
+// BBox einer Shape (ohne Rotation — wie das Core-Modell) für Anzeige/Inputs.
+export function shapeBBox(s: Shape): [number, number, number, number] {
+  if ("Rect" in s.geo) {
+    const { x, y, w, h } = s.geo.Rect;
+    return [x, y, w, h];
+  }
+  if ("Image" in s.geo) {
+    const { x, y, w, h } = s.geo.Image;
+    return [x, y, w, h];
+  }
+  if ("Ellipse" in s.geo) {
+    const { cx, cy, rx, ry } = s.geo.Ellipse;
+    return [cx - rx, cy - ry, rx * 2, ry * 2];
+  }
+  const { pts } = s.geo.Polyline;
+  let a = Infinity, b = Infinity, c = -Infinity, d = -Infinity;
+  for (const [px, py] of pts) {
+    a = Math.min(a, px); b = Math.min(b, py); c = Math.max(c, px); d = Math.max(d, py);
+  }
+  return [a, b, c - a, d - b];
+}
+
 export function rgb(color: [number, number, number]): string {
   const [r, g, b] = color;
   return `rgb(${r}, ${g}, ${b})`;
@@ -269,12 +291,22 @@ export type BoolOpKind = "union" | "intersect" | "diff";
 export const booleanOp = (op: BoolOpKind) => invoke<Scene>("boolean_op", { op });
 export const offsetOp = (dist: number) => invoke<Scene>("offset_op", { dist });
 export const filletOp = (radius: number) => invoke<Scene>("fillet_op", { radius });
+// Haltesteg: Lücke (width mm) in die Kontur an der Klickstelle schneiden.
+export const bridgeOp = (x: number, y: number, tol: number, width: number) =>
+  invoke<Scene>("bridge_op", { x, y, tol, width });
+// Nur die angeklickten Ecken einer Shape verrunden (Punkt-Indizes der Kontur).
+export const filletCornersOp = (shapeIndex: number, corners: number[], radius: number) =>
+  invoke<Scene>("fillet_corners_op", { shapeIndex, corners, radius });
 // Gruppieren/Degruppieren: gruppierte Shapes verhalten sich als Einheit.
 export const groupOp = () => invoke<Scene>("group_op");
 export const ungroupOp = () => invoke<Scene>("ungroup_op");
 
 // Nesting: Auswahl platzsparend aufs Bett packen (gap = Abstand in mm).
 export const nestOp = (gap: number) => invoke<Scene>("nest_op", { gap });
+// Bett mit Kopien der zuerst selektierten Form füllen (Material-Ausnutzung).
+export const nestFillOp = (gap: number) => invoke<Scene>("nest_fill_op", { gap });
+// Untersetzer-Vorlage: 4×2 à 100 mm, zentriert; round = runde Untersetzer.
+export const insertCoasters = (round: boolean) => invoke<Scene>("insert_coasters", { round });
 
 // Muster-Füllung (Pattern-Fill, wie v1): Linien/Kreise/Slots/Waben in die
 // selektierten geschlossenen Konturen (innere Konturen = Löcher).

@@ -346,7 +346,7 @@ impl AppState {
     /// Image-Layer trägt genau ein Bild). Ist der aktive Layer ein Image-Layer
     /// (z. B. weil gerade ein Bild markiert war), wird der erste normale Layer
     /// genutzt bzw. ein frischer angelegt.
-    fn layer_for_new_shape(&mut self) -> usize {
+    pub(crate) fn layer_for_new_shape(&mut self) -> usize {
         if let Some(color) = self.pending_color {
             return self.find_or_create_layer(color);
         }

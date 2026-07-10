@@ -9,6 +9,7 @@
     selCount,
     onboolean,
     onfillet,
+    onfilletpick,
     onoffset,
     onpattern,
     onclose,
@@ -19,6 +20,8 @@
     onfillet: (radius: number) => void;
     onoffset: (dist: number) => void;
     onpattern: (p: PatternKind, gapX: number, gapY: number, angle: number, size: number) => void;
+    // Ecken-Pick-Modus starten (Fillet: Ecken einzeln anklicken).
+    onfilletpick: (radius: number) => void;
     onclose: () => void;
   } = $props();
 
@@ -59,7 +62,8 @@
       </div>
     {:else if kind === "fillet"}
       <label>Radius (mm)<input type="number" step="0.5" min="0.1" bind:value={radius} /></label>
-      <button class="primary" disabled={selCount < 1} onclick={() => onfillet(radius)}>Auf Auswahl anwenden</button>
+      <button class="primary" disabled={selCount < 1} onclick={() => onfillet(radius)}>Alle Ecken der Auswahl</button>
+      <button class="primary" onclick={() => onfilletpick(radius)}>Ecken einzeln anklicken…</button>
     {:else if kind === "offset"}
       <label>Abstand (mm, negativ = innen)<input type="number" step="0.5" bind:value={dist} /></label>
       <button class="primary" disabled={selCount < 1} onclick={() => onoffset(dist)}>Parallele Kontur erzeugen</button>
