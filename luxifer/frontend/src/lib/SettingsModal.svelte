@@ -1,29 +1,43 @@
 <script lang="ts">
   // Zentrales Einstellungs-Modal (Zahnrad oben rechts). Sektions-Navigation;
   // die Laser-Verwaltung (ADR 0007) ist die erste Sektion, weitere folgen.
-  import type { LaserRegistry, LaserProfile } from "./core";
+  import type { LaserRegistry, LaserProfile, UiSettings } from "./core";
   import LaserSettingsContent from "./LaserSettingsContent.svelte";
 
   let {
     registry,
+    settings,
     onsave,
     ondelete,
-    oneditlayout,
-    onresettab,
+    onsavesettings,
     onclose,
   }: {
     registry: LaserRegistry | null;
+    settings: UiSettings | null;
     onsave: (profile: LaserProfile) => void;
     ondelete: (id: string) => void;
-    /** „Oberfläche bearbeiten" starten (schließt das Modal, aktiviert Edit-Modus). */
-    oneditlayout: () => void;
-    /** Aktuellen Reiter auf Standard-Layout zurücksetzen. */
-    onresettab: () => void;
+    onsavesettings: (settings: UiSettings) => void;
     onclose: () => void;
   } = $props();
 
   type Section = "laser" | "oberflaeche";
   let section = $state<Section>("laser");
+
+  function hex(rgb: [number, number, number]): string {
+    return "#" + rgb.map((v) => v.toString(16).padStart(2, "0")).join("");
+  }
+
+  function fromHex(h: string): [number, number, number] {
+    return [
+      parseInt(h.slice(1, 3), 16),
+      parseInt(h.slice(3, 5), 16),
+      parseInt(h.slice(5, 7), 16),
+    ];
+  }
+
+  function save(next: UiSettings) {
+    onsavesettings(next);
+  }
 </script>
 
 <svelte:window onkeydown={(e) => e.key === "Escape" && onclose()} />
@@ -61,16 +75,80 @@
         {#if section === "laser"}
           <LaserSettingsContent {registry} {onsave} {ondelete} />
         {:else}
-          <div class="ui">
-            <p class="hint">
-              Panele lassen sich frei anordnen und ein-/ausblenden. Starte den
-              Bearbeiten-Modus, um sie zu verschieben und in der Größe zu ändern.
-            </p>
-            <div class="actions">
-              <button class="prim" onclick={oneditlayout}>Oberfläche bearbeiten</button>
-              <button class="sec-btn" onclick={onresettab}>Reiter zurücksetzen</button>
+          {#if settings}
+            <div class="ui">
+              <label class="field">
+                Arbeitsplatz
+                <input
+                  type="text"
+                  value={settings.workplace}
+                  oninput={(e) => save({ ...settings, workplace: e.currentTarget.value })}
+                />
+              </label>
+
+              <label class="field">
+                Akzentfarbe
+                <div class="row">
+                  <input
+                    type="color"
+                    value={hex(settings.theme.accent.hue)}
+                    oninput={(e) => save({
+                      ...settings,
+                      theme: {
+                        ...settings.theme,
+                        accent: { ...settings.theme.accent, hue: fromHex(e.currentTarget.value) },
+                      },
+                    })}
+                  />
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="0.9"
+                    step="0.05"
+                    value={settings.theme.accent.intensity}
+                    oninput={(e) => save({
+                      ...settings,
+                      theme: {
+                        ...settings.theme,
+                        accent: { ...settings.theme.accent, intensity: +e.currentTarget.value },
+                      },
+                    })}
+                  />
+                </div>
+              </label>
+
+              <label class="field">
+                Button-Farbe
+                <div class="row">
+                  <input
+                    type="color"
+                    value={hex(settings.theme.button.hue)}
+                    oninput={(e) => save({
+                      ...settings,
+                      theme: {
+                        ...settings.theme,
+                        button: { ...settings.theme.button, hue: fromHex(e.currentTarget.value) },
+                      },
+                    })}
+                  />
+                  <input
+                    type="range"
+                    min="0.3"
+                    max="0.9"
+                    step="0.05"
+                    value={settings.theme.button.intensity}
+                    oninput={(e) => save({
+                      ...settings,
+                      theme: {
+                        ...settings.theme,
+                        button: { ...settings.theme.button, intensity: +e.currentTarget.value },
+                      },
+                    })}
+                  />
+                </div>
+              </label>
             </div>
-          </div>
+          {/if}
         {/if}
       </div>
     </div>
@@ -157,31 +235,32 @@
     flex-direction: column;
     gap: 14px;
   }
-  .hint {
-    font-size: 13px;
-    color: var(--muted);
-    margin: 0;
-    line-height: 1.5;
-  }
-  .actions {
+  .field {
     display: flex;
-    gap: 8px;
+    flex-direction: column;
+    gap: 7px;
+    color: var(--muted);
+    font-size: 12px;
   }
-  .prim {
-    background: var(--accent);
-    color: white;
-    border: none;
-    border-radius: 8px;
-    padding: 8px 16px;
-    cursor: pointer;
-    font-weight: 600;
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
-  .sec-btn {
-    background: transparent;
+  input[type="text"] {
+    background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border);
     color: var(--text);
-    border-radius: 8px;
-    padding: 8px 14px;
+    border-radius: 7px;
+    padding: 7px 9px;
+  }
+  input[type="color"] {
+    width: 42px;
+    height: 30px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    background: none;
     cursor: pointer;
   }
+  input[type="range"] { flex: 1; }
 </style>

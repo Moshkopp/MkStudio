@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import { rgb, polygonPreview, imageRender, type Scene, type Shape, type ImageParams } from "./core";
 
   type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure" | "bezier" | "node";
@@ -8,6 +9,8 @@
     tool,
     activeShape,
     insets,
+    active = true,
+    fitTrigger = 0,
     ondrawrect,
     ondrawellipse,
     ondrawline,
@@ -36,6 +39,10 @@
     tool: Tool;
     // Aktuell gewaehlte Polygon-Form (Katalog-`id`, z. B. "hex").
     activeShape: string;
+    // Sichtbarer Arbeitsbereich: Beim Wechsel zurueck in Design wird neu eingepasst.
+    active?: boolean;
+    // Externer FitView-Impuls (Start/Tabwechsel). Der Wert selbst ist egal.
+    fitTrigger?: number;
     // Freie Raender in Pixeln, in die das Bett beim Start eingepasst wird
     // (verdeckt von Header/Panels). Optional; Default 0.
     insets?: { top: number; right: number; bottom: number; left: number };
@@ -136,12 +143,43 @@
   // Solange der Nutzer die Ansicht noch nicht selbst bewegt hat (Pan/Zoom),
   // passt sich das Bett automatisch in den freien Bereich ein.
   let viewTouched = false;
+  let fitRaf = 0;
+  let fitSeq = 0;
+
+  function clearScheduledFit() {
+    if (fitRaf) cancelAnimationFrame(fitRaf);
+    fitRaf = 0;
+  }
+
+  function scheduleFitBed(resetTouched = false) {
+    clearScheduledFit();
+    const seq = ++fitSeq;
+    let frames = 4;
+    if (resetTouched) viewTouched = false;
+    const tick = () => {
+      fitRaf = 0;
+      if (seq !== fitSeq) return;
+      resize();
+      if (!viewTouched) {
+        fitBed();
+        draw();
+      }
+      frames -= 1;
+      if (frames > 0 && !viewTouched) fitRaf = requestAnimationFrame(tick);
+    };
+    fitRaf = requestAnimationFrame(tick);
+  }
 
   // Passt das Bett zentriert in den freien Bereich (Canvas minus Insets) ein.
   function fitBed() {
     if (!canvasEl) return;
     const cw = canvasEl.width, ch = canvasEl.height;
-    const ins = insets ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    const rawIns = insets ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    const ins = {
+      ...rawIns,
+      top: rawIns.top + RULER_PX,
+      left: rawIns.left + RULER_PX,
+    };
     const availW = Math.max(50, cw - ins.left - ins.right);
     const availH = Math.max(50, ch - ins.top - ins.bottom);
     const bw = scene.bed_w_mm, bh = scene.bed_h_mm;
@@ -350,46 +388,53 @@
   // ---- Lineale (mm) oben + links ------------------------------------------
   const RULER_PX = 22;
   function drawRulers(ctx: CanvasRenderingContext2D, w: number, h: number) {
+    const ins = insets ?? { top: 0, right: 0, bottom: 0, left: 0 };
+    const rx = Math.max(0, ins.left);
+    const ry = Math.max(0, ins.top);
+    const rw = Math.max(0, w - rx - ins.right);
+    const rh = Math.max(0, h - ry - ins.bottom);
+    if (rw <= RULER_PX || rh <= RULER_PX) return;
+
     // Tick-Schritt wie das Grid an den Zoom anpassen.
     let step = 1;
     while (step * zoom < 40) step *= step % 3 === 2 ? 2.5 : 2; // 1,2,5,10,…
     step = Math.round(step * 100) / 100;
 
     ctx.fillStyle = "rgba(20, 21, 24, 0.92)";
-    ctx.fillRect(0, 0, w, RULER_PX);
-    ctx.fillRect(0, 0, RULER_PX, h);
+    ctx.fillRect(rx, ry, rw, RULER_PX);
+    ctx.fillRect(rx, ry, RULER_PX, rh);
     ctx.strokeStyle = "rgba(255,255,255,0.15)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(-1, -1, w + 2, RULER_PX + 1);
-    ctx.strokeRect(-1, -1, RULER_PX + 1, h + 2);
+    ctx.strokeRect(rx - 1, ry - 1, rw + 2, RULER_PX + 1);
+    ctx.strokeRect(rx - 1, ry - 1, RULER_PX + 1, rh + 2);
 
     ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.font = "9px system-ui";
     ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    const [x0mm] = toMm(RULER_PX, 0);
-    const [x1mm] = toMm(w, 0);
+    const [x0mm] = toMm(rx + RULER_PX, ry);
+    const [x1mm] = toMm(rx + rw, ry);
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     for (let x = Math.floor(x0mm / step) * step; x <= x1mm; x += step) {
       const sx = toScreen(x, 0)[0];
-      if (sx < RULER_PX) continue;
+      if (sx < rx + RULER_PX || sx > rx + rw) continue;
       ctx.beginPath();
-      ctx.moveTo(sx, RULER_PX - 6);
-      ctx.lineTo(sx, RULER_PX);
+      ctx.moveTo(sx, ry + RULER_PX - 6);
+      ctx.lineTo(sx, ry + RULER_PX);
       ctx.stroke();
-      ctx.fillText(String(Math.round(x)), sx + 2, 2);
+      ctx.fillText(String(Math.round(x)), sx + 2, ry + 2);
     }
-    const [, y0mm] = toMm(0, RULER_PX);
-    const [, y1mm] = toMm(0, h);
+    const [, y0mm] = toMm(rx, ry + RULER_PX);
+    const [, y1mm] = toMm(rx, ry + rh);
     for (let y = Math.floor(y0mm / step) * step; y <= y1mm; y += step) {
       const sy = toScreen(0, y)[1];
-      if (sy < RULER_PX) continue;
+      if (sy < ry + RULER_PX || sy > ry + rh) continue;
       ctx.beginPath();
-      ctx.moveTo(RULER_PX - 6, sy);
-      ctx.lineTo(RULER_PX, sy);
+      ctx.moveTo(rx + RULER_PX - 6, sy);
+      ctx.lineTo(rx + RULER_PX, sy);
       ctx.stroke();
       ctx.save();
-      ctx.translate(2, sy + 2);
+      ctx.translate(rx + 2, sy + 2);
       ctx.rotate(-Math.PI / 2);
       ctx.textAlign = "right";
       ctx.fillText(String(Math.round(y)), 0, 0);
@@ -397,7 +442,7 @@
     }
     // Ecke abdecken.
     ctx.fillStyle = "rgba(20, 21, 24, 1)";
-    ctx.fillRect(0, 0, RULER_PX, RULER_PX);
+    ctx.fillRect(rx, ry, RULER_PX, RULER_PX);
   }
 
   // ---- Bézier-Feder: live gezeichnete Kurve + Tangenten während des Zeichnens
@@ -1353,31 +1398,34 @@
     insets;
     if (!viewTouched) { fitBed(); draw(); }
   });
+  // Wenn der Designer wieder sichtbar wird, die Kamera bewusst neu auf das Bett
+  // setzen. Das behebt den Fall Projekt/Preview -> Design mit alter Scrolllage.
+  $effect(() => {
+    fitTrigger;
+    if (active) scheduleFitBed(true);
+  });
   // rAF beim Unmount abbrechen (kein Redraw auf totem Canvas).
-  $effect(() => () => { if (rafId) cancelAnimationFrame(rafId); });
+  $effect(() => () => {
+    if (rafId) cancelAnimationFrame(rafId);
+    clearScheduledFit();
+  });
   // Werkzeugwechsel bricht einen laufenden Polylinien-Zug ab.
   $effect(() => {
     if (tool !== "polyline" && tool !== "spline" && polyPts.length > 0) polyCancel();
     if (tool !== "bezier" && bez) { bez = null; bezDrag = null; }
   });
-  $effect(() => {
+  onMount(() => {
     resize();
     // Beim (Neu-)Mount die Ansicht sicher einpassen — auch wenn beim ersten
     // resize() das Layout (Canvas-Größe/insets) noch nicht stand. Ohne das
     // musste man nach jedem Tab-Wechsel Preview→Design erst zurückscrollen.
-    viewTouched = false;
-    requestAnimationFrame(() => {
-      resize();
-      requestAnimationFrame(() => {
-        if (!viewTouched) {
-          fitBed();
-          draw();
-        }
-      });
-    });
+    scheduleFitBed(true);
     const ro = new ResizeObserver(resize);
     if (wrapEl) ro.observe(wrapEl);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      clearScheduledFit();
+    };
   });
 </script>
 

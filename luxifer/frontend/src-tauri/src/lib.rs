@@ -8,7 +8,7 @@ use luxifer_core::{
     asset_meta, assets_dir, delete_project, import_image, list_projects, projects_dir,
     rename_project, rendered_png, Anchor, AppState, Connection, DriverKind, Geo, ImageParams,
     JobAction, JobParams, JobPlan, Layer, LaserProfile, LaserRegistry, MachineDriver, PolyShape,
-    ProjectFile, ProjectInfo, Shape, ShapeInfo, StartMode, Tab, UiSettings, VersionInfo,
+    ProjectFile, ProjectInfo, Shape, ShapeInfo, StartMode, UiSettings, VersionInfo,
 };
 use serde::{Deserialize, Serialize};
 use tauri::{Manager, State};
@@ -1206,7 +1206,7 @@ fn connect_active(
     driver.connect(&target).map_err(|e| e.to_string())
 }
 
-/// Lädt die GUI-Settings (Panel-Layouts, Theming, Arbeitsplatz) — ADR 0002.
+/// Lädt die GUI-Settings (Theming, Arbeitsplatz) — ADR 0002.
 /// Fehlt die Datei, kommt der Default zurück; die GUI startet immer.
 #[tauri::command]
 fn get_ui_settings() -> UiSettings {
@@ -1218,16 +1218,6 @@ fn get_ui_settings() -> UiSettings {
 #[tauri::command]
 fn save_ui_settings(mut settings: UiSettings) -> Result<UiSettings, String> {
     settings.sanitize();
-    settings.save()?;
-    Ok(settings)
-}
-
-/// Setzt einen Reiter auf sein Standard-Layout zurück (ADR §2), speichert und
-/// gibt die aktualisierten Settings zurück. Andere Reiter bleiben unberührt.
-#[tauri::command]
-fn reset_ui_tab(tab: Tab) -> Result<UiSettings, String> {
-    let mut settings = UiSettings::load();
-    settings.reset_tab(tab);
     settings.save()?;
     Ok(settings)
 }
@@ -1654,7 +1644,6 @@ pub fn run() {
             delete_selected,
             get_ui_settings,
             save_ui_settings,
-            reset_ui_tab,
             new_project,
             save_project,
             save_version,

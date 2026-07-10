@@ -587,38 +587,7 @@ export const projectExport = (name: string, ziel: string) =>
 export const swatchColors = () =>
   invoke<[number, number, number][]>("swatch_colors");
 
-// ---- GUI-Settings (Panel-System, ADR 0002) ---------------------------------
-// Spiegelt luxifer-core::ui_settings. Positionen sind Bruchteile (0…1) des
-// Fensters, nie Pixel — das Snapping aufs Raster passiert erst beim Zeichnen.
-
-export type Tab = "Projekt" | "Design" | "Laser" | "Monitor" | "Preview";
-
-export type PanelKind =
-  | "Werkzeuge"
-  | "Ebenen"
-  | "Farbpalette"
-  | "Anordnen"
-  | "Laser"
-  | "JobStatus"
-  | "Formen";
-
-export interface PanelRect {
-  x: number; // linke obere Ecke, Bruchteil 0…1
-  y: number;
-  w: number; // Ausdehnung, Bruchteil 0…1
-  h: number;
-  z: number; // Stapel-Reihenfolge bei Überlappung
-}
-
-export interface PanelPlacement {
-  kind: PanelKind;
-  rect: PanelRect;
-}
-
-export interface TabLayout {
-  tab: Tab;
-  panels: PanelPlacement[];
-}
+// ---- GUI-Settings (Theme/Arbeitsplatz, ADR 0002) ---------------------------
 
 export interface ThemeColor {
   hue: [number, number, number];
@@ -634,7 +603,6 @@ export interface UiSettings {
   version: number;
   workplace: string;
   theme: Theme;
-  layouts: TabLayout[];
   last_project: string;
 }
 
@@ -643,8 +611,3 @@ export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
 // Speichert und gibt die aufgeräumten (geklemmten) Settings zurück.
 export const saveUiSettings = (settings: UiSettings) =>
   invoke<UiSettings>("save_ui_settings", { settings });
-
-// Setzt einen Reiter auf sein Standard-Layout zurück, speichert und gibt die
-// aktualisierten Settings zurück (ADR §2).
-export const resetTab = (tab: Tab) =>
-  invoke<UiSettings>("reset_ui_tab", { tab });

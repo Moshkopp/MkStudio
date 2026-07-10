@@ -5,13 +5,11 @@
   import LaserPanel from "./lib/LaserPanel.svelte";
   import LaserSettings from "./lib/LaserSettings.svelte";
   import SettingsModal from "./lib/SettingsModal.svelte";
-  import PanelHost from "./lib/PanelHost.svelte";
   import ToolsPanel from "./lib/ToolsPanel.svelte";
   import LayersPanel from "./lib/LayersPanel.svelte";
   import PalettePanel from "./lib/PalettePanel.svelte";
   import ShapesPanel from "./lib/ShapesPanel.svelte";
   import ArrangePanel from "./lib/ArrangePanel.svelte";
-  import EditFlyout from "./lib/EditFlyout.svelte";
   import ProjectBrowser from "./lib/ProjectBrowser.svelte";
   import ImageEditor from "./lib/ImageEditor.svelte";
   import TextDialog from "./lib/TextDialog.svelte";
@@ -24,13 +22,10 @@
     Scene,
     LayerParams,
     UiSettings,
-    Tab,
-    PanelKind,
-    PanelRect,
-    PanelPlacement,
   } from "./lib/core";
   import { applyTheme } from "./lib/theme";
 
+  type Tab = "Projekt" | "Design" | "Laser" | "Monitor" | "Preview";
   type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure" | "bezier" | "node";
 
   let scene = $state<Scene | null>(null);
@@ -66,12 +61,17 @@
   // Unsaved-Guard: geplante Aktion (open/new), die nach Bestaetigung laeuft.
   let pendingAction = $state<null | { kind: "new" } | { kind: "open"; name: string }>(null);
 
-  // --- GUI-Settings (Panel-System, ADR 0002) --------------------------------
+  // --- GUI-Settings (Theme/Arbeitsplatz, ADR 0002) --------------------------
   let settings = $state<UiSettings | null>(null);
   let activeTab = $state<Tab>("Design");
-  // Editier-Modus ist fluechtig (nicht gespeichert).
-  let editing = $state(false);
-  let lockHover = $state(false);
+  let designFitTrigger = $state(0);
+  let wasDesignVisible = false;
+  // Zweireihige Topbar (Design, mit Anordnen-Zeile) vs. einreihige (Laser/Monitor).
+  const TOPBAR_H = 92;
+  const TOPBAR_H1 = 48;
+  const LEFT_DOCK_W = 108;
+  // Rechter Dock: 316px Breite + 12px Luft (siehe --right-dock-w im CSS).
+  const RIGHT_DOCK_W = 328;
 
   async function load() {
     try {
@@ -92,103 +92,34 @@
   }
   load();
 
-  // Aktuelles Reiter-Layout (Panele + Positionen).
-  const layout = $derived(settings?.layouts.find((l) => l.tab === activeTab));
-  const panels = $derived<PanelPlacement[]>(layout?.panels ?? []);
-  const visibleKinds = $derived<PanelKind[]>(panels.map((p) => p.kind));
-  // Panele, die nur bei Bedarf sichtbar sind (im Editier-Modus zeigt der Host
-  // sie trotzdem). Formen erscheint nur, wenn das Polygon-Werkzeug aktiv ist.
-  const hiddenPanels = $derived<PanelKind[]>(
-    tool === "polygon" ? [] : ["Formen"],
-  );
-
-  // Fenstergroesse (reaktiv), damit sich die Bett-Einpassung an Resize anpasst.
-  let winW = $state(0);
-  let winH = $state(0);
-
-  // Freie Raender (px) fuer die Bett-Einpassung im Canvas: Header oben fest,
-  // seitlich/unten aus den Panel-Rects grob geschaetzt. Ein Panel zaehlt fuer
-  // eine Kante, wenn es dort klebt (z. B. x≈0 -> linker Rand). So landet das
-  // Bett im tatsaechlich freien Bereich, ohne dass Canvas die Panel-Logik kennt.
-  const HEADER_PX = 56;
-  const insets = $derived.by(() => {
-    const ins = { top: HEADER_PX, right: 0, bottom: 0, left: 0 };
-    if (!winW || !winH) return ins;
-    for (const p of panels) {
-      const { x, y, w, h } = p.rect;
-      // Panel-Rects sind Bruchteile: Breite gegen Fensterbreite, Hoehe gegen
-      // Fensterhoehe (PanelHost rendert prozentual pro Achse).
-      const wpx = w * winW, hpx = h * winH;
-      if (x <= 0.02) ins.left = Math.max(ins.left, x * winW + wpx);
-      if (x + w >= 0.98) ins.right = Math.max(ins.right, wpx);
-      if (y <= 0.02) ins.top = Math.max(ins.top, HEADER_PX, y * winH + hpx);
-      if (y + h >= 0.98) ins.bottom = Math.max(ins.bottom, hpx);
-    }
-    return ins;
+  // FitView genau dann neu anstossen, wenn der Designer sichtbar wird:
+  // beim ersten Laden und nach Projekt/Laser/Monitor/Preview -> Design.
+  $effect(() => {
+    const visible = activeTab === "Design" && scene !== null;
+    if (visible && !wasDesignVisible) designFitTrigger += 1;
+    wasDesignVisible = visible;
   });
 
-  // Settings lokal sofort anwenden (fluessig), Persistieren auf Platte
-  // gedrosselt. Beim Panel-Ziehen darf NICHT jede Mausbewegung eine JSON auf
-  // die Platte schreiben — das war die Ruckel-Ursache im Editier-Modus.
-  let saveTimer: ReturnType<typeof setTimeout> | null = null;
-  function scheduleSave(next: UiSettings) {
-    if (saveTimer) clearTimeout(saveTimer);
-    saveTimer = setTimeout(async () => {
-      saveTimer = null;
-      try {
-        settings = await core.saveUiSettings($state.snapshot(next));
-        applyTheme(settings.theme);
-      } catch (e) {
-        error = String(e);
-      }
-    }, 250);
-  }
+  // Freie Raender (px) fuer die Bett-Einpassung im Canvas. Mit statischem Layout
+  // gibt es keine Heuristik mehr aus verschiebbaren Panel-Rechtecken.
+  const insets = $derived.by(() => {
+    if (activeTab === "Design") {
+      return { top: TOPBAR_H, right: RIGHT_DOCK_W, bottom: 88, left: tool === "polygon" ? 304 : LEFT_DOCK_W };
+    }
+    if (activeTab === "Laser") {
+      return { top: TOPBAR_H1, right: RIGHT_DOCK_W, bottom: 0, left: RIGHT_DOCK_W };
+    }
+    if (activeTab === "Monitor") {
+      return { top: TOPBAR_H1, right: RIGHT_DOCK_W, bottom: 0, left: 0 };
+    }
+    return { top: TOPBAR_H1, right: 0, bottom: 0, left: 0 };
+  });
 
-  // Direktes, sofortiges Speichern (z. B. Reset) ohne Drosselung.
   async function persist(next: UiSettings) {
     settings = next;
     applyTheme(next.theme);
     try {
       settings = await core.saveUiSettings(next);
-      applyTheme(settings.theme);
-    } catch (e) {
-      error = String(e);
-    }
-  }
-
-  // Ein Panel-Rect im aktuellen Reiter aendern (Drag/Resize aus dem Host).
-  // Lokal sofort setzen (fluessige Vorschau), Speichern gedrosselt.
-  function changeRect(i: number, rect: PanelRect) {
-    if (!settings) return;
-    const next: UiSettings = structuredClone($state.snapshot(settings));
-    const l = next.layouts.find((l) => l.tab === activeTab);
-    if (l && l.panels[i]) {
-      l.panels[i].rect = rect;
-      settings = next; // sofort sichtbar
-      scheduleSave(next); // Platte gedrosselt
-    }
-  }
-
-  // Panel im aktuellen Reiter ein-/ausblenden.
-  function togglePanel(kind: PanelKind) {
-    if (!settings) return;
-    const next: UiSettings = structuredClone($state.snapshot(settings));
-    const l = next.layouts.find((l) => l.tab === activeTab);
-    if (!l) return;
-    const idx = l.panels.findIndex((p) => p.kind === kind);
-    if (idx >= 0) {
-      l.panels.splice(idx, 1);
-    } else {
-      // Neu einblenden: mittig, moderate Groesse.
-      l.panels.push({ kind, rect: { x: 0.35, y: 0.35, w: 0.3, h: 0.3, z: 0 } });
-    }
-    persist(next);
-  }
-
-  // Reiter auf sein Standard-Layout zuruecksetzen (Core-Command, ADR §2).
-  async function resetTab() {
-    try {
-      settings = await core.resetTab(activeTab);
       applyTheme(settings.theme);
     } catch (e) {
       error = String(e);
@@ -733,19 +664,21 @@
   }
 </script>
 
-<svelte:window onkeydown={onKeydown} bind:innerWidth={winW} bind:innerHeight={winH} />
+<svelte:window onkeydown={onKeydown} />
 
 <main>
   {#if error}
     <div class="error">Fehler: {error}</div>
   {/if}
 
-  {#if scene && activeTab !== "Preview"}
+  {#if scene && activeTab !== "Projekt" && activeTab !== "Preview"}
     <Canvas
       {scene}
       {tool}
       {activeShape}
       {insets}
+      active={activeTab === "Design"}
+      fitTrigger={designFitTrigger}
       {ondrawrect}
       {ondrawellipse}
       {ondrawline}
@@ -777,72 +710,61 @@
     <PreviewCanvas {scene} {insets} />
   {/if}
 
-  <!-- Header über volle Breite: links Logo + Name + Undo/Redo, Reiter mittig
-       zentriert, rechts Zahnrad (Settings/Editier-Modus). -->
+  <!-- Zweireihige Topbar: Header + Anordnen bilden die obere Kante des U-Layouts. -->
   {#if settings}
     <div class="header glass">
-      <div class="hleft">
-        <span class="brand">
-          <img class="brand-logo" src={logoUrl} alt="LuxiFer" width="26" height="26" />
-          <span class="brand-name">LuxiFer</span>
-        </span>
-        <div class="hgroup">
-          <button class="gbtn hbtn" onclick={doUndo} title="Rückgängig (Strg+Z)" aria-label="Rückgängig">
-            <Icon name="undo" />
-          </button>
-          <button class="gbtn hbtn" onclick={doRedo} title="Wiederholen (Strg+Y)" aria-label="Wiederholen">
-            <Icon name="redo" />
-          </button>
+      <div class="header-main">
+        <div class="hleft">
+          <span class="brand">
+            <img class="brand-logo" src={logoUrl} alt="LuxiFer" width="26" height="26" />
+            <span class="brand-name">LuxiFer</span>
+          </span>
+          <div class="hgroup">
+            <button class="gbtn hbtn" onclick={doUndo} title="Rückgängig (Strg+Z)" aria-label="Rückgängig">
+              <Icon name="undo" />
+            </button>
+            <button class="gbtn hbtn" onclick={doRedo} title="Wiederholen (Strg+Y)" aria-label="Wiederholen">
+              <Icon name="redo" />
+            </button>
+            <button
+              class="gbtn hbtn"
+              onclick={() => fileInput?.click()}
+              title="Bild importieren (PNG, JPG, BMP, WebP)"
+              aria-label="Bild importieren"
+            >
+              <Icon name="contour" />
+            </button>
+            <input
+              bind:this={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/bmp,image/webp,.svg,.dxf"
+              style="display:none"
+              onchange={onImportFile}
+            />
+          </div>
+        </div>
+
+        <div class="tabs">
+          {#each ["Projekt", "Design", "Laser", "Monitor", "Preview"] as t}
+            <button class="tab" class:active={activeTab === t} onclick={() => (activeTab = t as Tab)}>{t}</button>
+          {/each}
+        </div>
+
+        <div class="hright">
           <button
             class="gbtn hbtn"
-            onclick={() => fileInput?.click()}
-            title="Bild importieren (PNG, JPG, BMP, WebP)"
-            aria-label="Bild importieren"
+            onclick={() => (showSettings = true)}
+            title="Einstellungen"
+            aria-label="Einstellungen"
           >
-            <Icon name="contour" />
+            <Icon name="settings" />
           </button>
-          <input
-            bind:this={fileInput}
-            type="file"
-            accept="image/png,image/jpeg,image/bmp,image/webp,.svg,.dxf"
-            style="display:none"
-            onchange={onImportFile}
-          />
         </div>
       </div>
 
-      <div class="tabs">
-        {#each ["Projekt", "Design", "Laser", "Monitor", "Preview"] as t}
-          <button class="tab" class:active={activeTab === t} onclick={() => (activeTab = t as Tab)}>{t}</button>
-        {/each}
-      </div>
-
-      <div class="hright">
-        <button
-          class="gbtn hbtn"
-          onclick={() => (showSettings = true)}
-          title="Einstellungen"
-          aria-label="Einstellungen"
-        >
-          <Icon name="settings" />
-        </button>
-      </div>
-    </div>
-  {/if}
-
-  <!-- Panel-Host: rendert die Panele des aktiven Reiters aus den Settings -->
-  {#if settings && scene}
-    <PanelHost {panels} {editing} hidden={hiddenPanels} onchange={changeRect}>
-      {#snippet panel(p: PanelPlacement)}
-        {#if p.kind === "Werkzeuge"}
-          <ToolsPanel {tool} onpick={(t) => (tool = t)} onaction={doToolAction} />
-        {:else if p.kind === "Ebenen"}
-          <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} onmovelayer={moveLayer} />
-        {:else if p.kind === "Farbpalette"}
-          <PalettePanel {swatches} onpick={pickColor} />
-        {:else if p.kind === "Formen"}
-          <ShapesPanel {shapes} {activeShape} onpickshape={pickShape} />
-        {:else if p.kind === "Anordnen"}
+      {#if scene && activeTab === "Design"}
+        <div class="header-divider"></div>
+        <div class="header-arrange">
           <ArrangePanel
             {selCount}
             onalign={doAlign}
@@ -854,24 +776,59 @@
             {selBBox}
             onresize={doResize}
           />
-        {:else if p.kind === "Laser"}
-          <LaserPanel
-            registry={laserReg}
-            actions={laserActions}
-            connected={laserConnected}
-            onselect={selectLaser}
-            onaction={runLaserAction}
-            onexport={exportLaser}
-            onjog={jogLaser}
-            onhome={homeLaser}
-            onreadposition={readLaserPosition}
-            onopensettings={() => (showLaserSettings = true)}
-          />
-        {:else if p.kind === "JobStatus"}
-          <div class="placeholder">Job-Status folgt (Monitor-Reiter).</div>
-        {/if}
-      {/snippet}
-    </PanelHost>
+        </div>
+      {/if}
+    </div>
+  {/if}
+
+  <!-- Statische Bedienflaechen: feste Docks statt frei verschiebbarer Panele. -->
+  {#if settings && scene && activeTab === "Design"}
+    <div class="design-ui">
+      <aside class="dock left tools-dock glass">
+        <ToolsPanel {tool} onpick={(t) => (tool = t)} onaction={doToolAction} />
+      </aside>
+
+      {#if tool === "polygon"}
+        <aside class="dock shape-dock glass">
+          <ShapesPanel {shapes} {activeShape} onpickshape={pickShape} />
+        </aside>
+      {/if}
+
+      <aside class="dock right layers-dock glass">
+        <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} onmovelayer={moveLayer} />
+      </aside>
+
+      <section class="dock bottom palette-dock glass">
+        <PalettePanel {swatches} onpick={pickColor} />
+      </section>
+    </div>
+  {/if}
+
+  {#if settings && scene && activeTab === "Laser"}
+    <aside class="dock left laser-layers-dock glass">
+      <LayersPanel layers={sceneLayers} onedit={(i) => (editLayer = i)} ontoggle={toggleLayer} onmovelayer={moveLayer} />
+    </aside>
+
+    <aside class="dock right laser-dock glass">
+      <LaserPanel
+        registry={laserReg}
+        actions={laserActions}
+        connected={laserConnected}
+        onselect={selectLaser}
+        onaction={runLaserAction}
+        onexport={exportLaser}
+        onjog={jogLaser}
+        onhome={homeLaser}
+        onreadposition={readLaserPosition}
+        onopensettings={() => (showLaserSettings = true)}
+      />
+    </aside>
+  {/if}
+
+  {#if settings && scene && activeTab === "Monitor"}
+    <aside class="dock right monitor-dock glass">
+      <div class="placeholder">Job-Status folgt (Monitor-Reiter).</div>
+    </aside>
   {/if}
 
   <!-- Projekt-Reiter: voller Browser (ADR 0003). -->
@@ -887,14 +844,6 @@
       ondeleted={() => { scene && (scene.project = null); }}
       onclosesavemode={() => (saveMode = false)}
     />
-  {/if}
-
-  <!-- Weitere noch leere Reiter: dezenter Hinweis mittig. Der Preview-Reiter
-       hat einen eigenen Canvas (oben) und ist daher ausgenommen. -->
-  {#if settings && panels.length === 0 && activeTab !== "Projekt" && activeTab !== "Preview"}
-    <div class="empty-tab">
-      Dieser Reiter ist noch leer.
-    </div>
   {/if}
 
   <!-- Layer-Dialog -->
@@ -963,31 +912,6 @@
     {/key}
   {/if}
 
-  <!-- Verstecktes Schloss unten links (Editier-Modus, ADR 0002 §5) -->
-  <button
-    class="lock"
-    class:show={lockHover || editing}
-    class:on={editing}
-    onmouseenter={() => (lockHover = true)}
-    onmouseleave={() => (lockHover = false)}
-    onclick={() => (editing = !editing)}
-    title={editing ? "Editier-Modus verlassen" : "Oberfläche bearbeiten"}
-    aria-label="Editier-Modus umschalten"
-  ><Icon name="lock" size={15} /></button>
-
-  <!-- Theming-/Layout-Flyout im Editier-Modus -->
-  {#if editing && settings}
-    <EditFlyout
-      {settings}
-      tab={activeTab}
-      visiblePanels={visibleKinds}
-      onchange={persist}
-      ontogglepanel={togglePanel}
-      onreset={resetTab}
-      onclose={() => (editing = false)}
-    />
-  {/if}
-
   {#if status}
     <div class="status">{status}</div>
   {/if}
@@ -1038,13 +962,10 @@
   {#if showSettings}
     <SettingsModal
       registry={laserReg}
+      settings={settings}
       onsave={saveLaser}
       ondelete={deleteLaser}
-      oneditlayout={() => {
-        showSettings = false;
-        editing = true;
-      }}
-      onresettab={resetTab}
+      onsavesettings={persist}
       onclose={() => (showSettings = false)}
     />
   {/if}
@@ -1054,20 +975,45 @@
   main {
     position: absolute;
     inset: 0;
+    --topbar-h: 92px;
+    /* Einreihige Topbar (Laser/Monitor): nur header-main, ohne Anordnen-Zeile. */
+    --topbar-h1: 48px;
+    --left-dock-w: 96px;
+    --right-dock-w: 316px;
   }
-  /* Header über die volle Breite; drei Zonen (links | Reiter mittig | rechts).
-     Das mittlere Grid-Fach ist zentriert, egal wie breit links/rechts sind. */
+  /* Zweireihige Topbar: oben App/Reiter, unten kontextuelle Anordnen-Werkzeuge. */
   .header {
     position: absolute;
-    left: 8px;
-    right: 8px;
-    top: 8px;
+    left: 0;
+    right: 0;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    padding: 6px 10px 8px;
+    border-radius: 0;
+    z-index: 50;
+  }
+  .header-main {
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
     gap: 10px;
-    padding: 6px 10px;
-    z-index: 50;
+    min-height: 34px;
+  }
+  .header-divider {
+    height: 1px;
+    margin: 5px -2px 6px;
+    background: linear-gradient(
+      90deg,
+      transparent,
+      var(--border) 10%,
+      var(--border) 90%,
+      transparent
+    );
+  }
+  .header-arrange {
+    min-width: 0;
   }
   .hleft {
     display: flex;
@@ -1138,46 +1084,82 @@
       inset 0 1px 0 rgba(255, 255, 255, 0.3),
       0 0 14px -3px hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.6);
   }
+  .dock {
+    position: absolute;
+    z-index: 20;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .dock.left {
+    left: 0;
+    top: var(--topbar-h);
+    bottom: 86px;
+    width: var(--left-dock-w);
+    border-radius: 0 0 10px 0;
+    border-top: 0;
+  }
+  .shape-dock {
+    left: 108px;
+    top: var(--topbar-h);
+    width: 176px;
+    max-height: min(420px, calc(100vh - 190px));
+    padding: 8px;
+  }
+  .dock.right {
+    top: var(--topbar-h);
+    right: 0;
+    bottom: 12px;
+    width: var(--right-dock-w);
+    border-radius: 0 0 0 10px;
+    border-top: 0;
+  }
+  .dock.bottom {
+    left: 50%;
+    bottom: 14px;
+    width: clamp(320px, calc(100vw - 460px), 520px);
+    min-height: 64px;
+    transform: translateX(-50%);
+  }
+  .tools-dock,
+  .layers-dock,
+  .laser-layers-dock,
+  .laser-dock,
+  .monitor-dock {
+    padding: 8px;
+  }
+  .palette-dock {
+    padding: 8px;
+  }
+  .tools-dock {
+    overflow-y: auto;
+  }
+  .layers-dock,
+  .laser-layers-dock,
+  .laser-dock,
+  .monitor-dock {
+    min-height: 0;
+  }
+  /* Laser-Docks bündig unter der einreihigen Topbar, gleiche Optik wie die
+     Design-Docks (gerundete Innenecke, ohne Oberkante). Der linke Ebenen-Dock
+     spiegelt den rechten Design-Dock. Doppelte Klasse, damit die Breite/Position
+     .dock.left bzw. .dock.right überstimmt (gleiche Spezifität sonst). */
+  .dock.left.laser-layers-dock {
+    top: var(--topbar-h1);
+    bottom: 12px;
+    width: var(--right-dock-w);
+    border-radius: 0 0 10px 0;
+    border-top: 0;
+    border-left: 0;
+  }
+  .dock.right.laser-dock,
+  .monitor-dock {
+    top: var(--topbar-h1);
+  }
   .placeholder {
     color: var(--muted);
     font-size: 13px;
     padding: 8px;
-  }
-  .empty-tab {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    color: var(--muted);
-    font-size: 14px;
-    text-align: center;
-    pointer-events: none;
-  }
-  .lock {
-    position: absolute;
-    left: 10px;
-    bottom: 10px;
-    width: 34px;
-    height: 34px;
-    border-radius: 9px;
-    border: none;
-    background: rgba(28, 30, 34, 0.6);
-    color: var(--text);
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.2s;
-    z-index: 70;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  .lock.show {
-    opacity: 0.85;
-  }
-  .lock.on {
-    background: var(--accent);
-    opacity: 1;
-    box-shadow: 0 0 18px -2px hsl(var(--accent-h) var(--accent-s) var(--accent-l) / 0.7);
   }
   .error {
     position: absolute;

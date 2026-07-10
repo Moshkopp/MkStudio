@@ -29,6 +29,8 @@
 
   // Nest-Abstand (mm).
   let nestGapMm = $state(2.0);
+  let nestOpen = $state(false);
+  let nestMode = $state<"pack" | "fill">("pack");
 
   // Größe der Auswahl per Eingabe (mit Seitenverhältnis-Sperre).
   let ratioLock = $state(true);
@@ -52,10 +54,19 @@
     const w = ratioLock ? hIn * (selBBox[2] / selBBox[3]) : wIn;
     onresize(w, hIn);
   }
+  function canApplyNest(): boolean {
+    return nestMode === "fill" ? selCount >= 1 : selCount >= 2;
+  }
+  function applyNest() {
+    if (!canApplyNest()) return;
+    if (nestMode === "fill") onnestfill(nestGapMm);
+    else onnest(nestGapMm);
+    nestOpen = false;
+  }
 </script>
 
-<div class="col">
-  <div class="arrange">
+<div class="toolbar">
+  <div class="group">
     <button class="gbtn" disabled={selCount < 2} onclick={() => onalign("left")} title="Links ausrichten">⇤</button>
     <button class="gbtn" disabled={selCount < 2} onclick={() => onalign("hcenter")} title="Horizontal zentrieren">⇔</button>
     <button class="gbtn" disabled={selCount < 2} onclick={() => onalign("right")} title="Rechts ausrichten">⇥</button>
@@ -72,7 +83,7 @@
   </div>
 
   <!-- Größe der Auswahl numerisch setzen (Ratio-Lock koppelt B/H). -->
-  <div class="arrange">
+  <div class="group size-group">
     <span class="lbl">B</span>
     <input class="mm" type="number" step="0.5" min="0.1" bind:value={wIn}
       disabled={!selBBox} onchange={applyW} onkeydown={(e) => e.key === "Enter" && applyW()} title="Breite in mm" />
@@ -83,44 +94,55 @@
       disabled={!selBBox} onchange={applyH} onkeydown={(e) => e.key === "Enter" && applyH()} title="Höhe in mm" />
   </div>
 
-  <!-- Nesting: Auswahl platzsparend aufs Bett packen. -->
-  <div class="arrange">
-    <input class="mm" type="number" step="0.5" min="0" bind:value={nestGapMm} title="Abstand zwischen den Teilen in mm" />
-    <button class="gbtn wide grow" disabled={selCount < 2} onclick={() => onnest(nestGapMm)} title="Auswahl platzsparend packen">
-      Nest
+  <div class="nest-wrap">
+    <button class="gbtn wide" disabled={selCount < 1} onclick={() => (nestOpen = !nestOpen)} title="Nesting-Optionen">
+      Nesting
     </button>
-    <button class="gbtn wide grow" disabled={selCount < 1} onclick={() => onnestfill(nestGapMm)} title="Bett mit Kopien der ersten ausgewählten Form füllen">
-      Bett füllen
-    </button>
+    {#if nestOpen}
+      <div class="nest-menu glass">
+        <label>
+          Modus
+          <select bind:value={nestMode}>
+            <option value="pack">Auswahl packen</option>
+            <option value="fill">Bett füllen</option>
+          </select>
+        </label>
+        <label>
+          Abstand
+          <input class="mm" type="number" step="0.5" min="0" bind:value={nestGapMm} />
+        </label>
+        <button class="gbtn primary" disabled={!canApplyNest()} onclick={applyNest}>Fertig</button>
+      </div>
+    {/if}
   </div>
 </div>
 
 <style>
-  .col {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    width: 100%;
-  }
-  /* Einreihig; die Buttons teilen sich die Panelbreite und passen sich ihr an
-     (kein Umbruch, kein Stauchen). So bleibt die Reihe intakt, egal wie schmal
-     das Panel gezogen wird. */
-  .arrange {
+  .toolbar {
     display: flex;
     align-items: center;
-    gap: 3px;
+    gap: 8px;
     width: 100%;
+    min-width: 0;
+  }
+  .group {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    min-width: 0;
     container-type: inline-size;
   }
+  .size-group {
+    margin-left: auto;
+    display: grid;
+    grid-template-columns: auto 58px 30px auto 58px;
+    gap: 4px;
+    flex: 0 0 auto;
+  }
   button {
-    flex: 1 1 0;
-    min-width: 0;
-    /* Quadratisch: Hoehe folgt der (mit dem Panel schrumpfenden) Breite,
-       gedeckelt, damit die Buttons in breiten Panels nicht riesig werden. */
+    flex: 0 0 30px;
     aspect-ratio: 1;
-    max-width: 34px;
-    /* Icon-/Glyphgroesse skaliert mit der Buttonbreite. */
-    font-size: clamp(10px, 2.6cqw, 16px);
+    font-size: 14px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -128,24 +150,21 @@
   }
   button.wide {
     aspect-ratio: auto;
-    max-width: 52px;
-    padding: 0 6px;
-    font-size: 11px;
-  }
-  button.grow {
-    max-width: none;
-    height: 26px;
+    flex-basis: auto;
+    height: 30px;
+    padding: 0 12px;
+    font-size: 12px;
   }
   .mm {
-    flex: 1 1 0;
     min-width: 34px;
-    max-width: 56px;
+    width: 58px;
     background: rgba(0, 0, 0, 0.25);
     border: 1px solid var(--border);
     border-radius: 6px;
     color: var(--text);
     font-size: 12px;
     padding: 4px 4px;
+    text-align: right;
   }
   .lbl {
     font-size: 11px;
@@ -156,10 +175,47 @@
   button.on {
     border-color: var(--accent);
   }
+  button.primary {
+    width: 100%;
+    flex: none;
+    aspect-ratio: auto;
+    background: var(--accent);
+    color: white;
+    height: 30px;
+  }
   .vsep {
     flex: 0 0 1px;
-    align-self: stretch;
+    height: 24px;
     background: var(--border);
     margin: 3px 4px;
+  }
+  .nest-wrap {
+    position: relative;
+    flex: 0 0 auto;
+  }
+  .nest-menu {
+    position: absolute;
+    top: calc(100% + 8px);
+    right: 0;
+    width: 190px;
+    padding: 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    z-index: 80;
+  }
+  .nest-menu label {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    color: var(--muted);
+    font-size: 11px;
+  }
+  select {
+    background: rgba(0, 0, 0, 0.25);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    padding: 5px 7px;
   }
 </style>

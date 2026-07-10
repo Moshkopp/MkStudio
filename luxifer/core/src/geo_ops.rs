@@ -203,11 +203,11 @@ fn unit(from: Pt, to: Pt) -> Option<((f64, f64), f64)> {
 /// der Breite `width` (mm) über eine Kontur. Wo die Linie die Kontur kreuzt,
 /// wird die Kontur aufgeschnitten und die Teilstücke **innerhalb des
 /// Steg-Bandes** (Abstand ≤ width/2 zur Linie) entfernt — dort bleibt beim
-/// Schneiden Material stehen (die Brücke). Die Kontur wird also **geöffnet**,
-/// nicht neu geschlossen.
+/// Schneiden Material stehen. Die neuen Grenzpunkte werden wie in ThorBurn auf
+/// beiden Seiten verbunden und die resultierenden Pfade neu verkettet.
 ///
-/// Ergebnis: die verbleibenden (offenen) Teilstücke, oder `None`, wenn die
-/// Linie die Kontur nicht kreuzt.
+/// Ergebnis: die neu verketteten Teilkonturen, oder `None`, wenn die Linie die
+/// Kontur nicht kreuzt.
 pub fn bridge_line(
     points: &[Pt],
     closed: bool,
@@ -266,9 +266,7 @@ pub fn bridge_line(
             .any(|c| (mid.0 - c.0).hypot(mid.1 - c.1) <= r + 1e-5)
     };
 
-    // 4. Zusammenhängende „draußen"-Ketten sammeln = die stehenbleibenden
-    //    Schneidlinien (offen). Bei geschlossenen Konturen am ersten
-    //    Innen→Außen-Übergang beginnen, damit die Kette nicht mittendrin bricht.
+    // 4. Zusammenhängende „draußen"-Ketten und ihre Grenzpunkte sammeln.
     let total = sub.len();
     let mut start = 0;
     if closed {
@@ -306,7 +304,105 @@ pub fn bridge_line(
     if cur.len() >= 2 {
         out.push((cur, false));
     }
-    (!out.is_empty()).then_some(out)
+
+    // 5. Die Grenzpunkte auf jeder Seite der gezogenen Linie paarweise
+    // verbinden. Diese Querstücke sind der in der ersten Portierung fehlende
+    // Teil der ThorBurn-Logik: Ohne sie entstehen nur voneinander getrennte
+    // offene Konturfragmente statt einer zusammenhängenden Steggeometrie.
+    let mut boundary = Vec::new();
+    for i in 0..total {
+        let prev = &sub[(i + total - 1) % total];
+        if (closed || i > 0) && inside(&sub[i]) != inside(prev) {
+            boundary.push(sub[i].0);
+        }
+    }
+    let (dir, _) = unit(p0, p1)?;
+    let normal = (-dir.1, dir.0);
+    let mut left: Vec<(f64, Pt)> = Vec::new();
+    let mut right: Vec<(f64, Pt)> = Vec::new();
+    for pt in boundary {
+        let rel = (pt.0 - p0.0, pt.1 - p0.1);
+        let along = rel.0 * dir.0 + rel.1 * dir.1;
+        let side = rel.0 * normal.0 + rel.1 * normal.1;
+        if side < 0.0 {
+            left.push((along, pt));
+        } else {
+            right.push((along, pt));
+        }
+    }
+    for side in [&mut left, &mut right] {
+        side.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap());
+        for pair in side.chunks_exact(2) {
+            out.push((vec![pair[0].1, pair[1].1], false));
+        }
+    }
+
+    let paths: Vec<Vec<Pt>> = out.into_iter().map(|(p, _)| p).collect();
+    let chained = chain_paths(paths);
+    let result = chained
+        .into_iter()
+        .filter(|p| p.len() >= 2)
+        .map(|mut p| {
+            let is_closed =
+                p.len() >= 3 && (p[0].0 - p[p.len() - 1].0).hypot(p[0].1 - p[p.len() - 1].1) < 1e-5;
+            if is_closed {
+                p.pop();
+            }
+            (p, is_closed)
+        })
+        .collect::<Vec<_>>();
+    (!result.is_empty()).then_some(result)
+}
+
+fn chain_paths(mut paths: Vec<Vec<Pt>>) -> Vec<Vec<Pt>> {
+    let close = |a: Pt, b: Pt| (a.0 - b.0).hypot(a.1 - b.1) < 1e-5;
+    loop {
+        let mut merged = false;
+        'outer: for i in 0..paths.len() {
+            if paths[i].len() < 2 || close(paths[i][0], *paths[i].last().unwrap()) {
+                continue;
+            }
+            for j in (i + 1)..paths.len() {
+                if paths[j].is_empty() {
+                    continue;
+                }
+                let (ps, pe) = (paths[i][0], *paths[i].last().unwrap());
+                let (qs, qe) = (paths[j][0], *paths[j].last().unwrap());
+                let next = if close(pe, qs) {
+                    let mut p = paths[i].clone();
+                    p.extend_from_slice(&paths[j][1..]);
+                    Some(p)
+                } else if close(pe, qe) {
+                    let mut q = paths[j].clone();
+                    q.reverse();
+                    let mut p = paths[i].clone();
+                    p.extend_from_slice(&q[1..]);
+                    Some(p)
+                } else if close(ps, qs) {
+                    let mut p = paths[i].clone();
+                    p.reverse();
+                    p.extend_from_slice(&paths[j][1..]);
+                    Some(p)
+                } else if close(ps, qe) {
+                    let mut p = paths[j].clone();
+                    p.extend_from_slice(&paths[i][1..]);
+                    Some(p)
+                } else {
+                    None
+                };
+                if let Some(next) = next {
+                    paths[i] = next;
+                    paths.remove(j);
+                    merged = true;
+                    break 'outer;
+                }
+            }
+        }
+        if !merged {
+            break;
+        }
+    }
+    paths
 }
 
 /// Schnittpunkt zweier Strecken (falls vorhanden).
@@ -484,6 +580,64 @@ impl AppState {
     /// verbleibenden Teilstücke ersetzen sie. Ein Undo-Punkt. `true`, wenn
     /// mindestens eine Kontur getroffen wurde.
     pub fn bridge_stroke(&mut self, p0: Pt, p1: Pt, width: f64) -> bool {
+        if width <= 0.0 {
+            return false;
+        }
+        // Referenz-UX: Ein Klick (praktisch eine Null-Längen-Linie) sucht die
+        // nächste Konturkante und legt automatisch eine senkrechte Schnittlinie
+        // darüber. So funktioniert der Haltesteg auch ohne exakten Drag.
+        let (p0, p1) = if (p1.0 - p0.0).hypot(p1.1 - p0.1) < 0.1 {
+            let mut nearest: Option<(f64, Pt, Pt)> = None;
+            for s in &self.shapes {
+                if matches!(s.geo, Geo::Image { .. }) {
+                    continue;
+                }
+                let (mut pts, closed) = s.geo.outline_points();
+                if s.rotation != 0.0 {
+                    let (cx, cy) = s.bbox().center();
+                    for pt in &mut pts {
+                        *pt = rotate_point(pt.0, pt.1, cx, cy, s.rotation);
+                    }
+                }
+                let edges = if closed {
+                    pts.len()
+                } else {
+                    pts.len().saturating_sub(1)
+                };
+                for i in 0..edges {
+                    let a = pts[i];
+                    let b = pts[(i + 1) % pts.len()];
+                    let Some((dir, len)) = unit(a, b) else {
+                        continue;
+                    };
+                    let t = (((p0.0 - a.0) * dir.0 + (p0.1 - a.1) * dir.1) / len).clamp(0.0, 1.0);
+                    let projection = (a.0 + (b.0 - a.0) * t, a.1 + (b.1 - a.1) * t);
+                    let distance = (p0.0 - projection.0).hypot(p0.1 - projection.1);
+                    if nearest.is_none_or(|(best, _, _)| distance < best) {
+                        nearest = Some((distance, projection, dir));
+                    }
+                }
+            }
+            let Some((distance, projection, edge_dir)) = nearest else {
+                return false;
+            };
+            if distance > 10.0 {
+                return false;
+            }
+            let normal = (-edge_dir.1, edge_dir.0);
+            (
+                (
+                    projection.0 - normal.0 * width,
+                    projection.1 - normal.1 * width,
+                ),
+                (
+                    projection.0 + normal.0 * width,
+                    projection.1 + normal.1 * width,
+                ),
+            )
+        } else {
+            (p0, p1)
+        };
         // Betroffene Shapes vorab bestimmen (Index + Teilstücke), dann anwenden.
         type Cut = (usize, Vec<(Vec<Pt>, bool)>);
         let mut cuts: Vec<Cut> = Vec::new();
@@ -735,20 +889,20 @@ mod tests {
     }
 
     #[test]
-    fn bridge_line_oeffnet_kontur_an_kreuzung() {
+    fn bridge_line_verbindet_stegrander_zu_einer_kontur() {
         // 20mm-Quadrat, Steg-Linie waagerecht mitten durch (y=10), Breite 4.
         let sq = rect(0.0, 0.0, 20.0, 20.0);
         let pieces = bridge_line(&sq, true, (-5.0, 10.0), (25.0, 10.0), 4.0).unwrap();
-        // Es entstehen OFFENE Teilstücke (keine geschlossenen mehr).
+        assert_eq!(pieces.len(), 2, "beide Stegseiten werden wieder verkettet");
         assert!(
-            pieces.iter().all(|(_, closed)| !closed),
-            "Kontur wird geöffnet"
+            pieces.iter().all(|(_, closed)| *closed),
+            "beide resultierenden Konturen sind geschlossen"
         );
         // Kein Punkt liegt im Steg-Band (|y-10| < 2 an den linken/rechten Kanten
         // bei x=0 und x=20 — dort schneidet die Linie).
         for (pts, _) in &pieces {
             for &(x, y) in pts {
-                let on_side = (x <= 0.01 || x >= 19.99);
+                let on_side = x <= 0.01 || x >= 19.99;
                 if on_side {
                     assert!((y - 10.0).abs() >= 2.0 - 1e-6, "Lücke im Band bei y={y}");
                 }
@@ -761,6 +915,33 @@ mod tests {
         let sq = rect(0.0, 0.0, 20.0, 20.0);
         // Linie komplett außerhalb.
         assert!(bridge_line(&sq, true, (30.0, 30.0), (40.0, 40.0), 4.0).is_none());
+    }
+
+    #[test]
+    fn bridge_line_diagonal_bleibt_zusammenhaengend() {
+        let sq = rect(0.0, 0.0, 20.0, 20.0);
+        let pieces = bridge_line(&sq, true, (-5.0, -5.0), (25.0, 25.0), 2.0).unwrap();
+        assert_eq!(pieces.len(), 2);
+        assert!(pieces.iter().all(|(_, closed)| *closed));
+    }
+
+    #[test]
+    fn bridge_line_lehnt_nullbreite_ab() {
+        let sq = rect(0.0, 0.0, 20.0, 20.0);
+        assert!(bridge_line(&sq, true, (-5.0, 10.0), (25.0, 10.0), 0.0).is_none());
+    }
+
+    #[test]
+    fn bridge_stroke_klick_sucht_naechste_kante() {
+        let mut state = AppState::new();
+        state.add_shape(Geo::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 20.0,
+            h: 20.0,
+        });
+        assert!(state.bridge_stroke((0.2, 10.0), (0.2, 10.0), 2.0));
+        assert!(state.dirty);
     }
 
     #[test]

@@ -1,14 +1,7 @@
-//! GUI-Einstellungen (Panel-System, Theming, Arbeitsplatz) — ADR 0002.
+//! GUI-Einstellungen (Theming, Arbeitsplatz) — ADR 0002.
 //!
-//! Auflösungsunabhängiges Panel-Layout: Panel-Positionen werden als
-//! **Bruchteile** des Fensters gespeichert (0…1), nie als Pixel. Dadurch sitzt
-//! dasselbe Layout auf FullHD und WQHD an der gleichen relativen Stelle. Panele
-//! werden frei positioniert und skaliert (kein Raster/Snap) — siehe ADR §1.
-//!
-//! Das Modell ist UI-frei und testbar. Die Tauri-GUI liest/schreibt es über
-//! Commands; die lokale JSON ist offline-first und später von Charon pro
-//! Arbeitsplatz synchronisierbar (ADR §4). Der Editier-Modus selbst ist
-//! flüchtig und **nicht** Teil dieser Struktur.
+//! Das Panel-Layout ist statisch im Frontend verdrahtet. Persistiert werden nur
+//! die Arbeitsplatzdaten, Theme-Farben und der zuletzt verwendete Projektname.
 
 use std::path::{Path, PathBuf};
 
@@ -21,90 +14,6 @@ pub const UI_SETTINGS_FILE: &str = "gui-settings.json";
 
 /// Aktuelle Formatversion der GUI-Settings.
 pub const UI_FORMAT_VERSION: u32 = 1;
-
-/// Reiter der Oberfläche. Jeder Reiter hat ein eigenes Layout (ADR §2).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum Tab {
-    Projekt,
-    Design,
-    Laser,
-    Monitor,
-    Preview,
-}
-
-impl Tab {
-    /// Alle Reiter in Anzeige-Reihenfolge.
-    pub const ALL: [Tab; 5] = [
-        Tab::Projekt,
-        Tab::Design,
-        Tab::Laser,
-        Tab::Monitor,
-        Tab::Preview,
-    ];
-}
-
-/// Fachliche Panele. Als Enum (nicht Strings), damit Layouts typsicher und
-/// gegen Tippfehler geschützt sind.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub enum PanelKind {
-    Werkzeuge,
-    Ebenen,
-    Farbpalette,
-    Anordnen,
-    Laser,
-    JobStatus,
-    /// Formen-Galerie (Polygon-Auswahl). Standardmäßig ausgeblendet und erst
-    /// bei Bedarf einblendbar; später auch für Muster-Füllung nutzbar.
-    Formen,
-}
-
-/// Position und Größe eines Panels als **Bruchteile** des Fensters (0…1).
-///
-/// `x`/`y` ist die linke obere Ecke, `w`/`h` die Ausdehnung — jeweils relativ
-/// zur Fensterbreite/-höhe, stufenlos (kein Raster). `z` bestimmt die Stapel-
-/// Reihenfolge bei Überlappung — Panele dürfen sich frei überlappen, es gibt
-/// keine Kollisionslogik.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct PanelRect {
-    pub x: f64,
-    pub y: f64,
-    pub w: f64,
-    pub h: f64,
-    #[serde(default)]
-    pub z: i32,
-}
-
-impl PanelRect {
-    /// Klemmt die Bruchteile in den gültigen Bereich, sodass das Panel im
-    /// Fenster bleibt (Startpunkt 0…1, Ausdehnung passt nicht über den Rand).
-    pub fn clamped(self) -> Self {
-        let w = self.w.clamp(0.02, 1.0);
-        let h = self.h.clamp(0.02, 1.0);
-        let x = self.x.clamp(0.0, 1.0 - w);
-        let y = self.y.clamp(0.0, 1.0 - h);
-        Self {
-            x,
-            y,
-            w,
-            h,
-            z: self.z,
-        }
-    }
-}
-
-/// Ein sichtbares Panel in einem Reiter-Layout.
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct PanelPlacement {
-    pub kind: PanelKind,
-    pub rect: PanelRect,
-}
-
-/// Layout eines einzelnen Reiters: welche Panele sichtbar sind und wo.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct TabLayout {
-    pub tab: Tab,
-    pub panels: Vec<PanelPlacement>,
-}
 
 /// Eine Theme-Farbe: Farbton (RGB) plus geklemmte Intensität (ADR §3).
 ///
@@ -174,8 +83,6 @@ pub struct UiSettings {
     /// zum Synchronisieren genutzt.
     pub workplace: String,
     pub theme: Theme,
-    /// Ein Layout je Reiter.
-    pub layouts: Vec<TabLayout>,
     /// Zuletzt geöffnetes Projekt (Ordnername) für den Start-Toast (ADR 0003).
     /// Leer = kein zuletzt-Projekt. `#[serde(default)]` für alte Settings.
     #[serde(default)]
@@ -188,43 +95,16 @@ impl Default for UiSettings {
             version: UI_FORMAT_VERSION,
             workplace: "Arbeitsplatz".into(),
             theme: Theme::default(),
-            layouts: Tab::ALL.iter().map(|&t| default_layout(t)).collect(),
             last_project: String::new(),
         }
     }
 }
 
 impl UiSettings {
-    /// Layout eines Reiters (oder `None`, wenn nicht vorhanden).
-    pub fn layout(&self, tab: Tab) -> Option<&TabLayout> {
-        self.layouts.iter().find(|l| l.tab == tab)
-    }
-
-    /// Setzt den aktuellen Reiter auf sein eingebautes Standard-Layout zurück
-    /// (ADR §2). Andere Reiter bleiben unberührt.
-    pub fn reset_tab(&mut self, tab: Tab) {
-        let def = default_layout(tab);
-        if let Some(slot) = self.layouts.iter_mut().find(|l| l.tab == tab) {
-            *slot = def;
-        } else {
-            self.layouts.push(def);
-        }
-    }
-
-    /// Räumt geladene Settings auf: fehlende Reiter ergänzen, Werte klemmen.
+    /// Räumt geladene Settings auf: Werte klemmen.
     /// Macht das Laden robust gegen alte/fehlerhafte Dateien.
     pub fn sanitize(&mut self) {
         self.theme = self.theme.clamped();
-        for tab in Tab::ALL {
-            if !self.layouts.iter().any(|l| l.tab == tab) {
-                self.layouts.push(default_layout(tab));
-            }
-        }
-        for layout in &mut self.layouts {
-            for p in &mut layout.panels {
-                p.rect = p.rect.clamped();
-            }
-        }
     }
 
     pub fn to_json(&self) -> Result<String, String> {
@@ -266,91 +146,15 @@ impl UiSettings {
     }
 }
 
-/// Eingebautes Standard-Layout je Reiter (ADR §2). Bewusst schlicht und
-/// sinnvoll: Design zeigt die Editier-Panele, Laser die Steuerung, Monitor
-/// (später) den Job-Status.
-pub fn default_layout(tab: Tab) -> TabLayout {
-    // Kleiner Helfer für lesbare Bruchteil-Rechtecke.
-    let r = |x: f64, y: f64, w: f64, h: f64, z: i32| PanelRect { x, y, w, h, z };
-    let p = |kind: PanelKind, rect: PanelRect| PanelPlacement { kind, rect };
-
-    let panels = match tab {
-        // Projekt- und Preview-Reiter haben noch keine eigenen Panele; Inhalt
-        // (Projektverwaltung bzw. Job-Vorschau) folgt als eigener Meilenstein.
-        Tab::Projekt => vec![],
-        Tab::Preview => vec![],
-        // y-Start unter dem Header (~0.08), damit Panele nicht darunter kleben.
-        Tab::Design => vec![
-            // Werkzeuge links, schmal und hoch (21 Werkzeuge in 5 Gruppen).
-            p(PanelKind::Werkzeuge, r(0.0, 0.09, 0.09, 0.82, 0)),
-            // Ebenen rechts oben.
-            p(PanelKind::Ebenen, r(0.80, 0.09, 0.20, 0.55, 0)),
-            // Farbpalette rechts unten.
-            p(PanelKind::Farbpalette, r(0.80, 0.66, 0.20, 0.18, 0)),
-            // Anordnen-Toolbar oben mittig, flach.
-            p(PanelKind::Anordnen, r(0.30, 0.09, 0.40, 0.08, 0)),
-            // Formen-Galerie links neben den Werkzeugen. Im Normalbetrieb nur
-            // sichtbar, wenn das Polygon-Werkzeug aktiv ist (bzw. im Editier-
-            // Modus); die Position wird aber hier vorgehalten.
-            p(PanelKind::Formen, r(0.10, 0.09, 0.16, 0.40, 0)),
-        ],
-        Tab::Laser => vec![
-            p(PanelKind::Ebenen, r(0.0, 0.09, 0.20, 0.55, 0)),
-            // Laser-Control unten rechts (wie bisher).
-            p(PanelKind::Laser, r(0.78, 0.30, 0.22, 0.66, 0)),
-        ],
-        Tab::Monitor => vec![
-            // Vorerst nur ein Platzhalter-Panel; Inhalt folgt später.
-            p(PanelKind::JobStatus, r(0.70, 0.09, 0.30, 0.5, 0)),
-        ],
-    };
-    TabLayout { tab, panels }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn default_hat_ein_layout_je_reiter() {
-        let s = UiSettings::default();
-        assert_eq!(s.layouts.len(), Tab::ALL.len());
-        for tab in Tab::ALL {
-            assert!(s.layout(tab).is_some(), "{tab:?} fehlt");
-        }
-    }
 
     #[test]
     fn intensitaet_wird_auf_korridor_geklemmt() {
         assert_eq!(ThemeColor::new([0, 0, 0], 0.0).intensity, INTENSITY_MIN);
         assert_eq!(ThemeColor::new([0, 0, 0], 1.0).intensity, INTENSITY_MAX);
         assert_eq!(ThemeColor::new([0, 0, 0], 0.5).intensity, 0.5);
-    }
-
-    #[test]
-    fn panelrect_bleibt_im_fenster() {
-        // Startpunkt außerhalb, Ausdehnung zu groß → wird zurechtgeklemmt.
-        let c = PanelRect {
-            x: 1.5,
-            y: -0.2,
-            w: 2.0,
-            h: 0.3,
-            z: 0,
-        }
-        .clamped();
-        assert!(c.x >= 0.0 && c.x + c.w <= 1.0 + f64::EPSILON);
-        assert!(c.y >= 0.0 && c.y + c.h <= 1.0 + f64::EPSILON);
-    }
-
-    #[test]
-    fn reset_tab_setzt_nur_den_reiter_zurueck() {
-        let mut s = UiSettings::default();
-        // Design-Layout verändern.
-        if let Some(l) = s.layouts.iter_mut().find(|l| l.tab == Tab::Design) {
-            l.panels.clear();
-        }
-        s.reset_tab(Tab::Design);
-        assert!(!s.layout(Tab::Design).unwrap().panels.is_empty());
     }
 
     #[test]
@@ -362,12 +166,22 @@ mod tests {
     }
 
     #[test]
-    fn fehlender_reiter_wird_beim_laden_ergaenzt() {
-        let mut s = UiSettings::default();
-        s.layouts.retain(|l| l.tab != Tab::Monitor);
-        let json = serde_json::to_string(&s).unwrap();
-        let back = UiSettings::from_json(&json).unwrap();
-        assert!(back.layout(Tab::Monitor).is_some(), "Monitor ergänzt");
+    fn alte_layout_felder_werden_ignoriert() {
+        let json = r#"{
+            "version": 1,
+            "workplace": "Alt",
+            "theme": {
+                "accent": { "hue": [59, 130, 246], "intensity": 1.2 },
+                "button": { "hue": [96, 102, 112], "intensity": 0.1 }
+            },
+            "layouts": [{ "tab": "Design", "panels": [] }],
+            "last_project": "Text"
+        }"#;
+        let back = UiSettings::from_json(json).unwrap();
+        assert_eq!(back.workplace, "Alt");
+        assert_eq!(back.theme.accent.intensity, INTENSITY_MAX);
+        assert_eq!(back.theme.button.intensity, INTENSITY_MIN);
+        assert_eq!(back.last_project, "Text");
     }
 
     #[test]

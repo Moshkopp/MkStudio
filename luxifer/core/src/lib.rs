@@ -9,8 +9,8 @@
 //! - [`state`]: [`AppState`] mit Undo/Redo und dem automatischen Farbe=Layer-Modell.
 //! - [`job`]: geräteunabhängiger [`JobPlan`] + [`MachineDriver`]-Trait (ADR 0001);
 //!   Treiber (Ruida, GRBL, …) sind eigene Crates.
-//! - [`ui_settings`]: auflösungsunabhängiges Panel-Layout, Theming und
-//!   Arbeitsplatz-Settings (ADR 0002); von der GUI genutzt, aber UI-frei.
+//! - [`ui_settings`]: Theming und Arbeitsplatz-Settings (ADR 0002); von der GUI
+//!   genutzt, aber UI-frei.
 
 pub mod arrange;
 pub mod assets;
@@ -59,6 +59,4 @@ pub use raster::{raster_rows, raster_texture, Placement, RasterImage, RasterRow,
 pub use scanline::FillSegment;
 pub use shapes::{PolyShape, ShapeInfo};
 pub use state::AppState;
-pub use ui_settings::{
-    PanelKind, PanelPlacement, PanelRect, Tab, TabLayout, Theme, ThemeColor, UiSettings,
-};
+pub use ui_settings::{Theme, ThemeColor, UiSettings};
