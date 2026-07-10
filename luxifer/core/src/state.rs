@@ -396,6 +396,188 @@ impl AppState {
         self.dirty = true;
     }
 
+    // ---- Text-Blöcke (Text→Pfad, editierbar) --------------------------------
+
+    /// Fügt einen Text-Block ein: alle Konturen als EINE Gruppe (verhält sich
+    /// als Einheit), die Quelldaten (`TextMeta`) am ersten Shape für späteres
+    /// Editieren per Doppelklick. Ein Undo-Punkt.
+    pub fn add_text_block(
+        &mut self,
+        contours: Vec<(Vec<crate::geometry::Pt>, bool)>,
+        meta: crate::model::TextMeta,
+    ) -> Vec<usize> {
+        let idxs = self.add_polylines(contours);
+        if idxs.is_empty() {
+            return idxs;
+        }
+        let gid = self
+            .shapes
+            .iter()
+            .filter_map(|s| s.group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        for &i in &idxs {
+            if let Some(s) = self.shapes.get_mut(i) {
+                s.group_id = Some(gid);
+            }
+        }
+        if let Some(s) = self.shapes.get_mut(idxs[0]) {
+            s.text_meta = Some(meta);
+        }
+        idxs
+    }
+
+    /// Ersetzt den Text-Block, zu dem `idx` gehört (Doppelklick-Edit): die
+    /// alte Gruppe wird entfernt, die neuen Konturen erscheinen an derselben
+    /// Position (Anker = alte linke Oberkante) auf demselben Layer.
+    /// Ein Undo-Punkt.
+    pub fn replace_text_block(
+        &mut self,
+        idx: usize,
+        contours: Vec<(Vec<crate::geometry::Pt>, bool)>,
+        meta: crate::model::TextMeta,
+    ) {
+        let Some(anchor_shape) = self.shapes.get(idx) else {
+            return;
+        };
+        let gid = anchor_shape.group_id;
+        let layer_id = anchor_shape.layer_id;
+        // Mitglieder des Blocks (bei fehlender Gruppe: nur das eine Shape).
+        let members: Vec<usize> = match gid {
+            Some(g) => (0..self.shapes.len())
+                .filter(|&i| self.shapes[i].group_id == Some(g))
+                .collect(),
+            None => vec![idx],
+        };
+        // Alte Position (linke Oberkante des Blocks).
+        let (mut ox, mut oy) = (f64::MAX, f64::MAX);
+        for &i in &members {
+            let b = self.shapes[i].bbox();
+            ox = ox.min(b.x);
+            oy = oy.min(b.y);
+        }
+        // Neue Konturen auf den alten Anker verschieben.
+        let (mut nx, mut ny) = (f64::MAX, f64::MAX);
+        for (pts, _) in &contours {
+            for &(x, y) in pts {
+                nx = nx.min(x);
+                ny = ny.min(y);
+            }
+        }
+        if nx == f64::MAX {
+            return;
+        }
+        let placed: Vec<(Vec<crate::geometry::Pt>, bool)> = contours
+            .into_iter()
+            .map(|(pts, closed)| {
+                (
+                    pts.into_iter()
+                        .map(|(x, y)| (x - nx + ox, y - ny + oy))
+                        .collect(),
+                    closed,
+                )
+            })
+            .collect();
+
+        self.push_undo();
+        // Alte Mitglieder entfernen (absteigend), dann neu einfügen.
+        let mut rm = members.clone();
+        rm.sort_unstable();
+        for &i in rm.iter().rev() {
+            self.shapes.remove(i);
+        }
+        let new_gid = self
+            .shapes
+            .iter()
+            .filter_map(|s| s.group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        self.selected.clear();
+        let mut first = None;
+        for (pts, closed) in placed {
+            let i = self.shapes.len();
+            let mut sh = Shape::new(layer_id, Geo::Polyline { pts, closed });
+            sh.group_id = Some(new_gid);
+            self.shapes.push(sh);
+            self.selected.push(i);
+            first.get_or_insert(i);
+        }
+        if let Some(f) = first {
+            self.shapes[f].text_meta = Some(meta);
+        }
+        self.remove_empty_layers();
+        self.dirty = true;
+    }
+
+    // ---- Gruppen (group_id) ------------------------------------------------
+
+    /// Erweitert die Auswahl auf ganze Gruppen: ist ein Gruppenmitglied
+    /// selektiert, werden alle Mitglieder selektiert. Nach jeder
+    /// Auswahländerung aufrufen — so verhält sich eine Gruppe als Einheit.
+    pub fn expand_selection_to_groups(&mut self) {
+        let mut gids: Vec<u32> = self
+            .selected
+            .iter()
+            .filter_map(|&i| self.shapes.get(i).and_then(|s| s.group_id))
+            .collect();
+        gids.sort_unstable();
+        gids.dedup();
+        if gids.is_empty() {
+            return;
+        }
+        for (i, s) in self.shapes.iter().enumerate() {
+            if let Some(g) = s.group_id {
+                if gids.contains(&g) && !self.selected.contains(&i) {
+                    self.selected.push(i);
+                }
+            }
+        }
+    }
+
+    /// Gruppiert die Auswahl (ein Undo-Punkt): alle selektierten Shapes
+    /// bekommen dieselbe neue Gruppen-ID (bestehende Gruppen gehen darin auf).
+    pub fn group_selected(&mut self) {
+        if self.selected.len() < 2 {
+            return;
+        }
+        self.push_undo();
+        let next = self
+            .shapes
+            .iter()
+            .filter_map(|s| s.group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let sel = self.selected.clone();
+        for idx in sel {
+            if let Some(s) = self.shapes.get_mut(idx) {
+                s.group_id = Some(next);
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Löst die Gruppierung der Auswahl (ein Undo-Punkt).
+    pub fn ungroup_selected(&mut self) {
+        let has_group = self
+            .selected
+            .iter()
+            .any(|&i| self.shapes.get(i).is_some_and(|s| s.group_id.is_some()));
+        if !has_group {
+            return;
+        }
+        self.push_undo();
+        let sel = self.selected.clone();
+        for idx in sel {
+            if let Some(s) = self.shapes.get_mut(idx) {
+                s.group_id = None;
+            }
+        }
+        self.dirty = true;
+    }
+
     /// Löscht die selektierten Shapes (ein Undo-Punkt) und räumt leere Layer weg.
     pub fn delete_selected(&mut self) {
         if self.selected.is_empty() {

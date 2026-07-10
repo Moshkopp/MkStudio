@@ -355,6 +355,8 @@ fn select_at(data: State<AppData>, x: f64, y: f64, tol: f64, additive: bool) -> 
             }
         }
     }
+    // Gruppen sind eine Einheit: Auswahl auf ganze Gruppen erweitern.
+    s.expand_selection_to_groups();
     scene_with(&s, &data)
 }
 
@@ -363,6 +365,23 @@ fn select_at(data: State<AppData>, x: f64, y: f64, tol: f64, additive: bool) -> 
 fn select_rect(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Scene {
     let mut s = data.state.lock().unwrap();
     s.select_in_rect(x1, y1, x2, y2);
+    s.expand_selection_to_groups();
+    scene_with(&s, &data)
+}
+
+/// Gruppiert die Auswahl (Shapes verhalten sich danach als Einheit).
+#[tauri::command]
+fn group_op(data: State<AppData>) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.group_selected();
+    scene_with(&s, &data)
+}
+
+/// Löst die Gruppierung der Auswahl.
+#[tauri::command]
+fn ungroup_op(data: State<AppData>) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.ungroup_selected();
     scene_with(&s, &data)
 }
 
@@ -568,7 +587,60 @@ fn add_text(
         .into_iter()
         .map(|(c, closed)| (c.into_iter().map(|(x, y)| (x + ox, y + oy)).collect(), closed))
         .collect();
-    s.add_polylines(placed);
+    // Als Text-Block: eine Gruppe + Quelldaten fürs spätere Editieren.
+    s.add_text_block(
+        placed,
+        luxifer_core::TextMeta {
+            text,
+            font_path,
+            size_mm,
+        },
+    );
+    Ok(scene_with(&s, &data))
+}
+
+/// Vorschau-Konturen für den Text-Dialog (mm, Ursprung oben links). Reine
+/// Anzeige — die Wahrheit erzeugt add_text/update_text im Core.
+#[tauri::command]
+fn text_preview(
+    text: String,
+    font_path: String,
+    size_mm: f64,
+) -> Result<Vec<(Vec<(f64, f64)>, bool)>, String> {
+    let bytes = std::fs::read(&font_path).map_err(|e| e.to_string())?;
+    luxifer_core::text::text_to_contours(&bytes, &text, size_mm.clamp(1.0, 500.0))
+        .map_err(|e| e.to_string())
+}
+
+/// Ersetzt einen bestehenden Text-Block (Doppelklick-Edit): neuer Text/Font/
+/// Größe, gleiche Position, gleicher Layer.
+#[tauri::command]
+fn update_text(
+    data: State<AppData>,
+    shape_index: usize,
+    text: String,
+    font_path: String,
+    size_mm: f64,
+) -> Result<Scene, String> {
+    if text.trim().is_empty() {
+        return Err("Kein Text eingegeben.".into());
+    }
+    let bytes = std::fs::read(&font_path).map_err(|e| format!("Font nicht lesbar: {e}"))?;
+    let contours = luxifer_core::text::text_to_contours(&bytes, &text, size_mm.clamp(1.0, 500.0))
+        .map_err(|e| e.to_string())?;
+    if contours.is_empty() {
+        return Err("Der Font liefert für diesen Text keine Konturen.".into());
+    }
+    let mut s = data.state.lock().unwrap();
+    s.replace_text_block(
+        shape_index,
+        contours,
+        luxifer_core::TextMeta {
+            text,
+            font_path,
+            size_mm,
+        },
+    );
     Ok(scene_with(&s, &data))
 }
 
@@ -1429,6 +1501,8 @@ pub fn run() {
             activate_color,
             select_at,
             select_rect,
+            group_op,
+            ungroup_op,
             move_selected,
             scale_selected,
             align,
@@ -1439,6 +1513,8 @@ pub fn run() {
             list_fonts,
             import_vector_file,
             add_text,
+            update_text,
+            text_preview,
             pattern_fill_op,
             add_spline,
             upload_font,

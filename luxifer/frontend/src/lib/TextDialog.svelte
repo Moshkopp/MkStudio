@@ -2,27 +2,42 @@
   // Text-Werkzeug: Text + Font + Größe → Vektorpfade im Canvas (Text→Pfad).
   // Der Core erzeugt die Glyph-Konturen; hier nur Eingabe + Font-Auswahl.
   import { onMount } from "svelte";
-  import { listFonts, uploadFont, type FontInfo } from "./core";
+  import { listFonts, textPreview, uploadFont, type FontInfo } from "./core";
+
+  import type { TextMeta } from "./core";
 
   let {
+    initial = null,
     oninsert,
     onclose,
   }: {
+    // Vorbelegung beim Editieren (Doppelklick auf einen Text-Block).
+    initial?: TextMeta | null;
     oninsert: (text: string, fontPath: string, sizeMm: number) => void;
     onclose: () => void;
   } = $props();
 
-  let text = $state("");
-  let sizeMm = $state(20);
+  /* svelte-ignore state_referenced_locally */
+  let text = $state(initial?.text ?? "");
+  /* svelte-ignore state_referenced_locally */
+  let sizeMm = $state(initial?.size_mm ?? 20);
   let fonts = $state<FontInfo[]>([]);
-  let fontPath = $state("");
+  /* svelte-ignore state_referenced_locally */
+  let fontPath = $state(initial?.font_path ?? "");
   let error = $state("");
+
+  // Eigene Fonts (App-Ordner) zuerst, Systemfonts als eingeklappte Gruppe —
+  // sonst gehen die eigenen zwischen hunderten Systemschriften unter.
+  const ownFonts = $derived(fonts.filter((f) => f.path.includes("/luxifer/Fonts/")));
+  const sysFonts = $derived(fonts.filter((f) => !f.path.includes("/luxifer/Fonts/")));
 
   onMount(async () => {
     fonts = await listFonts();
-    // Sinnvoller Default: ein gut lesbarer Standard-Font, sonst der erste.
+    if (fontPath) return; // Edit-Modus: Font des Blocks behalten
+    // Default: erster eigener Font, sonst ein gut lesbarer System-Font.
+    const own = fonts.find((f) => f.path.includes("/luxifer/Fonts/"));
     const pref = fonts.find((f) => /dejavusans$|liberationsans-regular|arial$/i.test(f.name));
-    fontPath = (pref ?? fonts[0])?.path ?? "";
+    fontPath = (own ?? pref ?? fonts[0])?.path ?? "";
   });
 
   function insert() {
@@ -36,6 +51,51 @@
     }
     oninsert(text, fontPath, sizeMm);
   }
+
+  // Live-Vorschau der gewählten Schrift: Core liefert die Konturen, das
+  // kleine Canvas zeichnet sie nur (entprellt; nur der letzte Aufruf zählt).
+  let previewCanvas = $state<HTMLCanvasElement | null>(null);
+  let previewToken = 0;
+  $effect(() => {
+    const t = text.trim() || "AaBb 123";
+    const fp = fontPath;
+    const sz = sizeMm;
+    if (!fp || !previewCanvas) return;
+    const token = ++previewToken;
+    textPreview(t, fp, sz)
+      .then((contours) => {
+        if (token !== previewToken || !previewCanvas) return;
+        const ctx = previewCanvas.getContext("2d");
+        if (!ctx) return;
+        const W = previewCanvas.width;
+        const H = previewCanvas.height;
+        ctx.clearRect(0, 0, W, H);
+        // Bounding-Box der Konturen → einpassen.
+        let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+        for (const [pts] of contours)
+          for (const [x, y] of pts) {
+            minX = Math.min(minX, x); minY = Math.min(minY, y);
+            maxX = Math.max(maxX, x); maxY = Math.max(maxY, y);
+          }
+        if (!isFinite(minX)) return;
+        const pad = 8;
+        const sc = Math.min((W - 2 * pad) / (maxX - minX || 1), (H - 2 * pad) / (maxY - minY || 1));
+        ctx.strokeStyle = "#dfe3ea";
+        ctx.lineWidth = 1.2;
+        for (const [pts, closed] of contours) {
+          ctx.beginPath();
+          pts.forEach(([x, y], i) => {
+            const sx = pad + (x - minX) * sc;
+            const sy = pad + (y - minY) * sc;
+            if (i === 0) ctx.moveTo(sx, sy);
+            else ctx.lineTo(sx, sy);
+          });
+          if (closed) ctx.closePath();
+          ctx.stroke();
+        }
+      })
+      .catch(() => {});
+  });
 
   // Eigenen Font installieren (TTF/OTF → App-Fonts-Ordner) und auswählen.
   let fontFile = $state<HTMLInputElement | null>(null);
@@ -61,7 +121,7 @@
 <div class="backdrop" onclick={onclose} onkeydown={(e) => e.key === "Escape" && onclose()} role="button" tabindex="-1">
   <!-- svelte-ignore a11y_click_events_have_key_events -->
   <div class="dialog" onclick={(e) => e.stopPropagation()} role="dialog" tabindex="-1">
-    <h3>Text einfügen</h3>
+    <h3>{initial ? "Text bearbeiten" : "Text einfügen"}</h3>
 
     <label>
       Text
@@ -73,9 +133,22 @@
       <label class="grow">
         Schriftart
         <select bind:value={fontPath}>
-          {#each fonts as f (f.path)}
-            <option value={f.path}>{f.name}</option>
-          {/each}
+          {#if ownFonts.length > 0}
+            <optgroup label="Eigene Fonts">
+              {#each ownFonts as f (f.path)}
+                <option value={f.path}>{f.name}</option>
+              {/each}
+            </optgroup>
+            <optgroup label="Systemschriften">
+              {#each sysFonts as f (f.path)}
+                <option value={f.path}>{f.name}</option>
+              {/each}
+            </optgroup>
+          {:else}
+            {#each fonts as f (f.path)}
+              <option value={f.path}>{f.name}</option>
+            {/each}
+          {/if}
         </select>
       </label>
       <label class="size">
@@ -83,6 +156,8 @@
         <input type="number" min="1" max="500" step="1" bind:value={sizeMm} />
       </label>
     </div>
+
+    <div class="preview"><canvas bind:this={previewCanvas} width="420" height="90"></canvas></div>
 
     {#if error}<p class="err">{error}</p>{/if}
 
@@ -92,7 +167,7 @@
       </button>
       <input type="file" accept=".ttf,.otf" bind:this={fontFile} onchange={onFontFile} hidden />
       <button class="ghost" onclick={onclose}>Abbrechen</button>
-      <button class="primary" onclick={insert}>Einfügen</button>
+      <button class="primary" onclick={insert}>{initial ? "Übernehmen" : "Einfügen"}</button>
     </div>
   </div>
 </div>
@@ -151,6 +226,16 @@
   }
   .size {
     width: 90px;
+  }
+  .preview {
+    background: rgba(0, 0, 0, 0.3);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    display: flex;
+    justify-content: center;
+  }
+  .preview canvas {
+    display: block;
   }
   .err {
     margin: 0;

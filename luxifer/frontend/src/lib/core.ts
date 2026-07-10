@@ -58,6 +58,13 @@ export interface Layer {
   bidirectional: boolean;
 }
 
+// Quelldaten eines Text-Blocks (am ersten Shape der Text-Gruppe).
+export interface TextMeta {
+  text: string;
+  font_path: string;
+  size_mm: number;
+}
+
 export interface Shape {
   layer_id: number;
   geo: Geo;
@@ -65,6 +72,7 @@ export interface Shape {
   group_id?: number | null;
   speed_override?: number | null;
   power_override?: number | null;
+  text_meta?: TextMeta | null;
 }
 
 // Metadaten des offenen Projekts (oder null, wenn namenlos).
@@ -261,6 +269,10 @@ export type BoolOpKind = "union" | "intersect" | "diff";
 export const booleanOp = (op: BoolOpKind) => invoke<Scene>("boolean_op", { op });
 export const offsetOp = (dist: number) => invoke<Scene>("offset_op", { dist });
 export const filletOp = (radius: number) => invoke<Scene>("fillet_op", { radius });
+// Gruppieren/Degruppieren: gruppierte Shapes verhalten sich als Einheit.
+export const groupOp = () => invoke<Scene>("group_op");
+export const ungroupOp = () => invoke<Scene>("ungroup_op");
+
 // Nesting: Auswahl platzsparend aufs Bett packen (gap = Abstand in mm).
 export const nestOp = (gap: number) => invoke<Scene>("nest_op", { gap });
 
@@ -295,6 +307,12 @@ export interface FontInfo {
 export const listFonts = () => invoke<FontInfo[]>("list_fonts");
 export const addText = (text: string, fontPath: string, sizeMm: number) =>
   invoke<Scene>("add_text", { text, fontPath, sizeMm });
+// Vorschau-Konturen des Texts für den Dialog (reine Anzeige).
+export const textPreview = (text: string, fontPath: string, sizeMm: number) =>
+  invoke<[[number, number][], boolean][]>("text_preview", { text, fontPath, sizeMm });
+// Text-Block editieren (Doppelklick): ersetzt Konturen an gleicher Position.
+export const updateText = (shapeIndex: number, text: string, fontPath: string, sizeMm: number) =>
+  invoke<Scene>("update_text", { shapeIndex, text, fontPath, sizeMm });
 
 export const clearSelection = () => invoke<Scene>("clear_selection");
 

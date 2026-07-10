@@ -8,11 +8,15 @@
     onalign,
     ondistribute,
     onnest,
+    ongroup,
+    onungroup,
   }: {
     selCount: number;
     onalign: (k: AlignKind) => void;
     ondistribute: (k: DistributeKind) => void;
     onnest: (gap: number) => void;
+    ongroup: () => void;
+    onungroup: () => void;
   } = $props();
 
   // Nest-Abstand (mm).
@@ -31,6 +35,9 @@
     <div class="vsep"></div>
     <button class="gbtn" disabled={selCount < 3} onclick={() => ondistribute("h")} title="Horizontal verteilen">⋯</button>
     <button class="gbtn" disabled={selCount < 3} onclick={() => ondistribute("v")} title="Vertikal verteilen">⋮</button>
+    <div class="vsep"></div>
+    <button class="gbtn" disabled={selCount < 2} onclick={ongroup} title="Gruppieren (Strg+G)">⧉</button>
+    <button class="gbtn" disabled={selCount < 1} onclick={onungroup} title="Gruppierung lösen (Strg+Umschalt+G)">⧎</button>
   </div>
 
   <!-- Nesting: Auswahl platzsparend aufs Bett packen. -->

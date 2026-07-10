@@ -49,7 +49,7 @@ pub use job::{
 pub use laser::{
     Connection, DriverKind, JobAction, LaserProfile, LaserRegistry, ScanOffsetCal, ScanOffsetPoint,
 };
-pub use model::{Layer, LayerMode, Shape, SWATCH_COLORS};
+pub use model::{Layer, LayerMode, Shape, TextMeta, SWATCH_COLORS};
 pub use project::{
     data_root, delete_project, list_projects, projects_dir, rename_project, version_thumb_path,
     ProjectFile, ProjectInfo, VersionInfo,

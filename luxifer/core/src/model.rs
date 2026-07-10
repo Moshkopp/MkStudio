@@ -159,6 +159,16 @@ impl Layer {
     }
 }
 
+/// Quelldaten eines Text-Blocks (Text→Pfad): erlaubt späteres Editieren
+/// (Doppelklick), ohne die Konturen zurückrechnen zu müssen. Liegt am
+/// ERSTEN Shape der Text-Gruppe.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TextMeta {
+    pub text: String,
+    pub font_path: String,
+    pub size_mm: f64,
+}
+
 /// Eine gezeichnete Form. Gehört über `layer_id` zu einem Layer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Shape {
@@ -175,6 +185,9 @@ pub struct Shape {
     pub speed_override: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub power_override: Option<f64>,
+    /// Text-Quelldaten (nur am ersten Shape eines Text-Blocks).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text_meta: Option<TextMeta>,
 }
 
 impl Shape {
@@ -187,6 +200,7 @@ impl Shape {
             group_id: None,
             speed_override: None,
             power_override: None,
+            text_meta: None,
         }
     }
 

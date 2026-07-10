@@ -18,6 +18,7 @@
     onmove,
     onscale,
     oneditimage,
+    onedittext,
     laserHead,
     laserOrigin,
   }: {
@@ -45,6 +46,7 @@
     ) => void | Promise<void>;
     // Doppelklick auf ein Bild-Shape: Editor oeffnen (Shape-Index).
     oneditimage?: (index: number) => void;
+    onedittext?: (index: number) => void;
     // Laser-Positionen (mm) fuer Marker: Kopf und Benutzerursprung. Optional.
     laserHead?: [number, number] | null;
     laserOrigin?: [number, number] | null;
@@ -776,17 +778,33 @@
       polyCommit(false);
       return;
     }
-    // Sonst: Doppelklick auf ein Bild-Shape oeffnet den Bild-Editor.
+    // Sonst: Doppelklick auf ein Bild-Shape oeffnet den Bild-Editor,
+    // auf einen Text-Block den Text-Editor.
     const [px, py] = localXY(ev);
     const [mx, my] = toMm(px, py);
-    // Oberstes getroffenes Bild-Shape (spaetere liegen oben).
+    // Oberstes getroffenes Shape (spaetere liegen oben).
     for (let i = scene.shapes.length - 1; i >= 0; i--) {
       const s = scene.shapes[i];
-      if (!("Image" in s.geo)) continue;
       const [bx, by, bw, bh] = shapeBBox(s);
-      if (mx >= bx && mx <= bx + bw && my >= by && my <= by + bh) {
+      const hit = mx >= bx && mx <= bx + bw && my >= by && my <= by + bh;
+      if (!hit) continue;
+      if ("Image" in s.geo) {
         oneditimage?.(i);
         return;
+      }
+      // Text-Block: Meta liegt am ersten Gruppenmitglied.
+      if (s.text_meta) {
+        onedittext?.(i);
+        return;
+      }
+      if (s.group_id != null) {
+        const holder = scene.shapes.findIndex(
+          (o) => o.group_id === s.group_id && o.text_meta,
+        );
+        if (holder >= 0) {
+          onedittext?.(holder);
+          return;
+        }
       }
     }
   }

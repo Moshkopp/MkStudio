@@ -341,13 +341,27 @@
     }
   }
   let textOpen = $state(false);
+  // Text-Edit (Doppelklick): Index des Shapes mit text_meta, oder null (= neu).
+  let textEdit = $state<number | null>(null);
+  const textEditMeta = $derived.by(() => {
+    if (textEdit === null || !scene) return null;
+    return scene.shapes[textEdit]?.text_meta ?? null;
+  });
   async function doInsertText(text: string, fontPath: string, sizeMm: number) {
     try {
-      scene = await core.addText(text, fontPath, sizeMm);
+      scene =
+        textEdit !== null
+          ? await core.updateText(textEdit, text, fontPath, sizeMm)
+          : await core.addText(text, fontPath, sizeMm);
       textOpen = false;
+      textEdit = null;
     } catch (e) {
       console.error("Text einfügen fehlgeschlagen:", e);
     }
+  }
+  function openTextEdit(i: number) {
+    textEdit = i;
+    textOpen = true;
   }
   async function saveLayer(p: LayerParams) {
     if (editLayer !== null) {
@@ -641,6 +655,12 @@
       } else if (k === "n") {
         e.preventDefault();
         await requestNew();
+      } else if (k === "g" && e.shiftKey) {
+        e.preventDefault();
+        scene = await core.ungroupOp();
+      } else if (k === "g") {
+        e.preventDefault();
+        scene = await core.groupOp();
       }
     }
   }
@@ -671,6 +691,7 @@
       laserHead={laserHead}
       laserOrigin={laserOrigin}
       oneditimage={(i) => (editImage = i)}
+      onedittext={openTextEdit}
     />
   {/if}
 
@@ -745,7 +766,14 @@
         {:else if p.kind === "Formen"}
           <ShapesPanel {shapes} {activeShape} onpickshape={pickShape} />
         {:else if p.kind === "Anordnen"}
-          <ArrangePanel {selCount} onalign={doAlign} ondistribute={doDistribute} onnest={doNest} />
+          <ArrangePanel
+            {selCount}
+            onalign={doAlign}
+            ondistribute={doDistribute}
+            onnest={doNest}
+            ongroup={async () => (scene = await core.groupOp())}
+            onungroup={async () => (scene = await core.ungroupOp())}
+          />
         {:else if p.kind === "Laser"}
           <LaserPanel
             registry={laserReg}
@@ -813,7 +841,11 @@
 
   <!-- Text-Werkzeug (Text→Pfad) -->
   {#if textOpen}
-    <TextDialog oninsert={doInsertText} onclose={() => (textOpen = false)} />
+    <TextDialog
+      initial={textEditMeta}
+      oninsert={doInsertText}
+      onclose={() => { textOpen = false; textEdit = null; }}
+    />
   {/if}
 
   <!-- Bild-Editor (ADR 0004): Doppelklick auf ein Bild öffnet ihn. Die Bedingung

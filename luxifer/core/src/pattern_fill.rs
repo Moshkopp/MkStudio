@@ -105,15 +105,18 @@ pub fn fill_pattern(rings: &[Vec<Pt>], p: &FillParams) -> Vec<(Vec<Pt>, bool)> {
             )
         }
         Pattern::Hex => {
-            // Wabengitter: Spaltenabstand 1,5·r, Zeilenabstand √3·r·0,5 mit
-            // Spaltenversatz — klassische Hex-Packung, plus Nutzer-Gaps.
-            let r = p.size.max(0.1);
+            // Wabengitter (wie die Referenz): Pointy-Top-Sechsecke,
+            // step_x = √3·(r+gap), step_y = 1,5·(r+gap), ungerade Zeilen um den
+            // halben X-Schritt versetzt — die klassische Honeycomb-Packung.
+            let r = p.size.max(0.2);
+            let gap = ((p.gap_x + p.gap_y) / 2.0).max(0.0);
+            let rg = r + gap;
             element_grid(
                 &rings,
                 p,
                 anchor,
-                1.5 * r + p.gap_x,
-                (3.0f64).sqrt() * r + p.gap_y,
+                (3.0f64).sqrt() * rg,
+                1.5 * rg,
                 true,
                 move |cx, cy| hex_poly(cx, cy, r),
             )
@@ -402,10 +405,12 @@ fn slot_poly(cx: f64, cy: f64, len: f64, r: f64, cap_segs: usize) -> Vec<Pt> {
     pts
 }
 
+/// Pointy-Top-Sechseck (erste Ecke oben, Start 90°) — passend zur
+/// Honeycomb-Packung (Breite √3·r, Zeilenhöhe 1,5·r).
 fn hex_poly(cx: f64, cy: f64, r: f64) -> Vec<Pt> {
     (0..6)
         .map(|i| {
-            let a = i as f64 / 6.0 * std::f64::consts::TAU;
+            let a = std::f64::consts::FRAC_PI_2 + i as f64 / 6.0 * std::f64::consts::TAU;
             (cx + r * a.cos(), cy + r * a.sin())
         })
         .collect()
@@ -419,12 +424,14 @@ use crate::state::AppState;
 impl AppState {
     /// Füllt die Auswahl mit dem Muster (ein Undo-Punkt). Alle selektierten
     /// **geschlossenen** Konturen werden gemeinsam als Ringe behandelt —
-    /// eine innere Kontur wirkt so automatisch als Loch (Even-Odd). Die
-    /// Füllung entsteht als Polylinien auf dem Layer der ersten Form; die
-    /// Original-Konturen bleiben.
+    /// eine innere Kontur wirkt so automatisch als Loch (Even-Odd).
+    ///
+    /// Die Füllung landet auf einem **eigenen Layer mit eigener Farbe**
+    /// (Farbe = Layer = Parametersatz): so bleibt die Kontur z. B. „Schneiden",
+    /// während das Muster unabhängig graviert wird — sonst würde ein
+    /// Cut-Layer das Muster mit ausschneiden. Die Original-Konturen bleiben.
     pub fn pattern_fill_selected(&mut self, p: &FillParams) {
         let mut rings: Vec<Vec<Pt>> = Vec::new();
-        let mut layer_id = None;
         for &i in &self.selected {
             let Some(s) = self.shapes.get(i) else {
                 continue;
@@ -442,15 +449,30 @@ impl AppState {
                     *q = rotate_point(q.0, q.1, cx, cy, s.rotation);
                 }
             }
-            layer_id.get_or_insert(s.layer_id);
             rings.push(pts);
         }
-        let Some(layer_id) = layer_id else { return };
+        if rings.is_empty() {
+            return;
+        }
         let filled = fill_pattern(&rings, p);
         if filled.is_empty() {
             return;
         }
         self.push_undo();
+        // Eigener Layer in der nächsten freien Katalogfarbe.
+        let used: Vec<[u8; 3]> = self.layers.iter().map(|l| l.color).collect();
+        let color = crate::model::SWATCH_COLORS
+            .iter()
+            .find(|c| !used.contains(c))
+            .copied()
+            .unwrap_or(
+                crate::model::SWATCH_COLORS[self.layers.len() % crate::model::SWATCH_COLORS.len()],
+            );
+        let layer_id = self.layers.len();
+        let mut layer = crate::model::Layer::with_color(layer_id, color);
+        layer.name = "Muster".into();
+        self.layers.push(layer);
+
         self.selected.clear();
         for (pts, closed) in filled {
             let idx = self.shapes.len();
