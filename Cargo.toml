@@ -39,3 +39,5 @@ i_overlay = "7"
 # Polylinien-Offset (parallele Kontur) — CAM-Standardbibliothek; dieselbe
 # Wahl hatte v3 für seinen Offset getroffen.
 cavalier_contours = "0.7"
+# Font-Parsing für Text→Pfad (Glyph-Outlines); dieselbe Wahl wie v3.
+ttf-parser = "0.25"

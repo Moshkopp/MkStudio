@@ -263,6 +263,15 @@ export const filletOp = (radius: number) => invoke<Scene>("fillet_op", { radius 
 export const traceImage = (shapeIndex: number, threshold: number, invert: boolean) =>
   invoke<Scene>("trace_image", { shapeIndex, threshold, invert });
 
+// Text→Pfad: System-Fonts listen + Text als Vektorpfade einfügen.
+export interface FontInfo {
+  name: string;
+  path: string;
+}
+export const listFonts = () => invoke<FontInfo[]>("list_fonts");
+export const addText = (text: string, fontPath: string, sizeMm: number) =>
+  invoke<Scene>("add_text", { text, fontPath, sizeMm });
+
 export const clearSelection = () => invoke<Scene>("clear_selection");
 
 export const deleteSelected = () => invoke<Scene>("delete_selected");

@@ -14,6 +14,7 @@
   import EditFlyout from "./lib/EditFlyout.svelte";
   import ProjectBrowser from "./lib/ProjectBrowser.svelte";
   import ImageEditor from "./lib/ImageEditor.svelte";
+  import TextDialog from "./lib/TextDialog.svelte";
   import Icon from "./lib/Icon.svelte";
   import logoUrl from "./assets/logo.png";
   import * as core from "./lib/core";
@@ -290,9 +291,23 @@
       console.error("Trace fehlgeschlagen:", e);
     }
   }
-  // Sofort-Befehle aus der Werkzeugleiste (Spiegeln). Wirken auf die Auswahl.
-  async function doToolAction(a: "mirror_h" | "mirror_v") {
+  // Sofort-Befehle aus der Werkzeugleiste. Spiegeln wirkt auf die Auswahl;
+  // "text" öffnet den Text-Dialog (Text→Pfad).
+  async function doToolAction(a: "mirror_h" | "mirror_v" | "text") {
+    if (a === "text") {
+      textOpen = true;
+      return;
+    }
     scene = await core.mirror(a === "mirror_h" ? "h" : "v");
+  }
+  let textOpen = $state(false);
+  async function doInsertText(text: string, fontPath: string, sizeMm: number) {
+    try {
+      scene = await core.addText(text, fontPath, sizeMm);
+      textOpen = false;
+    } catch (e) {
+      console.error("Text einfügen fehlgeschlagen:", e);
+    }
   }
   async function saveLayer(p: LayerParams) {
     if (editLayer !== null) {
@@ -748,6 +763,11 @@
       onsave={saveLayer}
       oncancel={() => (editLayer = null)}
     />
+  {/if}
+
+  <!-- Text-Werkzeug (Text→Pfad) -->
+  {#if textOpen}
+    <TextDialog oninsert={doInsertText} onclose={() => (textOpen = false)} />
   {/if}
 
   <!-- Bild-Editor (ADR 0004): Doppelklick auf ein Bild öffnet ihn. Die Bedingung

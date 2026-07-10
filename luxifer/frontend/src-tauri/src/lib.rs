@@ -428,6 +428,76 @@ fn distribute(data: State<AppData>, kind: String) -> Scene {
     scene_with(&s, &data)
 }
 
+/// Ein installierter Font (fürs Text-Werkzeug).
+#[derive(Serialize)]
+struct FontInfo {
+    name: String,
+    path: String,
+}
+
+/// Listet die System-Fonts (TTF/OTF) aus den üblichen Verzeichnissen.
+#[tauri::command]
+fn list_fonts() -> Vec<FontInfo> {
+    let home = std::env::var("HOME").unwrap_or_default();
+    let dirs = [
+        "/usr/share/fonts".to_string(),
+        "/usr/local/share/fonts".to_string(),
+        format!("{home}/.fonts"),
+        format!("{home}/.local/share/fonts"),
+    ];
+    let mut out: Vec<FontInfo> = Vec::new();
+    for dir in dirs {
+        let mut stack = vec![std::path::PathBuf::from(dir)];
+        while let Some(d) = stack.pop() {
+            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    stack.push(p);
+                } else if p.extension().is_some_and(|x| x == "ttf" || x == "otf") {
+                    if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                        out.push(FontInfo {
+                            name: stem.to_string(),
+                            path: p.to_string_lossy().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    out.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    out.dedup_by(|a, b| a.name == b.name);
+    out
+}
+
+/// Fügt Text als Vektorpfade ein (Text→Pfad, ein Undo-Punkt). Der Text landet
+/// bei 10 % der Bettmaße; verschieben/skalieren wie jede andere Form.
+#[tauri::command]
+fn add_text(
+    data: State<AppData>,
+    text: String,
+    font_path: String,
+    size_mm: f64,
+) -> Result<Scene, String> {
+    if text.trim().is_empty() {
+        return Err("Kein Text eingegeben.".into());
+    }
+    let bytes = std::fs::read(&font_path).map_err(|e| format!("Font nicht lesbar: {e}"))?;
+    let contours = luxifer_core::text::text_to_contours(&bytes, &text, size_mm.clamp(1.0, 500.0))
+        .map_err(|e| e.to_string())?;
+    if contours.is_empty() {
+        return Err("Der Font liefert für diesen Text keine Konturen.".into());
+    }
+    let mut s = data.state.lock().unwrap();
+    let (ox, oy) = (s.bed_w_mm * 0.1, s.bed_h_mm * 0.1);
+    let placed: Vec<(Vec<(f64, f64)>, bool)> = contours
+        .into_iter()
+        .map(|(c, closed)| (c.into_iter().map(|(x, y)| (x + ox, y + oy)).collect(), closed))
+        .collect();
+    s.add_polylines(placed);
+    Ok(scene_with(&s, &data))
+}
+
 /// Vektorisiert ein Bild-Shape (Trace): Konturen des Motivs als geschlossene
 /// Polylinien in mm, auf dem aktiven Zeichen-Layer (ein Undo-Punkt). Die
 /// Tonwert-LUT des Bildes (Helligkeit/Kontrast/Gamma) wirkt vor der Schwelle.
@@ -1284,6 +1354,8 @@ pub fn run() {
             mirror,
             boolean_op,
             trace_image,
+            list_fonts,
+            add_text,
             offset_op,
             fillet_op,
             set_layer_params,

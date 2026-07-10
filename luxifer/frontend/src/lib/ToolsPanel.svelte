@@ -8,7 +8,7 @@
 
   type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon";
   // Sofort-Befehle auf der Auswahl (kein Zeichenmodus), z. B. Spiegeln.
-  type Action = "mirror_h" | "mirror_v";
+  type Action = "mirror_h" | "mirror_v" | "text";
   let {
     tool,
     onpick,
@@ -45,7 +45,7 @@
       { name: "polyline", icon: "polyline", tip: "Polylinie (Klicks setzen Punkte, Doppelklick/Enter schließt ab)", active: true },
       { name: "spline", icon: "spline", tip: "Spline" },
       { name: "bezier", icon: "bezier", tip: "Bézier-Feder" },
-      { name: "text", icon: "text", tip: "Text" },
+      { name: "text", icon: "text", tip: "Text einfügen (Text→Pfad)", action: true },
       { name: "node", icon: "node", tip: "Knoten bearbeiten" },
     ],
     // 3: Operationen & Hilfsmittel
