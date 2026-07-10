@@ -3,7 +3,15 @@
 import { invoke } from "@tauri-apps/api/core";
 
 // Bildverarbeitungs-Modus (ADR 0004).
-export type ImageMode = "Grayscale" | "Threshold";
+export type ImageMode =
+  | "Grayscale"
+  | "Threshold"
+  | "Floyd"
+  | "Jarvis"
+  | "Stucki"
+  | "Atkinson"
+  | "Bayer"
+  | "LaserRuns";
 
 // Nicht-destruktive Bild-Parameter (spiegelt luxifer-core::ImageParams).
 export interface ImageParams {

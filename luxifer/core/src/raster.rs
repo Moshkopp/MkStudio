@@ -86,17 +86,26 @@ fn rasterize(
     let th = ((h / step).round() as usize).max(1);
     let tw = ((w / step).round() as usize).max(1);
 
-    // Auf Originalauflösung schwellen (scharf), dann skalieren, dann erneut
-    // schwellen (Zwischengrau vom Skalieren wieder hart machen). Rastern ist
-    // hier immer An/Aus — auch ein als Grayscale markierter Layer wird hart
-    // geschwellt (echtes Grau kommt später über Dithering, ADR 0004 §5).
-    let tp = ImageParams {
-        mode: ImageMode::Threshold,
-        ..*params
-    };
-    let bw_src = apply_params(pixels, &tp, invert);
-    let scaled = scale_gray(&bw_src, px_w, px_h, tw, th);
-    Some((threshold_128(&scaled), tw, th))
+    if crate::dither::is_dither(params.mode) {
+        // FOTO-Pfad (Dithering): erst die Tonwert-LUT als Graustufe, dann auf
+        // die Zielauflösung skalieren, dann dithern — das Dithern MUSS auf der
+        // Job-Auflösung laufen, sonst zerstört das Skalieren das Punktmuster.
+        let gray = apply_params(pixels, params, invert);
+        let scaled = scale_gray(&gray, px_w, px_h, tw, th);
+        Some((crate::dither::dither(&scaled, tw, th, params.mode), tw, th))
+    } else {
+        // STRICHGRAFIK-Pfad (Schwellwert): auf Originalauflösung schwellen
+        // (scharf), dann skalieren, dann erneut schwellen (Zwischengrau vom
+        // Skalieren wieder hart machen). Auch ein als Grayscale markierter
+        // Layer wird hart geschwellt.
+        let tp = ImageParams {
+            mode: ImageMode::Threshold,
+            ..*params
+        };
+        let bw_src = apply_params(pixels, &tp, invert);
+        let scaled = scale_gray(&bw_src, px_w, px_h, tw, th);
+        Some((threshold_128(&scaled), tw, th))
+    }
 }
 
 /// Rastert ein Graustufenbild in die mm-Fläche der `Placement` zu **Job-Runs**:
@@ -235,6 +244,46 @@ mod tests {
             &threshold_params(),
             invert,
         )
+    }
+
+    #[test]
+    fn dither_modus_erhaelt_mittelgrau_als_flaechendichte() {
+        // 50%-Grau, 16×16 px auf 16×16 mm (step 1). Threshold kippt alles auf
+        // eine Seite (ganz oder gar nicht); ein Dither-Modus muss ~die halbe
+        // Fläche brennen (Grau als Punktdichte, ADR 0004 §5).
+        let px = vec![128u8; 16 * 16];
+        let img = RasterImage {
+            pixels: &px,
+            px_w: 16,
+            px_h: 16,
+        };
+        let place = Placement {
+            x: 0.0,
+            y: 0.0,
+            w: 16.0,
+            h: 16.0,
+            step_mm: 1.0,
+        };
+        let dp = ImageParams {
+            mode: ImageMode::Floyd,
+            ..Default::default()
+        };
+        let burned: f64 = raster_rows(img, place, &dp, false)
+            .iter()
+            .flat_map(|r| r.runs.iter())
+            .map(|&(a, b)| b - a)
+            .sum();
+        let total = 16.0 * 16.0;
+        assert!(
+            burned > total * 0.3 && burned < total * 0.7,
+            "Dither soll ~50% brennen, war {:.0}%",
+            burned / total * 100.0
+        );
+
+        // Threshold zum Vergleich: 128 ≥ 128 ⇒ weiß ⇒ nichts zu brennen.
+        let tp = threshold_params();
+        let t_rows = raster_rows(img, place, &tp, false);
+        assert!(t_rows.is_empty(), "Threshold kippt Mittelgrau komplett");
     }
 
     #[test]

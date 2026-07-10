@@ -223,7 +223,12 @@ pub fn rendered_png(
         .map_err(|e| AssetError(e.to_string()))?
         .to_luma8();
     let (w, h) = (luma.width(), luma.height());
-    let processed = apply_params(luma.as_raw(), p, invert);
+    let mut processed = apply_params(luma.as_raw(), p, invert);
+    // Dither-Modi: die Vorschau zeigt das Punktmuster (auf nativer Auflösung;
+    // die Job-Auflösung zeigt der Laser-Preview-Reiter).
+    if crate::dither::is_dither(p.mode) {
+        processed = crate::dither::dither(&processed, w as usize, h as usize, p.mode);
+    }
     let out_img = image::GrayImage::from_raw(w, h, processed)
         .ok_or_else(|| AssetError("Pixelanzahl passt nicht zur Größe".into()))?;
     let mut out = Vec::new();
@@ -237,10 +242,13 @@ pub fn rendered_png(
 /// Tonwert-LUT und — bei `ImageMode::Threshold` — die harte Schwelle. `invert`
 /// bestimmt, ob invertiert wird (Aufrufer wählt Editor- oder Laser-Flag).
 /// Gibt ein neues Pixel-Array gleicher Länge zurück; das Original bleibt.
+///
+/// Dither-Modi liefern hier nur die **LUT-Graustufe** — das Dithern selbst
+/// braucht die Bildmaße und passiert in `dither::dither` (auf Zielauflösung,
+/// raster.rs) bzw. für die Editor-Vorschau in `rendered_png`.
 pub fn apply_params(pixels: &[u8], p: &ImageParams, invert: bool) -> Vec<u8> {
     let lut = build_lut(p, invert);
     match p.mode {
-        ImageMode::Grayscale => pixels.iter().map(|&v| lut[v as usize]).collect(),
         ImageMode::Threshold => pixels
             .iter()
             .map(|&v| {
@@ -251,6 +259,8 @@ pub fn apply_params(pixels: &[u8], p: &ImageParams, invert: bool) -> Vec<u8> {
                 }
             })
             .collect(),
+        // Grayscale + alle Dither-Modi: nur die Tonwert-LUT.
+        _ => pixels.iter().map(|&v| lut[v as usize]).collect(),
     }
 }
 

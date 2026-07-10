@@ -61,7 +61,9 @@ pub enum Axis {
     Horizontal,
 }
 
-/// Wie ein farbiges Bild in Graustufe umgesetzt wird (ADR 0004 §3).
+/// Wie ein Bild fürs Lasern in 1-Bit umgesetzt wird (ADR 0004 §3/§5).
+/// `Grayscale`/`Threshold` = Schwellwert-Pfad (Strichgrafik, raster.rs);
+/// die übrigen sind Dither-Verfahren für Fotos (dither.rs).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub enum ImageMode {
     /// Reine Graustufe (kein Schwellwert).
@@ -69,6 +71,19 @@ pub enum ImageMode {
     Grayscale,
     /// Harte Schwelle: Pixel ≥ `threshold` → hell, sonst dunkel.
     Threshold,
+    /// Floyd–Steinberg-Fehlerdiffusion (Standard für Fotos).
+    Floyd,
+    /// Jarvis–Judice–Ninke (weicher, breiter Kernel).
+    Jarvis,
+    /// Stucki (wie Jarvis, kantenschärfer).
+    Stucki,
+    /// Atkinson (heller/luftiger, klassischer Mac-Look).
+    Atkinson,
+    /// Geordnetes 4×4-Bayer-Raster (regelmäßiges Muster).
+    Bayer,
+    /// Floyd mit Scan-Hysterese: lange Brennstrecken statt Einzelpixel —
+    /// zündet auf Röhrenlasern zuverlässiger.
+    LaserRuns,
 }
 
 /// Nicht-destruktive Bildverarbeitungs-Parameter (ADR 0004 §3). Wirken erst bei

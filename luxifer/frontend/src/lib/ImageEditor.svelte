@@ -116,6 +116,12 @@
           <select bind:value={p.mode}>
             <option value="Grayscale">Graustufe</option>
             <option value="Threshold">Schwellwert</option>
+            <option value="Floyd">Dither: Floyd–Steinberg</option>
+            <option value="Jarvis">Dither: Jarvis</option>
+            <option value="Stucki">Dither: Stucki</option>
+            <option value="Atkinson">Dither: Atkinson</option>
+            <option value="Bayer">Dither: Bayer (Raster)</option>
+            <option value="LaserRuns">Dither: Laser-Strecken</option>
           </select>
         </label>
 

@@ -14,6 +14,7 @@
 
 pub mod arrange;
 pub mod assets;
+pub mod dither;
 pub mod geometry;
 pub mod interact;
 pub mod job;
