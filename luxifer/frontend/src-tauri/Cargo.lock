@@ -273,6 +273,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "cavalier_contours"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "31cab9e73a5a3533d3d6fb36818e8735dd033e080fa70a63d90846c8183708c9"
+dependencies = [
+ "num-traits",
+ "static_aabb2d_index",
+]
+
+[[package]]
 name = "cc"
 version = "1.2.66"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1298,6 +1308,48 @@ dependencies = [
 ]
 
 [[package]]
+name = "i_float"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "519b2780a1187eeed09145e5d168863c87f0d704abe84084206ebd897f99c6dc"
+dependencies = [
+ "libm",
+]
+
+[[package]]
+name = "i_key_sort"
+version = "0.10.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d73d122b937fca067feb0ad74f62388920272b27c356d4df2d0cfdd59e044cf0"
+
+[[package]]
+name = "i_overlay"
+version = "7.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bf284de04038af713dad8b4a88d2bc97f1c8c0a87fc1f43e28e3b965d0136d9e"
+dependencies = [
+ "i_float",
+ "i_key_sort",
+ "i_shape",
+ "i_tree",
+]
+
+[[package]]
+name = "i_shape"
+version = "3.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90b2ee7bae072887c579a2f2fd2a7fa1c29cceecfae1998ef940061c5570afff"
+dependencies = [
+ "i_float",
+]
+
+[[package]]
+name = "i_tree"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e9d4a992a9fe83130f41ceacceac3bb116a4355dfc9c8d6ecea4f1e4b4c6caf"
+
+[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1671,6 +1723,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "libm"
+version = "0.2.16"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6d2cec3eae94f9f509c767b45932f1ada8350c4bdb85af2fcab4a3c14807981"
+
+[[package]]
 name = "libredox"
 version = "0.1.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1717,6 +1775,8 @@ dependencies = [
 name = "luxifer-core"
 version = "0.1.0"
 dependencies = [
+ "cavalier_contours",
+ "i_overlay",
  "image",
  "serde",
  "serde_json",
@@ -2864,6 +2924,15 @@ name = "stable_deref_trait"
 version = "1.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
+
+[[package]]
+name = "static_aabb2d_index"
+version = "2.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1204bd3057a2225dc60d157bd921aaeaa4d318527bd32af4678cad39e5279849"
+dependencies = [
+ "num-traits",
+]
 
 [[package]]
 name = "string_cache"

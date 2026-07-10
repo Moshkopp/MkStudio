@@ -27,6 +27,7 @@ pub mod raster;
 pub mod scanline;
 pub mod shapes;
 pub mod state;
+pub mod trace;
 pub mod ui_settings;
 
 pub use arrange::{Align, Distribute};

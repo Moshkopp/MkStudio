@@ -277,6 +277,32 @@ impl AppState {
         idx
     }
 
+    /// Fügt mehrere Polylinien als **einen** Undo-Punkt hinzu und selektiert
+    /// sie (Trace-Ergebnis, Vektor-Import, Text→Pfad). Layer wie bei
+    /// `add_shape` (pending_color bzw. aktiver Layer).
+    pub fn add_polylines(&mut self, contours: Vec<(Vec<crate::geometry::Pt>, bool)>) -> Vec<usize> {
+        let contours: Vec<_> = contours
+            .into_iter()
+            .filter(|(pts, _)| pts.len() >= 2)
+            .collect();
+        if contours.is_empty() {
+            return Vec::new();
+        }
+        self.push_undo();
+        let layer_id = self.layer_for_new_shape();
+        self.selected.clear();
+        let mut idxs = Vec::with_capacity(contours.len());
+        for (pts, closed) in contours {
+            let idx = self.shapes.len();
+            self.shapes
+                .push(Shape::new(layer_id, Geo::Polyline { pts, closed }));
+            self.selected.push(idx);
+            idxs.push(idx);
+        }
+        self.pending_color = None;
+        idxs
+    }
+
     /// Fügt ein importiertes Bild ein (ADR 0004): legt **immer einen eigenen
     /// Image-Layer** mit katalogfremder Kennfarbe an (jedes Bild = eigener Layer,
     /// nie den aktiven wiederverwenden) und platziert das Bild-Shape darauf. Gibt

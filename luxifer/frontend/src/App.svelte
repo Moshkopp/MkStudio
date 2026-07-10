@@ -280,6 +280,16 @@
   async function doFillet(radius: number) {
     scene = await core.filletOp(radius);
   }
+  // Bild vektorisieren (aus dem Bild-Editor). Schließt den Dialog bei Erfolg.
+  async function doTraceImage(threshold: number, invert: boolean) {
+    if (editImage === null) return;
+    try {
+      scene = await core.traceImage(editImage, threshold, invert);
+      editImage = null;
+    } catch (e) {
+      console.error("Trace fehlgeschlagen:", e);
+    }
+  }
   // Sofort-Befehle aus der Werkzeugleiste (Spiegeln). Wirken auf die Auswahl.
   async function doToolAction(a: "mirror_h" | "mirror_v") {
     scene = await core.mirror(a === "mirror_h" ? "h" : "v");
@@ -750,6 +760,7 @@
         params={editImageShape.params}
         onapply={applyImageParams}
         onclose={() => (editImage = null)}
+        onvectorize={doTraceImage}
       />
     {/key}
   {/if}

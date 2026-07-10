@@ -428,6 +428,69 @@ fn distribute(data: State<AppData>, kind: String) -> Scene {
     scene_with(&s, &data)
 }
 
+/// Vektorisiert ein Bild-Shape (Trace): Konturen des Motivs als geschlossene
+/// Polylinien in mm, auf dem aktiven Zeichen-Layer (ein Undo-Punkt). Die
+/// Tonwert-LUT des Bildes (Helligkeit/Kontrast/Gamma) wirkt vor der Schwelle.
+#[tauri::command]
+fn trace_image(
+    data: State<AppData>,
+    shape_index: usize,
+    threshold: u8,
+    invert: bool,
+) -> Result<Scene, String> {
+    use luxifer_core::geometry::{Geo, ImageMode, ImageParams};
+    use luxifer_core::trace::{trace, TraceParams};
+
+    let mut s = data.state.lock().unwrap();
+    let (asset, bx, by, bw, bh, params) = match s.shapes.get(shape_index).map(|sh| &sh.geo) {
+        Some(Geo::Image {
+            asset,
+            x,
+            y,
+            w,
+            h,
+            params,
+        }) => (asset.clone(), *x, *y, *w, *h, *params),
+        _ => return Err("Kein Bild ausgewählt.".into()),
+    };
+    let (px, w, h) =
+        luxifer_core::load_asset_luma(&assets_dir(), &asset).map_err(|e| e.to_string())?;
+    // Tonwerte anwenden (nur LUT), dann tracen.
+    let lut_params = ImageParams {
+        mode: ImageMode::Grayscale,
+        ..params
+    };
+    let gray = luxifer_core::apply_params(&px, &lut_params, false);
+    let contours = trace(
+        &gray,
+        w as usize,
+        h as usize,
+        &TraceParams {
+            threshold,
+            invert,
+            ..Default::default()
+        },
+    );
+    if contours.is_empty() {
+        return Err("Keine Konturen gefunden — Schwelle anpassen?".into());
+    }
+    // Pixel → mm über die Bildbox.
+    let (sx, sy) = (bw / w as f64, bh / h as f64);
+    let mm: Vec<(Vec<(f64, f64)>, bool)> = contours
+        .into_iter()
+        .map(|c| {
+            (
+                c.into_iter()
+                    .map(|(x, y)| (bx + x * sx, by + y * sy))
+                    .collect(),
+                true,
+            )
+        })
+        .collect();
+    s.add_polylines(mm);
+    Ok(scene_with(&s, &data))
+}
+
 /// Boolesche Operation auf der Auswahl: "union" | "intersect" | "diff".
 /// Subjekt = zuerst selektierte Shape; die Eingaben werden ersetzt.
 #[tauri::command]
@@ -1220,6 +1283,7 @@ pub fn run() {
             distribute,
             mirror,
             boolean_op,
+            trace_image,
             offset_op,
             fillet_op,
             set_layer_params,

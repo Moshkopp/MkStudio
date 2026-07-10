@@ -259,6 +259,10 @@ export const booleanOp = (op: BoolOpKind) => invoke<Scene>("boolean_op", { op })
 export const offsetOp = (dist: number) => invoke<Scene>("offset_op", { dist });
 export const filletOp = (radius: number) => invoke<Scene>("fillet_op", { radius });
 
+// Bild vektorisieren (Trace): Konturen des Motivs als Polylinien in mm.
+export const traceImage = (shapeIndex: number, threshold: number, invert: boolean) =>
+  invoke<Scene>("trace_image", { shapeIndex, threshold, invert });
+
 export const clearSelection = () => invoke<Scene>("clear_selection");
 
 export const deleteSelected = () => invoke<Scene>("delete_selected");

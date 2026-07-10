@@ -100,7 +100,7 @@ Farbe klicken:
 
 **Das bedeutet:** Der Nutzer legt NIE manuell einen Layer an. Er denkt in
 **Farben**; das System verwaltet Layer automatisch. Farbe = Layer = Parametersatz
-(wie LightBurn). `remove_empty_layers()` (state.rs:294) räumt ungenutzte Layer
+. `remove_empty_layers()` (state.rs:294) räumt ungenutzte Layer
 auf und remappt alle `layer_id`. **Diesen Mechanismus im Neustart exakt so
 übernehmen.**
 

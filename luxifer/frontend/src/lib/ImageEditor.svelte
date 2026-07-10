@@ -10,6 +10,7 @@
     params,
     onapply,
     onclose,
+    onvectorize,
   }: {
     // Store-Asset-ID des Bild-Shapes.
     asset: string;
@@ -18,6 +19,8 @@
     // Übernimmt die Parameter in den Core (Live, bei jeder Änderung).
     onapply: (p: ImageParams) => void;
     onclose: () => void;
+    // Vektorisiert das Bild (Trace) mit Schwelle + Invert; schließt den Dialog.
+    onvectorize: (threshold: number, invert: boolean) => void;
   } = $props();
 
   // Lokale, editierbare Kopie. Startwert beim Öffnen.
@@ -156,6 +159,13 @@
           <button class="ghost" onclick={reset}>Zurücksetzen</button>
           <button class="primary" onclick={onclose}>Fertig</button>
         </div>
+        <button
+          class="ghost trace"
+          onclick={() => onvectorize(p.threshold, p.invert_editor)}
+          title="Konturen des Motivs als Vektor-Pfade erzeugen (nutzt die Schwelle oben)"
+        >
+          ⌁ Vektorisieren (Trace)
+        </button>
       </div>
     </div>
   </div>
@@ -298,5 +308,12 @@
     background: var(--accent);
     color: #fff;
     border-color: var(--accent);
+  }
+  .trace {
+    border-radius: 7px;
+    padding: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    border: 1px dashed var(--border);
   }
 </style>
