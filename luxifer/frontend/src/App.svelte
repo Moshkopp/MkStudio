@@ -285,6 +285,9 @@
   async function doFillet(radius: number) {
     scene = await core.filletOp(radius);
   }
+  async function doNest(gap: number) {
+    scene = await core.nestOp(gap);
+  }
   // Bild vektorisieren (aus dem Bild-Editor). Schließt den Dialog bei Erfolg.
   async function doTraceImage(threshold: number, invert: boolean) {
     if (editImage === null) return;
@@ -716,6 +719,7 @@
             onboolean={doBoolean}
             onoffset={doOffset}
             onfillet={doFillet}
+            onnest={doNest}
           />
         {:else if p.kind === "Laser"}
           <LaserPanel

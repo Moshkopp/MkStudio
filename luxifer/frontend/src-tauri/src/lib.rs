@@ -606,6 +606,14 @@ fn fillet_op(data: State<AppData>, radius: f64) -> Scene {
     scene_with(&s, &data)
 }
 
+/// Packt die Auswahl platzsparend aufs Bett (Nesting, `gap` mm Abstand).
+#[tauri::command]
+fn nest_op(data: State<AppData>, gap: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.nest_selected(gap);
+    scene_with(&s, &data)
+}
+
 /// Spiegelt die Auswahl an der Mittelachse ihrer gemeinsamen BBox.
 /// `axis`: "h" = horizontal spiegeln (links↔rechts, vertikale Achse),
 /// "v" = vertikal spiegeln (oben↔unten, horizontale Achse).
@@ -1379,6 +1387,7 @@ pub fn run() {
             add_text,
             offset_op,
             fillet_op,
+            nest_op,
             set_layer_params,
             toggle_layer,
             move_layer,

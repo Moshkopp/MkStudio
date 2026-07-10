@@ -263,6 +263,8 @@ export type BoolOpKind = "union" | "intersect" | "diff";
 export const booleanOp = (op: BoolOpKind) => invoke<Scene>("boolean_op", { op });
 export const offsetOp = (dist: number) => invoke<Scene>("offset_op", { dist });
 export const filletOp = (radius: number) => invoke<Scene>("fillet_op", { radius });
+// Nesting: Auswahl platzsparend aufs Bett packen (gap = Abstand in mm).
+export const nestOp = (gap: number) => invoke<Scene>("nest_op", { gap });
 
 // Bild vektorisieren (Trace): Konturen des Motivs als Polylinien in mm.
 export const traceImage = (shapeIndex: number, threshold: number, invert: boolean) =>

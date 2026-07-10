@@ -22,6 +22,7 @@ pub mod interact;
 pub mod job;
 pub mod laser;
 pub mod model;
+pub mod nesting;
 pub mod preview;
 pub mod project;
 pub mod raster;

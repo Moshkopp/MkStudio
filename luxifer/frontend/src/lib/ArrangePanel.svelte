@@ -9,6 +9,7 @@
     onboolean,
     onoffset,
     onfillet,
+    onnest,
   }: {
     selCount: number;
     onalign: (k: AlignKind) => void;
@@ -16,11 +17,13 @@
     onboolean: (op: BoolOpKind) => void;
     onoffset: (dist: number) => void;
     onfillet: (radius: number) => void;
+    onnest: (gap: number) => void;
   } = $props();
 
-  // Eingaben fuer Offset-Abstand und Fillet-Radius (mm).
+  // Eingaben fuer Offset-Abstand, Fillet-Radius und Nest-Abstand (mm).
   let offsetMm = $state(2.0);
   let filletMm = $state(2.0);
+  let nestGapMm = $state(2.0);
 </script>
 
 <div class="col">
@@ -49,6 +52,14 @@
     <div class="vsep"></div>
     <input class="mm" type="number" step="0.5" min="0.1" bind:value={filletMm} title="Verrundungs-Radius in mm" />
     <button class="gbtn wide" disabled={selCount < 1} onclick={() => onfillet(filletMm)} title="Ecken verrunden">Rund</button>
+  </div>
+
+  <!-- Nesting: Auswahl platzsparend aufs Bett packen. -->
+  <div class="arrange">
+    <input class="mm" type="number" step="0.5" min="0" bind:value={nestGapMm} title="Abstand zwischen den Teilen in mm" />
+    <button class="gbtn wide grow" disabled={selCount < 2} onclick={() => onnest(nestGapMm)} title="Auswahl platzsparend packen (Material-Ausnutzung)">
+      Verschachteln (Nest)
+    </button>
   </div>
 </div>
 
@@ -88,6 +99,10 @@
     max-width: 52px;
     padding: 0 6px;
     font-size: 11px;
+  }
+  button.grow {
+    max-width: none;
+    height: 26px;
   }
   .mm {
     flex: 1 1 0;
