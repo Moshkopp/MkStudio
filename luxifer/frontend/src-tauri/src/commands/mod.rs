@@ -4,4 +4,6 @@
 
 pub mod laser;
 pub mod project;
+pub mod edit;
+pub mod image;
 pub mod shapes;

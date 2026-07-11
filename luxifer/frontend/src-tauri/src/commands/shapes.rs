@@ -2,7 +2,7 @@
 //! Bézier & Knoten-Editor, Text→Pfad (+ Fonts), Vektor-Import, Muster-Füllung,
 //! Boolean/Offset/Fillet/Haltesteg, Trace und Nesting/Untersetzer.
 
-use luxifer_core::{assets_dir, Geo};
+use luxifer_core::{assets_dir, Geo, PolyShape, ShapeInfo};
 use serde::Serialize;
 use tauri::State;
 
@@ -430,5 +430,66 @@ pub fn nest_fill_op(data: State<AppData>, gap: f64) -> Scene {
 pub fn insert_coasters(data: State<AppData>, round: bool) -> Scene {
     let mut s = data.state.lock().unwrap();
     s.insert_coasters(round);
+    scene_with(&s, &data)
+}
+
+// ---- Formen anlegen (primitiv + parametrisch) ----------------------------
+
+#[tauri::command]
+pub fn add_rect(data: State<AppData>, x: f64, y: f64, w: f64, h: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.add_shape(Geo::Rect { x, y, w, h });
+    scene_with(&s, &data)
+}
+
+#[tauri::command]
+pub fn add_ellipse(data: State<AppData>, cx: f64, cy: f64, rx: f64, ry: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.add_shape(Geo::Ellipse { cx, cy, rx, ry });
+    scene_with(&s, &data)
+}
+
+/// Fügt eine offene 2-Punkt-Linie als Polyline hinzu.
+#[tauri::command]
+pub fn add_line(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    s.add_shape(Geo::Polyline {
+        pts: vec![(x1, y1), (x2, y2)],
+        closed: false,
+    });
+    scene_with(&s, &data)
+}
+
+/// Fügt eine Polylinie aus den gelieferten Punkten hinzu. `closed` schließt die
+/// Kontur (letzter → erster Punkt). Wird ignoriert, wenn < 2 Punkte kommen.
+#[tauri::command]
+pub fn add_polyline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    if pts.len() >= 2 {
+        s.add_shape(Geo::Polyline { pts, closed });
+    }
+    scene_with(&s, &data)
+}
+
+
+/// Katalog der parametrischen Formen für die Galerie im Werkzeug-Panel.
+/// Datengetrieben: eine neue Form im Core erscheint hier automatisch.
+#[tauri::command]
+pub fn shape_catalog() -> Vec<ShapeInfo> {
+    PolyShape::catalog()
+}
+
+/// Fügt eine parametrische Form als geschlossene Polylinie hinzu.
+/// `shape` = stabiler Bezeichner aus dem Katalog (z. B. "hex"); unbekannte
+/// Bezeichner werden ignoriert (Zustand bleibt unverändert).
+#[tauri::command]
+pub fn add_polygon(data: State<AppData>, shape: String, cx: f64, cy: f64, r: f64, rot: f64) -> Scene {
+    let mut s = data.state.lock().unwrap();
+    if let Some(kind) = PolyShape::from_id(&shape) {
+        let pts = kind.points(cx, cy, r, rot);
+        if pts.len() >= 3 {
+            s.add_shape(Geo::Polyline { pts, closed: true });
+        }
+    }
     scene_with(&s, &data)
 }
