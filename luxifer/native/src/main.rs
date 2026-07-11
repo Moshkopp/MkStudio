@@ -41,7 +41,13 @@ impl ApplicationHandler for Runner {
             .unwrap(),
         );
         let gpu = pollster::block_on(Gpu::new(window.clone()));
-        self.app = Some(App::new(window, gpu));
+        let mut app = App::new(window, gpu);
+        // Ersten Frame sofort präsentieren und Redraw anfordern — sonst bleibt
+        // das Fenster unter manchen Wayland-Compositoren leer/unsichtbar, bis
+        // ein Event kommt.
+        app.render();
+        app.window.request_redraw();
+        self.app = Some(app);
     }
 
     fn window_event(&mut self, el: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
