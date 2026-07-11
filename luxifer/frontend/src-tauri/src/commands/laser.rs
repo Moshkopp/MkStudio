@@ -146,7 +146,15 @@ pub fn laser_run_action(
     let job_action = action_from_key(&action)?;
     let (shapes, layers) = effective_shapes(&data, params.selection_only);
     let plan = plan_with_assets(&shapes, &layers);
-    if params.selection_only && plan.layers.is_empty() {
+    let needs_geometry = matches!(
+        job_action,
+        JobAction::SendJob
+            | JobAction::StreamGcode
+            | JobAction::ExportFile
+            | JobAction::Frame
+            | JobAction::RubberFrame
+    );
+    if needs_geometry && params.selection_only && plan.layers.is_empty() {
         return Err("Keine laserbare Auswahl vorhanden.".into());
     }
     let jp = params.to_params();
@@ -234,6 +242,8 @@ fn action_from_key(key: &str) -> Result<JobAction, String> {
         "stream_gcode" => JobAction::StreamGcode,
         "export_file" => JobAction::ExportFile,
         "frame" => JobAction::Frame,
+        "rubber_frame" => JobAction::RubberFrame,
+        "pause" => JobAction::Pause,
         "home" => JobAction::Home,
         "go_origin" => JobAction::GoOrigin,
         "stop" => JobAction::Stop,
@@ -247,6 +257,8 @@ fn needs_connection(a: JobAction) -> bool {
         JobAction::SendJob
             | JobAction::StreamGcode
             | JobAction::Frame
+            | JobAction::RubberFrame
+            | JobAction::Pause
             | JobAction::Home
             | JobAction::GoOrigin
             | JobAction::Stop

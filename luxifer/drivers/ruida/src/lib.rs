@@ -338,6 +338,22 @@ impl MachineDriver for RuidaDriver {
         t.send(&seq).map_err(to_driver_err)
     }
 
+    fn rubber_frame(&self, plan: &JobPlan, speed_mm_s: f64) -> Result<(), DriverError> {
+        let t = self.transport()?;
+        let hull = plan.convex_hull();
+        if hull.len() < 2 {
+            return Err(DriverError::NotSupported);
+        }
+        let cx = read_reg(t, ADDR_POS_X)?;
+        let cy = read_reg(t, ADDR_POS_Y)?;
+        let mut seq = cmd_set_speed(speed_mm_s);
+        for &(x, y) in hull.iter().chain(hull.first()) {
+            seq.extend(cmd_rapid_move_xy(mm_to_um(x), mm_to_um(y)));
+        }
+        seq.extend(cmd_rapid_move_xy(cx, cy));
+        t.send(&seq).map_err(to_driver_err)
+    }
+
     fn send_job(&self, bytes: &[u8]) -> Result<(), DriverError> {
         let t = self.transport()?;
         // Stop zuerst befreit den Controller aus einem hängenden Zustand.
@@ -349,6 +365,11 @@ impl MachineDriver for RuidaDriver {
     fn stop(&self) -> Result<(), DriverError> {
         let t = self.transport()?;
         t.send(&cmd_stop()).map_err(to_driver_err)
+    }
+
+    fn pause(&self) -> Result<(), DriverError> {
+        let t = self.transport()?;
+        t.send(&cmd_pause()).map_err(to_driver_err)
     }
 
     fn read_origin(&self) -> Result<(f64, f64), DriverError> {
@@ -373,6 +394,8 @@ impl MachineDriver for RuidaDriver {
         vec![
             JobAction::SendJob,
             JobAction::Frame,
+            JobAction::RubberFrame,
+            JobAction::Pause,
             JobAction::Home,
             JobAction::GoOrigin,
             JobAction::Stop,
@@ -405,6 +428,14 @@ impl MachineDriver for RuidaDriver {
             JobAction::Frame => {
                 self.frame(plan, 100.0)?;
                 Ok("Rahmen wird abgefahren.".into())
+            }
+            JobAction::RubberFrame => {
+                self.rubber_frame(plan, 100.0)?;
+                Ok("Gummiband wird abgefahren.".into())
+            }
+            JobAction::Pause => {
+                self.pause()?;
+                Ok("Pause umgeschaltet.".into())
             }
             JobAction::Home => {
                 self.home(100.0)?;
@@ -782,4 +813,5 @@ mod tests {
             "Fill darf kein C6 50 haben"
         );
     }
+
 }

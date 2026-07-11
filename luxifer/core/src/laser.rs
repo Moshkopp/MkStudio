@@ -184,6 +184,10 @@ pub enum JobAction {
     ExportFile,
     /// Bounding-Box abfahren (Platzierung prüfen).
     Frame,
+    /// Konvexe Außenkontur des Jobs abfahren (Gummiband).
+    RubberFrame,
+    /// Laufenden Job pausieren oder fortsetzen.
+    Pause,
     /// Referenzfahrt (Maschinen-Null 0/0).
     Home,
     /// Zum Benutzerursprung fahren.
@@ -200,6 +204,8 @@ impl JobAction {
             JobAction::StreamGcode => "stream_gcode",
             JobAction::ExportFile => "export_file",
             JobAction::Frame => "frame",
+            JobAction::RubberFrame => "rubber_frame",
+            JobAction::Pause => "pause",
             JobAction::Home => "home",
             JobAction::GoOrigin => "go_origin",
             JobAction::Stop => "stop",

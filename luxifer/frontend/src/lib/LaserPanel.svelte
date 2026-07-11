@@ -64,6 +64,8 @@
     stream_gcode: { label: "G-Code streamen", glyph: "⭑", primary: true },
     export_file: { label: "Exportieren", glyph: "▤" },
     frame: { label: "Rahmen", glyph: "⧉" },
+    rubber_frame: { label: "Gummiband", glyph: "◇" },
+    pause: { label: "Pause", glyph: "Ⅱ" },
     home: { label: "Home 0/0", glyph: "⌂" },
     go_origin: { label: "Ursprung", glyph: "◎" },
     stop: { label: "Stopp", glyph: "■" },

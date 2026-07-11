@@ -125,6 +125,11 @@ pub fn cmd_stop() -> Vec<u8> {
     vec![0xD8, 0x01]
 }
 
+/// Laufenden Prozess pausieren/fortsetzen (`D8 02`, Referenzprotokoll).
+pub fn cmd_pause() -> Vec<u8> {
+    vec![0xD8, 0x02]
+}
+
 /// Eilgang (Rapid) absolut, Laser AUS (`D9 10 00`) — für Jog/Home/Frame.
 pub fn cmd_rapid_move_xy(x_um: i32, y_um: i32) -> Vec<u8> {
     let mut v = vec![0xD9, 0x10, 0x00];
@@ -231,5 +236,10 @@ mod tests {
         let scrambled = swizzle(&payload, MAGIC);
         assert_eq!(&pkt[..2], &checksum(&scrambled));
         assert_eq!(&pkt[2..], &scrambled[..]);
+    }
+
+    #[test]
+    fn pause_nutzt_referenzkommando() {
+        assert_eq!(cmd_pause(), vec![0xD8, 0x02]);
     }
 }
