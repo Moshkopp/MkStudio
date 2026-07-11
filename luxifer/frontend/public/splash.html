@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LuxiFer</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        overflow: hidden;
+        background: transparent;
+        font-family: "Inter", system-ui, sans-serif;
+        user-select: none;
+        cursor: default;
+      }
+      /* Die Karte füllt das ganze Fenster — kein transparenter Rand drumherum. */
+      .card {
+        position: relative;
+        width: 100vw;
+        height: 100vh;
+        display: flex;
+        align-items: center;
+        gap: 34px;
+        padding: 0 52px;
+        overflow: hidden;
+        border-radius: 20px;
+        background:
+          radial-gradient(130% 130% at 18% 12%, rgba(240, 150, 40, 0.16) 0%, transparent 46%),
+          radial-gradient(120% 120% at 100% 100%, rgba(60, 110, 200, 0.16) 0%, transparent 52%),
+          linear-gradient(160deg, #242832 0%, #171a20 55%, #101216 100%);
+        border: 1px solid rgba(255, 255, 255, 0.12);
+        box-shadow:
+          0 30px 90px rgba(0, 0, 0, 0.6),
+          inset 0 1px 0 rgba(255, 255, 255, 0.08);
+        animation: rise 0.5s cubic-bezier(0.2, 0.9, 0.3, 1.1) both;
+      }
+      /* Feiner Glanz-Sweep von links nach rechts. */
+      .card::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(
+          115deg,
+          transparent 30%,
+          rgba(255, 255, 255, 0.08) 48%,
+          rgba(255, 255, 255, 0.02) 55%,
+          transparent 70%
+        );
+        transform: translateX(-120%);
+        animation: sweep 2.4s ease-in-out 0.4s infinite;
+      }
+      /* Oberer Licht-Rand für die "Glas"-Anmutung. */
+      .card::after {
+        content: "";
+        position: absolute;
+        left: 12%;
+        right: 12%;
+        top: 0;
+        height: 1px;
+        background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.5), transparent);
+      }
+      .logo {
+        width: 168px;
+        height: auto;
+        flex: none;
+        filter: drop-shadow(0 0 26px rgba(240, 150, 40, 0.5));
+        animation: glow 3s ease-in-out infinite alternate;
+      }
+      .text {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        min-width: 0;
+        z-index: 1;
+      }
+      .name {
+        font-size: 42px;
+        font-weight: 800;
+        letter-spacing: 3px;
+        line-height: 1;
+        background: linear-gradient(90deg, #ffffff 0%, #ffd9a8 55%, #ff9a3c 100%);
+        -webkit-background-clip: text;
+        background-clip: text;
+        color: transparent;
+      }
+      .sub {
+        font-size: 13px;
+        letter-spacing: 1px;
+        color: rgba(255, 255, 255, 0.4);
+      }
+      .version {
+        margin-top: 10px;
+        font-size: 12.5px;
+        color: rgba(255, 255, 255, 0.55);
+        font-variant-numeric: tabular-nums;
+        min-height: 1em;
+      }
+      @keyframes rise {
+        from {
+          opacity: 0;
+          transform: scale(0.96) translateY(8px);
+        }
+        to {
+          opacity: 1;
+          transform: none;
+        }
+      }
+      @keyframes glow {
+        from {
+          filter: drop-shadow(0 0 18px rgba(240, 150, 40, 0.35));
+        }
+        to {
+          filter: drop-shadow(0 0 34px rgba(240, 150, 40, 0.65));
+        }
+      }
+      @keyframes sweep {
+        0% {
+          transform: translateX(-120%);
+        }
+        60%,
+        100% {
+          transform: translateX(120%);
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <img class="logo" src="splash-logo.png" alt="LuxiFer" />
+      <div class="text">
+        <div class="name">LuxiFer</div>
+        <div class="sub">Laser Studio</div>
+        <div class="version" id="ver"></div>
+      </div>
+    </div>
+    <script>
+      // Version über das globale Tauri-API holen (withGlobalTauri).
+      (async () => {
+        try {
+          const v = await window.__TAURI__.core.invoke("app_version");
+          const commit = v.commit && v.commit !== "-" ? " · " + v.commit : "";
+          document.getElementById("ver").textContent = (v.version || "") + commit;
+        } catch (_) {
+          /* Version optional — Splash zeigt zur Not nur das Logo. */
+        }
+      })();
+    </script>
+  </body>
+</html>

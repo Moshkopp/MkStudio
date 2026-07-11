@@ -76,6 +76,23 @@
   // Unsaved-Guard: geplante Aktion (open/new), die nach Bestaetigung laeuft.
   let pendingAction = $state<null | { kind: "new" } | { kind: "open"; name: string }>(null);
 
+  // --- Splash / App-Version -------------------------------------------------
+  // Der Splash ist ein eigenes Fenster (klassische Reihenfolge: Splash zuerst,
+  // Hauptfenster startet unsichtbar). Wenn die GUI geladen ist, meldet sich das
+  // Frontend per frontendReady() → Backend zeigt `main` und schließt den Splash.
+  // Mindest-Standzeit, damit der Splash auch bei blitzschnellem Start sichtbar
+  // bleibt. Der Zeitpunkt zählt ab App-Start (Modul-Init).
+  let appVer = $state<core.AppVersion>({ version: "", commit: "" });
+  const splashStart = Date.now();
+
+  // Zeigt das Hauptfenster / schließt den Splash — frühestens nach der in den
+  // Settings hinterlegten Mindest-Standzeit. Idempotent (frontendReady ist
+  // backend-seitig idempotent).
+  function revealMain(minMs: number) {
+    const rest = minMs - (Date.now() - splashStart);
+    setTimeout(() => core.frontendReady().catch(() => {}), Math.max(0, rest));
+  }
+
   // --- GUI-Settings (Theme/Arbeitsplatz, ADR 0002) --------------------------
   let settings = $state<UiSettings | null>(null);
   let activeTab = $state<Tab>("Design");
@@ -107,11 +124,16 @@
 
   async function load() {
     try {
+      appVer = await core.appVersion();
       scene = await core.getScene();
       swatches = await core.swatchColors();
       shapes = await core.shapeCatalog();
       settings = await core.getUiSettings();
       applyTheme(settings.theme);
+      // Hauptfenster zeigen: bei deaktiviertem Splash sofort, sonst nach der
+      // Mindest-Standzeit (das Backend zeigt `main` und schließt den Splash).
+      if (!settings.show_splash) core.frontendReady().catch(() => {});
+      else revealMain(settings.splash_ms ?? 1500);
       // Start-Toast: zuletzt geoeffnetes Projekt anbieten (ADR 0003 §3).
       if (settings.last_project) {
         startToast = settings.last_project;
@@ -125,6 +147,7 @@
       setInterval(refreshConnection, 3000);
     } catch (e) {
       error = core.errorMessage(e);
+      core.frontendReady().catch(() => {}); // Fenster nie verstecken lassen.
     }
   }
   load();
@@ -711,6 +734,7 @@
       {insets}
       active={activeTab === "Design"}
       fitTrigger={designFitTrigger}
+      gridSize={settings?.grid_size_mm ?? 50}
       {ondrawrect}
       {ondrawellipse}
       {ondrawline}
@@ -998,6 +1022,7 @@
     <SettingsModal
       registry={laserReg}
       settings={settings}
+      version={appVer}
       onsave={saveLaser}
       ondelete={deleteLaser}
       onsavesettings={persist}

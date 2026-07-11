@@ -10,14 +10,17 @@
     "beforeBuildCommand": "npm run build"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
+        "label": "main",
         "title": "LuxiFer",
         "width": 1280,
         "height": 800,
         "resizable": true,
         "maximized": true,
-        "fullscreen": false
+        "fullscreen": false,
+        "visible": false
       }
     ],
     "security": {

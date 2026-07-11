@@ -87,7 +87,40 @@ pub struct UiSettings {
     /// Leer = kein zuletzt-Projekt. `#[serde(default)]` für alte Settings.
     #[serde(default)]
     pub last_project: String,
+    /// Rasterweite des Design-Canvas in mm (parametrierbar). Wird auf einen
+    /// sinnvollen Bereich geklemmt. `#[serde(default = …)]` für alte Settings.
+    #[serde(default = "default_grid_size")]
+    pub grid_size_mm: f64,
+    /// Splash-Screen beim Start anzeigen (Logo + Version). Default an.
+    #[serde(default = "default_true")]
+    pub show_splash: bool,
+    /// Mindest-Anzeigedauer des Splash in ms (auch bei blitzschnellem Start).
+    /// Geklemmt auf einen sinnvollen Bereich.
+    #[serde(default = "default_splash_ms")]
+    pub splash_ms: u32,
 }
+
+/// Default-Mindestdauer des Splash (ms).
+fn default_splash_ms() -> u32 {
+    1500
+}
+
+/// Default-Rasterweite (mm), wenn eine alte Settings-Datei das Feld nicht hat.
+fn default_grid_size() -> f64 {
+    50.0
+}
+
+fn default_true() -> bool {
+    true
+}
+
+/// Grenzen der Rasterweite (mm): fein genug für Details, grob genug fürs Bett.
+pub const GRID_SIZE_MIN: f64 = 1.0;
+pub const GRID_SIZE_MAX: f64 = 500.0;
+
+/// Grenzen der Splash-Dauer (ms): 0 = quasi sofort, max 10 s.
+pub const SPLASH_MS_MIN: u32 = 0;
+pub const SPLASH_MS_MAX: u32 = 10_000;
 
 impl Default for UiSettings {
     fn default() -> Self {
@@ -96,6 +129,9 @@ impl Default for UiSettings {
             workplace: "Arbeitsplatz".into(),
             theme: Theme::default(),
             last_project: String::new(),
+            grid_size_mm: default_grid_size(),
+            show_splash: true,
+            splash_ms: default_splash_ms(),
         }
     }
 }
@@ -105,6 +141,12 @@ impl UiSettings {
     /// Macht das Laden robust gegen alte/fehlerhafte Dateien.
     pub fn sanitize(&mut self) {
         self.theme = self.theme.clamped();
+        // Rasterweite in den sinnvollen Bereich klemmen; NaN → Default.
+        if !self.grid_size_mm.is_finite() {
+            self.grid_size_mm = default_grid_size();
+        }
+        self.grid_size_mm = self.grid_size_mm.clamp(GRID_SIZE_MIN, GRID_SIZE_MAX);
+        self.splash_ms = self.splash_ms.clamp(SPLASH_MS_MIN, SPLASH_MS_MAX);
     }
 
     pub fn to_json(&self) -> Result<String, String> {
@@ -182,6 +224,44 @@ mod tests {
         assert_eq!(back.theme.accent.intensity, INTENSITY_MAX);
         assert_eq!(back.theme.button.intensity, INTENSITY_MIN);
         assert_eq!(back.last_project, "Text");
+        // Fehlende neue Felder fallen auf ihre Defaults zurück.
+        assert_eq!(back.grid_size_mm, default_grid_size());
+        assert!(back.show_splash);
+        assert_eq!(back.splash_ms, default_splash_ms());
+    }
+
+    #[test]
+    fn splash_ms_wird_geklemmt() {
+        let mut s = UiSettings {
+            splash_ms: 99_999,
+            ..UiSettings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.splash_ms, SPLASH_MS_MAX);
+    }
+
+    #[test]
+    fn grid_size_wird_geklemmt() {
+        let mut s = UiSettings {
+            grid_size_mm: 0.0,
+            ..UiSettings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.grid_size_mm, GRID_SIZE_MIN);
+
+        let mut s = UiSettings {
+            grid_size_mm: 9999.0,
+            ..UiSettings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.grid_size_mm, GRID_SIZE_MAX);
+
+        let mut s = UiSettings {
+            grid_size_mm: f64::NAN,
+            ..UiSettings::default()
+        };
+        s.sanitize();
+        assert_eq!(s.grid_size_mm, default_grid_size());
     }
 
     #[test]

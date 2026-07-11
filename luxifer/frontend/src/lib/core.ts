@@ -673,6 +673,9 @@ export interface UiSettings {
   workplace: string;
   theme: Theme;
   last_project: string;
+  grid_size_mm: number; // Rasterweite Design-Canvas (mm), geklemmt 1…500
+  show_splash: boolean; // Splash-Screen beim Start zeigen
+  splash_ms: number; // Mindest-Anzeigedauer des Splash (ms), geklemmt 0…10000
 }
 
 export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
@@ -680,3 +683,16 @@ export const getUiSettings = () => invoke<UiSettings>("get_ui_settings");
 // Speichert und gibt die aufgeräumten (geklemmten) Settings zurück.
 export const saveUiSettings = (settings: UiSettings) =>
   invoke<UiSettings>("save_ui_settings", { settings });
+
+// ---- App-Version (Splash/About) --------------------------------------------
+// Zur Build-Zeit aus git abgeleitet (build.rs): tag-relativ + kurzer Hash.
+export interface AppVersion {
+  version: string; // z. B. "v0.8-12-gbc59d67"
+  commit: string; // kurzer Hash, z. B. "bc59d67"
+}
+
+export const appVersion = () => invoke<AppVersion>("app_version");
+
+// Meldet dem Backend, dass die GUI fertig geladen ist: Hauptfenster zeigen,
+// Splash-Fenster schließen (klassische Splash-Reihenfolge).
+export const frontendReady = () => invoke<void>("frontend_ready");

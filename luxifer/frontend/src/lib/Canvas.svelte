@@ -46,11 +46,14 @@
     onbezierdone,
     laserHead,
     laserOrigin,
+    gridSize = 50,
   }: {
     scene: Scene;
     tool: Tool;
     // Aktuell gewaehlte Polygon-Form (Katalog-`id`, z. B. "hex").
     activeShape: string;
+    // Rasterweite des Grids in mm (aus UiSettings; Default 50).
+    gridSize?: number;
     // Sichtbarer Arbeitsbereich: Beim Wechsel zurueck in Design wird neu eingepasst.
     active?: boolean;
     // Externer FitView-Impuls (Start/Tabwechsel). Der Wert selbst ist egal.
@@ -423,7 +426,9 @@
 
   // Grid als Line-Batch in mm (Shader rechnet mm→Clip). Wie drawGrid, aber GPU.
   function gridBatchGl(w: number, h: number): LineBatch {
-    let step = 50;
+    // Basis-Rasterweite aus den Settings (mm); bei starkem Auszoomen verdoppeln,
+    // damit die Linien nicht zu dicht (< 8 px) werden.
+    let step = gridSize > 0 ? gridSize : 50;
     while (step * zoom < 8) step *= 2;
     const [tlx, tly] = toMm(0, 0);
     const [brx, bry] = toMm(w, h);
@@ -1573,7 +1578,7 @@
   $effect(() => {
     scene; zoom; panX; panY; drag;
     polyPts; polyCursor; polyNearStart;
-    laserHead; laserOrigin;
+    laserHead; laserOrigin; gridSize;
     draw();
   });
   // Aendern sich die freien Raender (Reiterwechsel, Panel verschoben) und der

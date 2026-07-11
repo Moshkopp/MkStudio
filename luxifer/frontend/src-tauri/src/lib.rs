@@ -5,7 +5,7 @@ use std::sync::Mutex;
 
 use luxifer_core::preview::JobPreview;
 use luxifer_core::{AppState, LaserRegistry, UiSettings};
-use tauri::{Manager, State};
+use tauri::{Manager, State, WebviewUrl, WebviewWindowBuilder};
 
 mod commands;
 mod shared;
@@ -18,6 +18,13 @@ use shared::{
     plan_with_assets, scene, scene_with, ActiveDriver, AppData, CurrentProject, PreviewDto, Scene,
 };
 
+/// Versionsdaten für Splash/About (aus build.rs, git-abgeleitet).
+#[derive(serde::Serialize)]
+struct AppVersion {
+    version: String,
+    commit: String,
+}
+
 #[tauri::command]
 fn get_scene(data: State<AppData>) -> Scene {
     scene(&data)
@@ -26,6 +33,17 @@ fn get_scene(data: State<AppData>) -> Scene {
 #[tauri::command]
 fn swatch_colors() -> Vec<[u8; 3]> {
     luxifer_core::SWATCH_COLORS.to_vec()
+}
+
+/// App-Version (Splash/About). Beide Werte werden zur Build-Zeit in build.rs aus
+/// git abgeleitet: `version` tag-relativ (z. B. v0.8-12-gbc59d67), `commit` der
+/// kurze Hash. Steigt automatisch mit jedem Commit.
+#[tauri::command]
+fn app_version() -> AppVersion {
+    AppVersion {
+        version: env!("LUXIFER_VERSION").to_string(),
+        commit: env!("LUXIFER_COMMIT").to_string(),
+    }
 }
 
 /// Leitet aus dem aktuellen Zustand die Laser-Vorschau ab (ADR 0005): die zu
@@ -69,6 +87,20 @@ fn redo(data: State<AppData>) -> Scene {
     scene_with(&s, &data)
 }
 
+/// Das Frontend meldet, dass die GUI fertig geladen ist: Hauptfenster zeigen und
+/// den Splash (falls vorhanden) schließen. Idempotent — mehrfacher Aufruf schadet
+/// nicht (z. B. bei HMR-Reloads im Dev).
+#[tauri::command]
+fn frontend_ready(app: tauri::AppHandle) {
+    if let Some(main) = app.get_webview_window("main") {
+        let _ = main.show();
+        let _ = main.set_focus();
+    }
+    if let Some(splash) = app.get_webview_window("splash") {
+        let _ = splash.close();
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -86,11 +118,35 @@ pub fn run() {
             {
                 let _ = win.set_icon(icon.clone());
             }
+
+            // Splash: das Hauptfenster startet unsichtbar (tauri.conf). Ist der
+            // Splash aktiviert, ein kleines, randloses Splash-Fenster ZUERST
+            // zeigen (klassische Reihenfolge: Splash → dann GUI). Das Frontend
+            // meldet sich per `frontend_ready`, sobald es fertig geladen ist —
+            // dann wird `main` gezeigt und der Splash geschlossen. Ist der Splash
+            // deaktiviert, kommt `main` sofort.
+            if UiSettings::load().show_splash {
+                let _ =
+                    WebviewWindowBuilder::new(app, "splash", WebviewUrl::App("splash.html".into()))
+                        .title("LuxiFer")
+                        .inner_size(560.0, 300.0)
+                        .decorations(false)
+                        .transparent(true)
+                        .resizable(false)
+                        .center()
+                        .always_on_top(true)
+                        .skip_taskbar(true)
+                        .build();
+            } else if let Some(win) = app.get_webview_window("main") {
+                let _ = win.show();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             get_scene,
             swatch_colors,
+            app_version,
+            frontend_ready,
             add_rect,
             add_ellipse,
             add_line,
