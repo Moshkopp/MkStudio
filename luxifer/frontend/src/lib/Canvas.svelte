@@ -7,6 +7,8 @@
   import { GlRenderer, type LineBatch, type GlBatch } from "./gl/renderer";
   import { type Camera } from "./gl/camera";
   import { shapesToBatch, type PointXf } from "./gl/design-render";
+  import { type HandleId, handlePositions, resizeBox, hxOffset, hyOffset } from "./canvas/handles";
+  import { type BNode, bezFlatten } from "./canvas/bezier-draft";
 
   type Tool = "select" | "rect" | "ellipse" | "line" | "polyline" | "polygon" | "spline" | "measure" | "bezier" | "node";
 
@@ -259,7 +261,7 @@
 
   // Bézier-Feder (Inkscape-Stil): Knoten mit Anker + Tangenten, live gezeichnet.
   // Klick = Ecke, Klick+Ziehen = glatter Knoten (hOut folgt, hIn = Spiegel).
-  type BNode = { p: [number, number]; hIn: [number, number] | null; hOut: [number, number] | null };
+  // BNode aus ./canvas/bezier-draft importiert.
   let bez = $state<{ nodes: BNode[]; cursor: [number, number] | null; closed: boolean } | null>(null);
   // Index statt Objektreferenz: Svelte proxifiziert Elemente eines $state-
   // Arrays. Eine vorher gemerkte Roh-Referenz würde außerhalb des Arrays
@@ -277,21 +279,11 @@
     return Math.hypot(px - fx, py - fy) <= POLY_CLOSE_PX;
   }
 
-  type HandleId = "nw" | "n" | "ne" | "e" | "se" | "s" | "sw" | "w";
+  // HandleId aus ./canvas/handles importiert.
 
   // ---- BBox-Helfer ----------------------------------------------------------
   function selectionBBox(): [number, number, number, number] | null {
     return scene.selection_bbox ?? null;
-  }
-
-  function handlePositions(box: [number, number, number, number]): [HandleId, number, number][] {
-    const [x, y, w, h] = box;
-    const cx = x + w / 2, cy = y + h / 2;
-    return [
-      ["nw", x, y], ["n", cx, y], ["ne", x + w, y],
-      ["e", x + w, cy], ["se", x + w, y + h], ["s", cx, y + h],
-      ["sw", x, y + h], ["w", x, cy],
-    ];
   }
 
   function hitHandle(px: number, py: number): HandleId | null {
@@ -303,41 +295,6 @@
       if (Math.abs(px - sx) <= HANDLE_PX && Math.abs(py - sy) <= HANDLE_PX) return id;
     }
     return null;
-  }
-
-  function resizeBox(
-    start: [number, number, number, number],
-    handle: HandleId,
-    dx: number,
-    dy: number,
-  ): [number, number, number, number] {
-    let [x, y, w, h] = start;
-    const left = handle === "w" || handle === "nw" || handle === "sw";
-    const right = handle === "e" || handle === "ne" || handle === "se";
-    const top = handle === "n" || handle === "nw" || handle === "ne";
-    const bottom = handle === "s" || handle === "sw" || handle === "se";
-    const corner = (left || right) && (top || bottom);
-    if (corner) {
-      // Eck-Handle: Seitenverhaeltnis wahren. Ein gemeinsamer Faktor aus dem
-      // groesseren relativen Delta, verankert an der gegenueberliegenden Ecke.
-      const sw0 = start[2], sh0 = start[3];
-      const fx = 1 + (right ? dx : -dx) / sw0;
-      const fy = 1 + (bottom ? dy : -dy) / sh0;
-      const f = Math.max(0.001, Math.max(fx, fy)); // dominante Achse fuehrt
-      w = sw0 * f;
-      h = sh0 * f;
-      // Gegenueberliegende Ecke fix halten.
-      if (left) x = start[0] + start[2] - w;
-      if (top) y = start[1] + start[3] - h;
-    } else {
-      if (left) { x += dx; w -= dx; }
-      if (right) { w += dx; }
-      if (top) { y += dy; h -= dy; }
-      if (bottom) { h += dy; }
-    }
-    if (w < 0.1) w = 0.1;
-    if (h < 0.1) h = 0.1;
-    return [x, y, w, h];
   }
 
   // ---- Zeichnen -------------------------------------------------------------
@@ -545,24 +502,6 @@
 
   // ---- Bézier-Feder: live gezeichnete Kurve + Tangenten während des Zeichnens
   // Lokale Kubik-Flatten nur für die VORSCHAU (Wahrheit erzeugt der Core).
-  function cubic(p0: [number, number], p1: [number, number], p2: [number, number], p3: [number, number], out: [number, number][]) {
-    const N = 16;
-    for (let i = 1; i <= N; i++) {
-      const t = i / N, u = 1 - t;
-      out.push([
-        u*u*u*p0[0] + 3*u*u*t*p1[0] + 3*u*t*t*p2[0] + t*t*t*p3[0],
-        u*u*u*p0[1] + 3*u*u*t*p1[1] + 3*u*t*t*p2[1] + t*t*t*p3[1],
-      ]);
-    }
-  }
-  function bezFlatten(nodes: BNode[], closed: boolean): [number, number][] {
-    if (nodes.length < 2) return nodes.map((n) => n.p);
-    const out: [number, number][] = [nodes[0].p];
-    const seg = (a: BNode, b: BNode) => cubic(a.p, a.hOut ?? a.p, b.hIn ?? b.p, b.p, out);
-    for (let i = 0; i < nodes.length - 1; i++) seg(nodes[i], nodes[i + 1]);
-    if (closed) seg(nodes[nodes.length - 1], nodes[0]);
-    return out;
-  }
   function drawBezierDraft(ctx: CanvasRenderingContext2D) {
     if (tool !== "bezier" || !bez || bez.nodes.length === 0) return;
     // Nur bereits gesetzte Knoten bilden die Kurve. Der Cursor ist ausdrücklich
@@ -1250,17 +1189,6 @@
   }
 
   // Referenz-Kante des Handles in der Startbox (für konsistentes Delta).
-  function hxOffset(h: HandleId, b: [number, number, number, number]): number {
-    if (h === "e" || h === "ne" || h === "se") return b[2];
-    if (h === "n" || h === "s") return b[2] / 2;
-    return 0;
-  }
-  function hyOffset(h: HandleId, b: [number, number, number, number]): number {
-    if (h === "s" || h === "sw" || h === "se") return b[3];
-    if (h === "e" || h === "w") return b[3] / 2;
-    return 0;
-  }
-
   async function onPointerUp(ev: PointerEvent) {
     // Bézier-Feder: Tangenten-Drag beenden (kein drag-Objekt im Spiel).
     if (tool === "bezier" && bezDrag !== null) {
