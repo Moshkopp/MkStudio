@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { rgb, polygonPreview, imageRender, shapeBBox, type Scene, type Shape, type ImageParams } from "./core";
+  import { ellipsePoints, rectPoints, rotateAroundBBoxCenter, type Pt } from "./geometry";
   // WebGL-Geometrie-Ebene (ADR 0008): Konturen/Grid/Bett/Bilder auf der GPU.
   // Die Overlays (Handles, Lineale, Mess-/Node-Griffe) bleiben auf dem 2D-Canvas
   // DARÜBER — der trägt weiterhin alle Pointer-Handler.
@@ -426,8 +427,10 @@
     if (!ctx) return;
     const w = canvasEl.width, h = canvasEl.height;
     ctx.clearRect(0, 0, w, h); // transparent — die WebGL-Ebene scheint durch
-    // Füllungen gefüllter Layer (die Kontur selbst kommt aus WebGL).
-    scene.shapes.forEach((s, i) => drawFill(ctx, s, i));
+    // Füllungen gefüllter Layer (die Kontur selbst kommt aus WebGL). Bilder je
+    // Form, Vektor-Flächen je Layer gemeinsam (Even-Odd → Löcher bleiben frei).
+    scene.shapes.forEach((s, i) => drawImageShape(ctx, s, i));
+    drawLayerFills(ctx);
     drawSelection(ctx);
     drawGesturePreview(ctx);
     drawPolyPreview(ctx);
@@ -835,52 +838,74 @@
     return [Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay)];
   }
 
-  // 2D-Ebene je Shape: Bilder (drawImage-Quad) + Flächen gefüllter Layer. Die
-  // KONTUR selbst zeichnet die WebGL-Ebene (renderGeo); hier nur Füllung/Bild.
-  function drawFill(ctx: CanvasRenderingContext2D, s: Shape, idx: number) {
+  // 2D-Ebene, Bilder: gecachtes Bitmap in die (live transformierte) Box zeichnen
+  // (volle Aufloesung, ADR 0004). Move/Resize aendern nur die Box — kein
+  // Neurendern. Die KONTUR/Fläche kommt NICHT hierher (das macht drawLayerFills).
+  function drawImageShape(ctx: CanvasRenderingContext2D, s: Shape, idx: number) {
+    if (!("Image" in s.geo)) return;
     const [bx, by, bw, bh] = shapeDrawBox(s, idx);
-    // Bild: gecachtes Bitmap in die Box zeichnen (volle Aufloesung, ADR 0004).
-    // Move/Resize aendern nur die Box — kein Neurendern.
-    if ("Image" in s.geo) {
-      ctx.save();
-      if (s.rotation) {
-        const [scx, scy] = toScreen(bx + bw / 2, by + bh / 2);
-        ctx.translate(scx, scy); ctx.rotate((s.rotation * Math.PI) / 180); ctx.translate(-scx, -scy);
-      }
-      const [sx, sy] = toScreen(bx, by);
-      const { asset, params } = s.geo.Image;
-      const img = cachedImage(asset, params);
-      if (img) ctx.drawImage(img, sx, sy, bw * zoom, bh * zoom);
-      else { ctx.fillStyle = layerFillColor(s, 0.15); ctx.fillRect(sx, sy, bw * zoom, bh * zoom); }
-      ctx.strokeStyle = layerColor(s); ctx.lineWidth = 1;
-      ctx.strokeRect(sx, sy, bw * zoom, bh * zoom);
-      ctx.restore();
-      return;
-    }
-    if (!layerFilled(s)) return; // nur gefüllte Layer bekommen eine Fläche
     ctx.save();
     if (s.rotation) {
       const [scx, scy] = toScreen(bx + bw / 2, by + bh / 2);
       ctx.translate(scx, scy); ctx.rotate((s.rotation * Math.PI) / 180); ctx.translate(-scx, -scy);
     }
     const [sx, sy] = toScreen(bx, by);
-    ctx.fillStyle = layerFillColor(s, 0.32);
-    ctx.beginPath();
-    if ("Ellipse" in s.geo) {
-      ctx.ellipse(sx + (bw * zoom) / 2, sy + (bh * zoom) / 2, (bw * zoom) / 2, (bh * zoom) / 2, 0, 0, Math.PI * 2);
-    } else if ("Polyline" in s.geo) {
-      const { pts } = s.geo.Polyline;
-      pts.forEach((p, i) => {
-        const [wx, wy] = liveTransformPoint(p[0], p[1], idx);
-        const [px, py] = toScreen(wx, wy);
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-      });
-      ctx.closePath();
-    } else {
-      ctx.rect(sx, sy, bw * zoom, bh * zoom);
-    }
-    ctx.fill();
+    const { asset, params } = s.geo.Image;
+    const img = cachedImage(asset, params);
+    if (img) ctx.drawImage(img, sx, sy, bw * zoom, bh * zoom);
+    else { ctx.fillStyle = layerFillColor(s, 0.15); ctx.fillRect(sx, sy, bw * zoom, bh * zoom); }
+    ctx.strokeStyle = layerColor(s); ctx.lineWidth = 1;
+    ctx.strokeRect(sx, sy, bw * zoom, bh * zoom);
     ctx.restore();
+  }
+
+  // Kontur EINER gefüllten Vektor-Form in Welt-mm (Live-Move/Scale + Rotation
+  // eingerechnet), als geschlossener Polygonzug. Basis für die Even-Odd-Füllung.
+  function shapeFillOutline(s: Shape, idx: number): Pt[] {
+    let pts: Pt[];
+    if ("Rect" in s.geo) {
+      const { x, y, w, h } = s.geo.Rect;
+      pts = rectPoints(x, y, w, h);
+    } else if ("Ellipse" in s.geo) {
+      const { cx, cy, rx, ry } = s.geo.Ellipse;
+      pts = ellipsePoints(cx, cy, rx, ry);
+    } else if ("Polyline" in s.geo) {
+      pts = s.geo.Polyline.pts.map(([a, b]) => [a, b] as Pt);
+    } else {
+      return [];
+    }
+    if (s.rotation) pts = rotateAroundBBoxCenter(pts, s.rotation);
+    return pts.map(([x, y]) => liveTransformPoint(x, y, idx));
+  }
+
+  // Flächen gefüllter Layer. Alle Formen EINES Layers werden in EINEN Pfad
+  // gelegt und mit "evenodd" gefüllt — so bleiben verschachtelte Konturen
+  // (innere Ringe, Buchstaben-Innenräume) korrekt ausgespart, statt sich beim
+  // Einzel-Füllen gegenseitig zu übermalen. Die KONTUR selbst kommt aus WebGL.
+  function drawLayerFills(ctx: CanvasRenderingContext2D) {
+    // Formen je gefülltem Layer sammeln (Reihenfolge wie in scene.shapes).
+    const byLayer = new Map<number, Pt[][]>();
+    scene.shapes.forEach((s, i) => {
+      if ("Image" in s.geo || !layerFilled(s)) return;
+      const outline = shapeFillOutline(s, i);
+      if (outline.length < 2) return;
+      const g = byLayer.get(s.layer_id);
+      if (g) g.push(outline); else byLayer.set(s.layer_id, [outline]);
+    });
+    for (const [layerId, outlines] of byLayer) {
+      const l = scene.layers[layerId];
+      const [r, g, b] = l ? l.color : [255, 92, 98];
+      ctx.fillStyle = `rgba(${r}, ${g}, ${b}, 0.32)`;
+      ctx.beginPath();
+      for (const outline of outlines) {
+        outline.forEach(([wx, wy], i) => {
+          const [px, py] = toScreen(wx, wy);
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        });
+        ctx.closePath();
+      }
+      ctx.fill("evenodd");
+    }
   }
 
   // Ecken einer Vektor-Shape in mm (Rotation eingerechnet) für den Fillet-Pick.
