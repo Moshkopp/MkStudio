@@ -40,7 +40,7 @@ fn swatch_colors() -> Vec<[u8; 3]> {
 /// Ableitung des `JobPlan` — kein Undo, keine Mutation.
 #[tauri::command]
 fn job_preview(data: State<AppData>) -> PreviewDto {
-    let s = data.state.lock().unwrap();
+    let s = data.state();
     let plan = plan_with_assets(&s.shapes, &s.layers);
     let preview = JobPreview::from_plan(&plan);
     PreviewDto::from_preview(&preview)
@@ -67,14 +67,14 @@ fn save_ui_settings(mut settings: UiSettings) -> Result<UiSettings, String> {
 
 #[tauri::command]
 fn undo(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.undo();
     scene_with(&s, &data)
 }
 
 #[tauri::command]
 fn redo(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.redo();
     scene_with(&s, &data)
 }

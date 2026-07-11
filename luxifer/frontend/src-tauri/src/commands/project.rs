@@ -30,11 +30,11 @@ pub struct ProjectDetail {
 #[tauri::command]
 pub fn new_project(data: State<AppData>) -> Scene {
     {
-        let mut s = data.state.lock().unwrap();
+        let mut s = data.state();
         *s = AppState::new();
     }
     {
-        let mut cur = data.current.lock().unwrap();
+        let mut cur = data.current();
         cur.file = None;
     }
     scene(&data)
@@ -56,8 +56,8 @@ pub fn save_project(
     if name.is_empty() {
         return Err("Projektname darf nicht leer sein.".into());
     }
-    let mut s = data.state.lock().unwrap();
-    let mut cur = data.current.lock().unwrap();
+    let mut s = data.state();
+    let mut cur = data.current();
 
     // Bestehendes Projekt aktualisieren oder neues anlegen. save_current schreibt
     // Projektdatei + Snapshot + Thumbnail der aktuellen Version (kein separates,
@@ -88,8 +88,8 @@ pub fn save_project(
 #[tauri::command]
 pub fn save_version(data: State<AppData>, note: String, thumb_png: Vec<u8>) -> Result<Scene, String> {
     let dir = projects_dir();
-    let mut s = data.state.lock().unwrap();
-    let mut cur = data.current.lock().unwrap();
+    let mut s = data.state();
+    let mut cur = data.current();
     let Some(pf) = cur.file.as_mut() else {
         return Err("Bitte zuerst das Projekt speichern (Strg+S).".into());
     };
@@ -108,11 +108,11 @@ pub fn open_project(data: State<AppData>, name: String) -> Result<Scene, String>
     let dir = projects_dir();
     let pf = ProjectFile::load_by_name(&dir, &name)?;
     {
-        let mut s = data.state.lock().unwrap();
+        let mut s = data.state();
         *s = pf.clone().into_state();
     }
     {
-        let mut cur = data.current.lock().unwrap();
+        let mut cur = data.current();
         cur.file = Some(pf);
     }
     remember_last_project(&name);
@@ -144,11 +144,11 @@ pub fn open_version(data: State<AppData>, name: String, version_id: String) -> R
     current.shapes = snap.shapes.clone();
     current.save_to_dir(&dir)?;
     {
-        let mut s = data.state.lock().unwrap();
+        let mut s = data.state();
         *s = snap.into_state();
     }
     {
-        let mut cur = data.current.lock().unwrap();
+        let mut cur = data.current();
         cur.file = Some(current);
     }
     remember_last_project(&name);
@@ -161,7 +161,7 @@ pub fn open_version(data: State<AppData>, name: String, version_id: String) -> R
 #[tauri::command]
 pub fn delete_version(data: State<AppData>, name: String, version_id: String) -> Result<Scene, String> {
     let dir = projects_dir();
-    let mut cur = data.current.lock().unwrap();
+    let mut cur = data.current();
     // Auf dem offenen Projekt arbeiten, falls es dasselbe ist; sonst frisch laden.
     let mut pf = match cur.file.take() {
         Some(f) if f.name == name => f,
@@ -174,7 +174,7 @@ pub fn delete_version(data: State<AppData>, name: String, version_id: String) ->
     let promoted = pf.delete_version(&dir, &version_id)?;
     // Wurde die aktuelle Version gelöscht, den beförderten Stand in den Canvas.
     if let Some(snap) = promoted {
-        let mut s = data.state.lock().unwrap();
+        let mut s = data.state();
         *s = snap.into_state();
     }
     cur.file = Some(pf);
@@ -265,7 +265,7 @@ pub fn version_thumb(name: String, version_id: String) -> Option<String> {
 #[tauri::command]
 pub fn project_delete(data: State<AppData>, name: String) -> Result<(), String> {
     delete_project(&projects_dir(), &name)?;
-    let mut cur = data.current.lock().unwrap();
+    let mut cur = data.current();
     if cur.file.as_ref().is_some_and(|f| f.name == name) {
         cur.file = None;
     }
@@ -278,7 +278,7 @@ pub fn project_delete(data: State<AppData>, name: String) -> Result<(), String> 
 pub fn project_rename(data: State<AppData>, old_name: String, new_name: String) -> Result<(), String> {
     let dir = projects_dir();
     rename_project(&dir, &old_name, &new_name)?;
-    let mut cur = data.current.lock().unwrap();
+    let mut cur = data.current();
     if let Some(f) = cur.file.as_mut() {
         if f.name == old_name {
             f.name = new_name.clone();

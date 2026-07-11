@@ -15,7 +15,7 @@ pub fn import_vector_file(data: State<AppData>, bytes: Vec<u8>, name: String) ->
     let ext = name.rsplit('.').next().unwrap_or("");
     let contours =
         luxifer_core::import::import_vector(&bytes, ext).map_err(|e| e.to_string())?;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_polylines(contours);
     Ok(scene_with(&s, &data))
 }
@@ -37,7 +37,7 @@ pub fn pattern_fill_op(
     let Some(pat) = Pattern::from_key(&pattern) else {
         return Err(format!("Unbekanntes Muster: {pattern}"));
     };
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.pattern_fill_selected(&FillParams {
         pattern: pat,
         gap_x,
@@ -53,7 +53,7 @@ pub fn pattern_fill_op(
 #[tauri::command]
 pub fn add_spline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Scene {
     use luxifer_core::geometry::catmull_rom;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let smooth = catmull_rom(&pts, closed, 12);
     s.add_shape(Geo::Polyline {
         pts: smooth,
@@ -142,7 +142,7 @@ pub fn add_text(
     if contours.is_empty() {
         return Err("Der Font liefert für diesen Text keine Konturen.".into());
     }
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let (ox, oy) = (s.bed_w_mm * 0.1, s.bed_h_mm * 0.1);
     let placed: Vec<(Vec<(f64, f64)>, bool)> = contours
         .into_iter()
@@ -192,7 +192,7 @@ pub fn update_text(
     if contours.is_empty() {
         return Err("Der Font liefert für diesen Text keine Konturen.".into());
     }
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.replace_text_block(
         shape_index,
         contours,
@@ -209,7 +209,7 @@ pub fn update_text(
 /// alle Punkte, editierbare Knoten).
 #[tauri::command]
 pub fn add_bezier(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_bezier(pts, closed);
     scene_with(&s, &data)
 }
@@ -221,7 +221,7 @@ pub fn add_bezier_nodes(
     nodes: Vec<luxifer_core::bezier::BezierNode>,
     closed: bool,
 ) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_bezier_nodes(nodes, closed);
     scene_with(&s, &data)
 }
@@ -245,7 +245,7 @@ pub fn drag_node(
         "out" => NodePart::HandleOut,
         _ => NodePart::Anchor,
     };
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if begin {
         s.push_undo();
     }
@@ -256,7 +256,7 @@ pub fn drag_node(
 /// Teilt das Segment ab Knoten `seg_start` (fügt einen Mittelknoten ein).
 #[tauri::command]
 pub fn split_node(data: State<AppData>, shape_index: usize, seg_start: usize, t: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.push_undo();
     s.split_node_segment(shape_index, seg_start, t);
     scene_with(&s, &data)
@@ -269,13 +269,13 @@ pub fn hit_bezier_segment(
     y: f64,
     tolerance: f64,
 ) -> Option<luxifer_core::bezier::BezierSegmentHit> {
-    let s = data.state.lock().unwrap();
+    let s = data.state();
     s.hit_bezier_segment((x, y), tolerance.max(0.001))
 }
 
 #[tauri::command]
 pub fn toggle_node_smooth(data: State<AppData>, shape_index: usize, node: usize) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.push_undo();
     s.toggle_node_smooth(shape_index, node);
     scene_with(&s, &data)
@@ -284,7 +284,7 @@ pub fn toggle_node_smooth(data: State<AppData>, shape_index: usize, node: usize)
 /// Löscht einen Bézier-Knoten.
 #[tauri::command]
 pub fn delete_node(data: State<AppData>, shape_index: usize, node: usize) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.push_undo();
     s.delete_node(shape_index, node);
     scene_with(&s, &data)
@@ -303,7 +303,7 @@ pub fn trace_image(
     use luxifer_core::geometry::{Geo, ImageMode, ImageParams};
     use luxifer_core::trace::{trace, TraceParams};
 
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let (asset, bx, by, bw, bh, params) = match s.shapes.get(shape_index).map(|sh| &sh.geo) {
         Some(Geo::Image {
             asset,
@@ -358,7 +358,7 @@ pub fn trace_image(
 #[tauri::command]
 pub fn boolean_op(data: State<AppData>, op: String) -> Scene {
     use luxifer_core::BoolOp;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let o = match op.as_str() {
         "union" => BoolOp::Union,
         "intersect" => BoolOp::Intersect,
@@ -373,7 +373,7 @@ pub fn boolean_op(data: State<AppData>, op: String) -> Scene {
 /// Positiv = außen, negativ = innen; das Original bleibt.
 #[tauri::command]
 pub fn offset_op(data: State<AppData>, dist: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.offset_selected(dist);
     scene_with(&s, &data)
 }
@@ -383,7 +383,7 @@ pub fn offset_op(data: State<AppData>, dist: f64) -> Scene {
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
 pub fn bridge_op(data: State<AppData>, x0: f64, y0: f64, x1: f64, y1: f64, width: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.bridge_stroke((x0, y0), (x1, y1), width);
     scene_with(&s, &data)
 }
@@ -396,7 +396,7 @@ pub fn fillet_corners_op(
     corners: Vec<usize>,
     radius: f64,
 ) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.fillet_shape_corners(shape_index, &corners, radius);
     scene_with(&s, &data)
 }
@@ -404,7 +404,7 @@ pub fn fillet_corners_op(
 /// Ecken der selektierten Shapes mit Radius (mm) verrunden.
 #[tauri::command]
 pub fn fillet_op(data: State<AppData>, radius: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.fillet_selected(radius);
     scene_with(&s, &data)
 }
@@ -412,7 +412,7 @@ pub fn fillet_op(data: State<AppData>, radius: f64) -> Scene {
 /// Packt die Auswahl platzsparend aufs Bett (Nesting, `gap` mm Abstand).
 #[tauri::command]
 pub fn nest_op(data: State<AppData>, gap: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.nest_selected(gap);
     scene_with(&s, &data)
 }
@@ -420,7 +420,7 @@ pub fn nest_op(data: State<AppData>, gap: f64) -> Scene {
 /// Füllt das Bett mit Kopien der zuerst selektierten Form (Nesting v3-Modus).
 #[tauri::command]
 pub fn nest_fill_op(data: State<AppData>, gap: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.nest_fill_selected(gap);
     scene_with(&s, &data)
 }
@@ -428,7 +428,7 @@ pub fn nest_fill_op(data: State<AppData>, gap: f64) -> Scene {
 /// Fügt die 4×2-Untersetzer-Vorlage ein (100 mm, 20 mm Lücke, zentriert).
 #[tauri::command]
 pub fn insert_coasters(data: State<AppData>, round: bool) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.insert_coasters(round);
     scene_with(&s, &data)
 }
@@ -437,14 +437,14 @@ pub fn insert_coasters(data: State<AppData>, round: bool) -> Scene {
 
 #[tauri::command]
 pub fn add_rect(data: State<AppData>, x: f64, y: f64, w: f64, h: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_shape(Geo::Rect { x, y, w, h });
     scene_with(&s, &data)
 }
 
 #[tauri::command]
 pub fn add_ellipse(data: State<AppData>, cx: f64, cy: f64, rx: f64, ry: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_shape(Geo::Ellipse { cx, cy, rx, ry });
     scene_with(&s, &data)
 }
@@ -452,7 +452,7 @@ pub fn add_ellipse(data: State<AppData>, cx: f64, cy: f64, rx: f64, ry: f64) -> 
 /// Fügt eine offene 2-Punkt-Linie als Polyline hinzu.
 #[tauri::command]
 pub fn add_line(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.add_shape(Geo::Polyline {
         pts: vec![(x1, y1), (x2, y2)],
         closed: false,
@@ -464,7 +464,7 @@ pub fn add_line(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Sce
 /// Kontur (letzter → erster Punkt). Wird ignoriert, wenn < 2 Punkte kommen.
 #[tauri::command]
 pub fn add_polyline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if pts.len() >= 2 {
         s.add_shape(Geo::Polyline { pts, closed });
     }
@@ -484,7 +484,7 @@ pub fn shape_catalog() -> Vec<ShapeInfo> {
 /// Bezeichner werden ignoriert (Zustand bleibt unverändert).
 #[tauri::command]
 pub fn add_polygon(data: State<AppData>, shape: String, cx: f64, cy: f64, r: f64, rot: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if let Some(kind) = PolyShape::from_id(&shape) {
         let pts = kind.points(cx, cy, r, rot);
         if pts.len() >= 3 {

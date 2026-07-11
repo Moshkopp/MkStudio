@@ -50,14 +50,14 @@ pub struct PositionDto {
 /// Gibt die gesamte Laser-Registry ans Frontend (Dropdown + Settings-Liste).
 #[tauri::command]
 pub fn laser_list(data: State<AppData>) -> LaserRegistry {
-    data.lasers.lock().unwrap().clone()
+    data.lasers().clone()
 }
 
 /// Legt ein Profil an oder ersetzt ein bestehendes (gleiche ID). Ohne ID wird
 /// eine neue vergeben. Speichert und gibt die aktualisierte Registry zurück.
 #[tauri::command]
 pub fn laser_save(data: State<AppData>, mut profile: LaserProfile) -> Result<LaserRegistry, String> {
-    let mut lasers = data.lasers.lock().unwrap();
+    let mut lasers = data.lasers();
     if profile.id.is_empty() {
         let millis = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -75,7 +75,7 @@ pub fn laser_save(data: State<AppData>, mut profile: LaserProfile) -> Result<Las
 /// Löscht ein Profil, speichert und gibt die Registry zurück.
 #[tauri::command]
 pub fn laser_delete(data: State<AppData>, id: String) -> Result<LaserRegistry, String> {
-    let mut lasers = data.lasers.lock().unwrap();
+    let mut lasers = data.lasers();
     lasers.remove(&id);
     lasers.save()?;
     Ok(lasers.clone())
@@ -85,7 +85,7 @@ pub fn laser_delete(data: State<AppData>, id: String) -> Result<LaserRegistry, S
 /// zurück. Der Treiber wird beim nächsten Aktions-Aufruf passend neu gebaut.
 #[tauri::command]
 pub fn laser_set_active(data: State<AppData>, id: String) -> Result<LaserRegistry, String> {
-    let mut lasers = data.lasers.lock().unwrap();
+    let mut lasers = data.lasers();
     if !lasers.set_active(&id) {
         return Err("Unbekannter Laser.".into());
     }
@@ -111,7 +111,7 @@ pub fn laser_run_action(
 ) -> Result<String, String> {
     let job_action = action_from_key(&action)?;
     let (plan, layers) = {
-        let s = data.state.lock().unwrap();
+        let s = data.state();
         (plan_with_assets(&s.shapes, &s.layers), s.layers.clone())
     };
     let jp = params.to_params();
@@ -131,7 +131,7 @@ pub fn laser_run_action(
 #[tauri::command]
 pub fn laser_export(data: State<AppData>, params: JobParamsDto) -> Result<ExportDto, String> {
     let (plan, layers) = {
-        let s = data.state.lock().unwrap();
+        let s = data.state();
         (plan_with_assets(&s.shapes, &s.layers), s.layers.clone())
     };
     let jp = params.to_params();
@@ -185,7 +185,7 @@ pub fn laser_position(data: State<AppData>) -> Result<PositionDto, String> {
 /// Prüft, ob der aktive Laser erreichbar ist (nur Netz/Ruida-Ping).
 #[tauri::command]
 pub fn laser_ping(data: State<AppData>) -> bool {
-    let lasers = data.lasers.lock().unwrap();
+    let lasers = data.lasers();
     match lasers.active().map(|p| p.connection.clone()) {
         Some(Connection::Netz { ip, .. }) => luxifer_driver_ruida::RuidaTransport::ping(&ip),
         _ => false,
@@ -222,7 +222,7 @@ fn connect_active(
     driver: &mut Box<dyn MachineDriver + Send>,
     data: &State<AppData>,
 ) -> Result<(), String> {
-    let lasers = data.lasers.lock().unwrap();
+    let lasers = data.lasers();
     let profile = lasers.active().ok_or("Kein Laser aktiv.")?;
     let target = match &profile.connection {
         Connection::Netz { ip, .. } => ip.clone(),

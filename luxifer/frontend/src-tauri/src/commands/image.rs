@@ -18,7 +18,7 @@ use crate::shared::{base64_encode, scene_with, AppData, Scene};
 pub fn import_image_file(data: State<AppData>, bytes: Vec<u8>, name: String) -> Result<Scene, String> {
     let meta = import_image(&assets_dir(), &bytes, &name).map_err(|e| e.to_string())?;
 
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     // px → mm bei 96 DPI.
     const PX_TO_MM: f64 = 25.4 / 96.0;
     let mut w = meta.width as f64 * PX_TO_MM;
@@ -51,7 +51,7 @@ pub fn image_render(asset: String, params: ImageParams, invert: bool) -> Option<
 /// Shape-Index; nicht-Bild-Shapes werden ignoriert.
 #[tauri::command]
 pub fn set_image_params(data: State<AppData>, index: usize, params: ImageParams) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if let Some(shape) = s.shapes.get_mut(index) {
         if let Geo::Image { params: p, .. } = &mut shape.geo {
             *p = params;

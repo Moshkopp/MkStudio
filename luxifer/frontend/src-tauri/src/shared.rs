@@ -49,21 +49,46 @@ pub(crate) struct AppData {
     pub(crate) active: Mutex<ActiveDriver>,
 }
 
+/// Sperrt einen Mutex und HOLT den Guard auch bei Vergiftung zurück. Ein Panic,
+/// während der Lock gehalten wurde, vergiftet ihn sonst dauerhaft: jedes weitere
+/// `lock().unwrap()` panickt → die ganze App stirbt an EINEM fehlerhaften Command.
+/// `into_inner()` gibt den Guard trotz Vergiftung her; der Zustand kann leicht
+/// inkonsistent sein, aber die App bleibt bedienbar (Undo/Neuladen möglich).
+fn lock_recover<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    m.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
+}
+
 impl AppData {
+    /// Der Editor-Zustand (vergiftungssicher gesperrt). Ersetzt
+    /// `data.state.lock().unwrap()` in allen Commands.
+    pub(crate) fn state(&self) -> std::sync::MutexGuard<'_, AppState> {
+        lock_recover(&self.state)
+    }
+
+    /// Der Projektkontext (vergiftungssicher gesperrt).
+    pub(crate) fn current(&self) -> std::sync::MutexGuard<'_, CurrentProject> {
+        lock_recover(&self.current)
+    }
+
+    /// Die Laser-Registry (vergiftungssicher gesperrt).
+    pub(crate) fn lasers(&self) -> std::sync::MutexGuard<'_, LaserRegistry> {
+        lock_recover(&self.lasers)
+    }
+
     /// Stellt sicher, dass der aktive Treiber zum aktuell aktiven Profil passt,
     /// und ruft `f` damit auf. Fehlt ein aktives Profil → Fehlertext.
     pub(crate) fn with_active_driver<T>(
         &self,
         f: impl FnOnce(&mut Box<dyn MachineDriver + Send>) -> Result<T, String>,
     ) -> Result<T, String> {
-        let lasers = self.lasers.lock().unwrap();
+        let lasers = self.lasers();
         let profile = lasers
             .active()
             .ok_or_else(|| "Kein Laser aktiv — bitte in den Einstellungen anlegen.".to_string())?
             .clone();
         drop(lasers);
 
-        let mut active = self.active.lock().unwrap();
+        let mut active = lock_recover(&self.active);
         // Treiber neu bauen, wenn Profil gewechselt hat oder noch keiner da ist.
         if active.id.as_deref() != Some(profile.id.as_str()) || active.driver.is_none() {
             active.driver = Some(driver_for(&profile));
@@ -195,14 +220,14 @@ impl PreviewDto {
 
 /// Sperrt beide Zustände und baut die Scene (der übliche Rückgabewert).
 pub(crate) fn scene(data: &State<AppData>) -> Scene {
-    let s = data.state.lock().unwrap();
-    let cur = data.current.lock().unwrap();
+    let s = data.state();
+    let cur = data.current();
     Scene::build(&s, &cur)
 }
 
 /// Baut die Scene aus einem bereits gelockten AppState + dem Projektkontext.
 pub(crate) fn scene_with(s: &AppState, data: &State<AppData>) -> Scene {
-    let cur = data.current.lock().unwrap();
+    let cur = data.current();
     Scene::build(s, &cur)
 }
 

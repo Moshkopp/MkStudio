@@ -8,14 +8,14 @@ use crate::shared::{scene_with, AppData, Scene};
 
 #[tauri::command]
 pub fn activate_color(data: State<AppData>, color: [u8; 3]) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.activate_color(color);
     scene_with(&s, &data)
 }
 
 #[tauri::command]
 pub fn select_at(data: State<AppData>, x: f64, y: f64, tol: f64, additive: bool) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     match s.hit_test(x, y, tol) {
         Some(idx) => {
             if additive {
@@ -43,7 +43,7 @@ pub fn select_at(data: State<AppData>, x: f64, y: f64, tol: f64, additive: bool)
 /// Marquee-Auswahl: alle Shapes, deren BBox vollständig im Rechteck liegt.
 #[tauri::command]
 pub fn select_rect(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.select_in_rect(x1, y1, x2, y2);
     s.expand_selection_to_groups();
     scene_with(&s, &data)
@@ -52,7 +52,7 @@ pub fn select_rect(data: State<AppData>, x1: f64, y1: f64, x2: f64, y2: f64) -> 
 /// Gruppiert die Auswahl (Shapes verhalten sich danach als Einheit).
 #[tauri::command]
 pub fn group_op(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.group_selected();
     scene_with(&s, &data)
 }
@@ -60,7 +60,7 @@ pub fn group_op(data: State<AppData>) -> Scene {
 /// Löst die Gruppierung der Auswahl.
 #[tauri::command]
 pub fn ungroup_op(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.ungroup_selected();
     scene_with(&s, &data)
 }
@@ -68,7 +68,7 @@ pub fn ungroup_op(data: State<AppData>) -> Scene {
 /// Verschiebt die Auswahl um ein Gesamt-Delta (ein Undo-Punkt pro Geste).
 #[tauri::command]
 pub fn move_selected(data: State<AppData>, dx: f64, dy: f64) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if dx != 0.0 || dy != 0.0 {
         s.push_undo();
         s.translate_selected(dx, dy);
@@ -91,7 +91,7 @@ pub fn scale_selected(
     th: f64,
 ) -> Scene {
     use luxifer_core::BBox;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.push_undo();
     s.scale_selection_to(BBox::new(sx, sy, sw, sh), BBox::new(tx, ty, tw, th));
     scene_with(&s, &data)
@@ -100,7 +100,7 @@ pub fn scale_selected(
 #[tauri::command]
 pub fn align(data: State<AppData>, kind: String) -> Scene {
     use luxifer_core::Align;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let k = match kind.as_str() {
         "left" => Align::Left,
         "hcenter" => Align::HCenter,
@@ -118,7 +118,7 @@ pub fn align(data: State<AppData>, kind: String) -> Scene {
 #[tauri::command]
 pub fn distribute(data: State<AppData>, kind: String) -> Scene {
     use luxifer_core::Distribute;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let k = match kind.as_str() {
         "h" => Distribute::Horizontal,
         "v" => Distribute::Vertical,
@@ -137,7 +137,7 @@ pub fn distribute(data: State<AppData>, kind: String) -> Scene {
 #[tauri::command]
 pub fn mirror(data: State<AppData>, axis: String) -> Scene {
     use luxifer_core::Axis;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     let a = match axis.as_str() {
         "h" => Axis::Vertical,
         "v" => Axis::Horizontal,
@@ -149,14 +149,14 @@ pub fn mirror(data: State<AppData>, axis: String) -> Scene {
 
 #[tauri::command]
 pub fn clear_selection(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.selected.clear();
     scene_with(&s, &data)
 }
 
 #[tauri::command]
 pub fn delete_selected(data: State<AppData>) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.delete_selected();
     scene_with(&s, &data)
 }
@@ -185,7 +185,7 @@ pub fn default_bidirectional() -> bool {
 #[tauri::command]
 pub fn set_layer_params(data: State<AppData>, index: usize, p: LayerParams) -> Scene {
     use luxifer_core::LayerMode;
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if index < s.layers.len() {
         s.push_undo();
         let l = &mut s.layers[index];
@@ -211,7 +211,7 @@ pub fn set_layer_params(data: State<AppData>, index: usize, p: LayerParams) -> S
 /// Schalter eines Layers umschalten (Anzeige, Brennen, Luft, Sperre).
 #[tauri::command]
 pub fn toggle_layer(data: State<AppData>, index: usize, field: String) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     if let Some(l) = s.layers.get_mut(index) {
         match field.as_str() {
             "visible" => l.visible = !l.visible,          // Objekte anzeigen
@@ -229,7 +229,7 @@ pub fn toggle_layer(data: State<AppData>, index: usize, field: String) -> Scene 
 /// Undo-Punkt entsteht nur bei tatsächlicher Bewegung.
 #[tauri::command]
 pub fn move_layer(data: State<AppData>, from: usize, to: usize) -> Scene {
-    let mut s = data.state.lock().unwrap();
+    let mut s = data.state();
     s.move_layer(from, to);
     scene_with(&s, &data)
 }
