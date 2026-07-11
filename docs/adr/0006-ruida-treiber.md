@@ -227,13 +227,16 @@ aufschlagen:
   Raster-Gating daraus ab (nächster Punkt). Kein zweites `mode`-Feld — es gäbe
   sonst zwei zu synchronisierende Wahrheiten. `Raster`/`Image` werden erst mit
   dem Bild-Job eigene `LayerWork`-Varianten.
-- **`passes` ist Ausführungs-Ebene, KEIN Compiler-Input.** In der Referenz trägt
-  der Job-Layer `passes` **nicht**; die Kompilierung liefert `passes` getrennt
-  (`passes_by_index`). Beim Ruida-Senden fährt der Controller den kompilierten
-  Job schlicht n-mal (bzw. nutzt es aktuell nur die Zeitschätzung). Konsequenz:
-  Der Treiber **kompiliert die Geometrie einmal** und wiederholt sie auf
-  Job-Ebene (`n × senden/fahren`) — er baut sie **nicht** n-fach in die Bytes.
-  So bleibt `passes` geräteneutral und der Compiler frei davon.
+- **`passes` wird byte-transparent in die Geometrie kompiliert.** Der ursprüngliche
+  Plan (passes rein auf Ausführungs-Ebene, Job n-mal senden) wurde nie umgesetzt:
+  `send_job` kennt `passes` nicht und fuhr den Job immer nur einmal — egal welcher
+  Wert eingestellt war. Die verifizierte Referenz (ThorBurn, `ruida_compiler/
+  geometry.rs`) macht es richtig: der Settings-Block steht **einmal**, die
+  Fahrwege dahinter werden **n-mal** wiederholt (Schleife `for _ in 0..passes`
+  um Cut/Fill/Raster). Der kompilierte Job ist damit bei mehr Passes länger;
+  der Controller fährt die Kontur tatsächlich mehrfach. `passes` bleibt trotzdem
+  geräteneutral im `JobLayer` — jeder Treiber setzt es auf seine Art um (GRBL
+  wiederholt den G-Code, Ruida die Byte-Geometrie).
 - **Raster-Gating ist Ruida-Sache, gesteuert vom `LayerMode`.** Fill/Image
   brauchen `CA 01 01` (Laser feuert nur bei X-Fahrt), Cut `CA 01 00`. Die
   Umschaltung leitet der Treiber aus `LayerWork`/`mode` ab — der Plan sagt nur
@@ -257,9 +260,11 @@ aufschlagen:
    oder `protocol`.
 6. Byte-Encoding und Job-Aufbau werden **gegen die verifizierten Referenz-
    Sequenzen getestet**, nicht „auf gut Glück" geschrieben.
-7. **`passes` wird nicht in die Geometrie kompiliert.** Wiederholung ist
-   Ausführungs-Ebene (Job n-mal fahren), nicht n-fache Bytes. Der Compiler ist
-   davon frei.
+7. **`passes` wird n-fach in die Geometrie kompiliert.** Der Settings-Block je
+   Layer steht einmal, die Fahrwege dahinter n-mal (`for _ in 0..passes`). Nur so
+   fährt der Controller die Kontur mehrfach — ein einzelner Sende-Vorgang kennt
+   `passes` nicht. `passes` bleibt geräteneutral im Plan; jeder Treiber setzt die
+   Wiederholung selbst um.
 
 ## Konsequenzen
 

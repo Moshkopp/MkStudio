@@ -135,22 +135,27 @@ impl RuidaDriver {
             }
             write_settings_block(&mut j, jl, idx, k == 0);
 
-            // Geometrie wird EINMAL kompiliert. `passes` (Wiederholungen) ist
-            // Ausführungs-Ebene, nicht Byte-Ebene — der Job wird beim Senden
-            // n-mal gefahren, nicht n-fach in die Bytes gebrannt (ADR 0006 §7).
+            // `passes` (Wiederholungen) wird byte-transparent in die Geometrie
+            // gebrannt: der Settings-Block steht einmal, die Fahrwege dahinter
+            // werden n-mal wiederholt. Nur so fährt der Controller die Kontur
+            // tatsächlich mehrfach — ein einzelner Sende-Vorgang kennt `passes`
+            // nicht (Symptom vorher: egal welcher Wert, immer nur 1 Durchlauf).
+            let passes = jl.passes.max(1);
             match &jl.work {
                 LayerWork::Cut { paths } => {
-                    for path in paths {
-                        if path.points.is_empty() {
-                            continue;
-                        }
-                        let (x0, y0) = path.points[0];
-                        j.extend(cmd_move_abs(mm_to_um(x0) + ox, mm_to_um(y0) + oy));
-                        for &(x, y) in &path.points[1..] {
-                            j.extend(cmd_cut_abs(mm_to_um(x) + ox, mm_to_um(y) + oy));
-                        }
-                        if path.closed {
-                            j.extend(cmd_cut_abs(mm_to_um(x0) + ox, mm_to_um(y0) + oy));
+                    for _ in 0..passes {
+                        for path in paths {
+                            if path.points.is_empty() {
+                                continue;
+                            }
+                            let (x0, y0) = path.points[0];
+                            j.extend(cmd_move_abs(mm_to_um(x0) + ox, mm_to_um(y0) + oy));
+                            for &(x, y) in &path.points[1..] {
+                                j.extend(cmd_cut_abs(mm_to_um(x) + ox, mm_to_um(y) + oy));
+                            }
+                            if path.closed {
+                                j.extend(cmd_cut_abs(mm_to_um(x0) + ox, mm_to_um(y0) + oy));
+                            }
                         }
                     }
                 }
@@ -158,7 +163,9 @@ impl RuidaDriver {
                 // derselbe Boustrophedon-Pfad, nur unterschiedliche Herkunft der
                 // An-Strecken (Scanline-Segmente bzw. Bild-Runs).
                 LayerWork::Fill { .. } | LayerWork::Raster { .. } => {
-                    self.compile_scan(&mut j, jl, offset)
+                    for _ in 0..passes {
+                        self.compile_scan(&mut j, jl, offset);
+                    }
                 }
             }
         }
@@ -677,9 +684,10 @@ mod tests {
     }
 
     #[test]
-    fn passes_veraendern_die_geometrie_nicht() {
-        // passes ist Ausführungs-Ebene (ADR 0006 §7): der kompilierte Job ist
-        // bei 1 und 3 Durchläufen byte-identisch — nicht n-fach eingebrannt.
+    fn passes_wiederholen_die_geometrie() {
+        // passes wird byte-transparent in die Geometrie gebrannt (ADR 0006 §7):
+        // 3 Durchläufe erzeugen einen längeren Job als 1 — die Kontur steckt
+        // n-fach in den Bytes, der Controller fährt sie so tatsächlich mehrfach.
         let mut st = AppState::new();
         st.add_shape(Geo::Rect {
             x: 1.0,
@@ -692,7 +700,10 @@ mod tests {
         let plan3 = JobPlan::from_shapes(&st.shapes, &st.layers);
         let job1 = RuidaDriver::default().build_job(&plan1);
         let job3 = RuidaDriver::default().build_job(&plan3);
-        assert_eq!(job1, job3, "passes darf die Bytes nicht verändern");
+        assert!(
+            job3.len() > job1.len(),
+            "3 Passes müssen mehr Bytes ergeben als 1"
+        );
     }
 
     #[test]
