@@ -354,6 +354,13 @@
     });
   }
 
+  // Während einer Pointer-Geste synchron zeichnen (kein rAF-Hop). Seit der
+  // WebGL-Umstellung ist ein Redraw billig, ein eingeplanter rAF wird entwertet.
+  function drawSync() {
+    if (rafId) { cancelAnimationFrame(rafId); rafId = 0; }
+    renderNow();
+  }
+
   function renderNow() {
     if (!canvasEl) return;
     renderGeo();      // untere WebGL-Ebene: Konturen, Grid, Bett, Bilder
@@ -1183,7 +1190,13 @@
   }
 
   function onPointerMove(ev: PointerEvent) {
-    const [px, py] = localXY(ev);
+    // Bei schneller Bewegung fasst WebKitGTK mehrere Bewegungen zu EINEM Event
+    // zusammen (Coalescing). `ev` trägt dann eine ältere Position als der Cursor
+    // real hat → die Form "springt hinterher". getCoalescedEvents liefert den
+    // gepufferten Verlauf; die letzte Position davon ist die aktuellste.
+    const co = ev.getCoalescedEvents?.();
+    const latest = co && co.length ? co[co.length - 1] : ev;
+    const [px, py] = localXY(latest);
     const [mx, my] = toMm(px, py);
     // Bézier-Feder: Ziehen setzt symmetrische Tangenten am eben gesetzten Knoten.
     if (tool === "bezier" && bez) {
@@ -1203,14 +1216,14 @@
       } else {
         bez.cursor = [mx, my]; // Gummiband
       }
-      draw();
+      drawSync();
       return;
     }
     // Polylinien-Gummiband: Cursor verfolgen, auch ohne aktiven Drag.
     if ((tool === "polyline" || tool === "spline") && polyPts.length > 0) {
       polyCursor = [mx, my];
       polyNearStart = nearFirstPoint(px, py);
-      draw();
+      drawSync();
     }
     if (!drag) return;
     if (drag.kind === "pan") {
@@ -1220,7 +1233,6 @@
     } else if (drag.kind === "bridge") {
       drag.cx = mx;
       drag.cy = my;
-      draw();
     } else if (drag.kind === "node") {
       ondragnode?.(drag.shape, drag.node, drag.part, mx, my, !drag.began);
       drag.began = true;
@@ -1233,7 +1245,8 @@
       const dy = my - (drag.start[1] + hyOffset(drag.handle, drag.start));
       drag = { ...drag, cur: resizeBox(drag.start, drag.handle, dx, dy) };
     }
-    draw();
+    // Während der Geste synchron zeichnen — kein Frame-Versatz ("Cursor klebt").
+    drawSync();
   }
 
   // Referenz-Kante des Handles in der Startbox (für konsistentes Delta).
