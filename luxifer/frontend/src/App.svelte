@@ -910,6 +910,7 @@
         registry={laserReg}
         actions={laserActions}
         connected={laserConnected}
+        hasJob={(scene?.shapes.length ?? 0) > 0}
         onselect={selectLaser}
         onaction={runLaserAction}
         onexport={exportLaser}
