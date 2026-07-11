@@ -86,7 +86,11 @@ pub fn save_project(
 /// Hält den aktuellen Stand als **neue Version** fest (Shift+Strg+S). Verlangt
 /// ein bereits gespeichertes (benanntes) Projekt.
 #[tauri::command]
-pub fn save_version(data: State<AppData>, note: String, thumb_png: Vec<u8>) -> Result<Scene, String> {
+pub fn save_version(
+    data: State<AppData>,
+    note: String,
+    thumb_png: Vec<u8>,
+) -> Result<Scene, String> {
     let dir = projects_dir();
     let mut s = data.state();
     let mut cur = data.current();
@@ -126,7 +130,11 @@ pub fn open_project(data: State<AppData>, name: String) -> Result<Scene, String>
 /// und danach mit Strg+S bearbeitet, verzweigt der Core beim Speichern
 /// automatisch in eine neue Version (kein Überschreiben der alten).
 #[tauri::command]
-pub fn open_version(data: State<AppData>, name: String, version_id: String) -> Result<Scene, String> {
+pub fn open_version(
+    data: State<AppData>,
+    name: String,
+    version_id: String,
+) -> Result<Scene, String> {
     let dir = projects_dir();
     let snap = ProjectFile::load_version(&dir, &name, &version_id)?;
     // Projektdatei laden, nur den Zeiger auf die aktuelle Version umsetzen.
@@ -159,7 +167,11 @@ pub fn open_version(data: State<AppData>, name: String, version_id: String) -> R
 /// geschützt (Core lehnt ab). War es die aktuelle Version, wird die vorherige
 /// zur aktuellen und ihr Stand in den Canvas geladen.
 #[tauri::command]
-pub fn delete_version(data: State<AppData>, name: String, version_id: String) -> Result<Scene, String> {
+pub fn delete_version(
+    data: State<AppData>,
+    name: String,
+    version_id: String,
+) -> Result<Scene, String> {
     let dir = projects_dir();
     let mut cur = data.current();
     // Auf dem offenen Projekt arbeiten, falls es dasselbe ist; sonst frisch laden.
@@ -275,7 +287,11 @@ pub fn project_delete(data: State<AppData>, name: String) -> Result<(), String> 
 /// Benennt ein Projekt um (Identität/`id` bleibt). Aktualisiert den offenen
 /// Projektkontext, falls es das offene Projekt war.
 #[tauri::command]
-pub fn project_rename(data: State<AppData>, old_name: String, new_name: String) -> Result<(), String> {
+pub fn project_rename(
+    data: State<AppData>,
+    old_name: String,
+    new_name: String,
+) -> Result<(), String> {
     let dir = projects_dir();
     rename_project(&dir, &old_name, &new_name)?;
     let mut cur = data.current();

@@ -2,8 +2,8 @@
 //! zusammenhängende Aufgabe (Laser, Formen, Projekt …). Die Commands ziehen den
 //! geteilten Zustand aus `crate::shared`.
 
-pub mod laser;
-pub mod project;
 pub mod edit;
 pub mod image;
+pub mod laser;
+pub mod project;
 pub mod shapes;

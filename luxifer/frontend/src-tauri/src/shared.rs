@@ -7,7 +7,7 @@ use std::sync::Mutex;
 
 use luxifer_core::preview::{JobPreview, MoveKind};
 use luxifer_core::{
-    assets_dir, AppState, DriverKind, JobPlan, Layer, LaserProfile, LaserRegistry, MachineDriver,
+    assets_dir, AppState, DriverKind, JobPlan, LaserProfile, LaserRegistry, Layer, MachineDriver,
     ProjectFile, Shape,
 };
 use serde::Serialize;

@@ -56,7 +56,10 @@ pub fn laser_list(data: State<AppData>) -> LaserRegistry {
 /// Legt ein Profil an oder ersetzt ein bestehendes (gleiche ID). Ohne ID wird
 /// eine neue vergeben. Speichert und gibt die aktualisierte Registry zurück.
 #[tauri::command]
-pub fn laser_save(data: State<AppData>, mut profile: LaserProfile) -> Result<LaserRegistry, String> {
+pub fn laser_save(
+    data: State<AppData>,
+    mut profile: LaserProfile,
+) -> Result<LaserRegistry, String> {
     let mut lasers = data.lasers();
     if profile.id.is_empty() {
         let millis = std::time::SystemTime::now()

@@ -15,7 +15,11 @@ use crate::shared::{base64_encode, scene_with, AppData, Scene};
 /// 80 % der Bettgröße (ein 4K-Bild soll nicht riesig platziert werden), und wird
 /// mittig aufs Bett gesetzt. Seitenverhältnis bleibt erhalten.
 #[tauri::command]
-pub fn import_image_file(data: State<AppData>, bytes: Vec<u8>, name: String) -> Result<Scene, String> {
+pub fn import_image_file(
+    data: State<AppData>,
+    bytes: Vec<u8>,
+    name: String,
+) -> Result<Scene, String> {
     let meta = import_image(&assets_dir(), &bytes, &name).map_err(|e| e.to_string())?;
 
     let mut s = data.state();

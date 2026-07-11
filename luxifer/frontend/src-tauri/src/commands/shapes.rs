@@ -11,10 +11,13 @@ use crate::shared::{scene_with, AppData, Scene};
 /// Importiert eine Vektordatei (SVG/DXF): Konturen als Polylinien auf dem
 /// aktiven Layer (ein Undo-Punkt). Die Endung des Dateinamens entscheidet.
 #[tauri::command]
-pub fn import_vector_file(data: State<AppData>, bytes: Vec<u8>, name: String) -> Result<Scene, String> {
+pub fn import_vector_file(
+    data: State<AppData>,
+    bytes: Vec<u8>,
+    name: String,
+) -> Result<Scene, String> {
     let ext = name.rsplit('.').next().unwrap_or("");
-    let contours =
-        luxifer_core::import::import_vector(&bytes, ext).map_err(|e| e.to_string())?;
+    let contours = luxifer_core::import::import_vector(&bytes, ext).map_err(|e| e.to_string())?;
     let mut s = data.state();
     s.add_polylines(contours);
     Ok(scene_with(&s, &data))
@@ -103,7 +106,9 @@ pub fn list_fonts() -> Vec<FontInfo> {
     for dir in dirs {
         let mut stack = vec![std::path::PathBuf::from(dir)];
         while let Some(d) = stack.pop() {
-            let Ok(rd) = std::fs::read_dir(&d) else { continue };
+            let Ok(rd) = std::fs::read_dir(&d) else {
+                continue;
+            };
             for e in rd.flatten() {
                 let p = e.path();
                 if p.is_dir() {
@@ -146,7 +151,12 @@ pub fn add_text(
     let (ox, oy) = (s.bed_w_mm * 0.1, s.bed_h_mm * 0.1);
     let placed: Vec<(Vec<(f64, f64)>, bool)> = contours
         .into_iter()
-        .map(|(c, closed)| (c.into_iter().map(|(x, y)| (x + ox, y + oy)).collect(), closed))
+        .map(|(c, closed)| {
+            (
+                c.into_iter().map(|(x, y)| (x + ox, y + oy)).collect(),
+                closed,
+            )
+        })
         .collect();
     // Als Text-Block: eine Gruppe + Quelldaten fürs spätere Editieren.
     s.add_text_block(
@@ -471,7 +481,6 @@ pub fn add_polyline(data: State<AppData>, pts: Vec<(f64, f64)>, closed: bool) ->
     scene_with(&s, &data)
 }
 
-
 /// Katalog der parametrischen Formen für die Galerie im Werkzeug-Panel.
 /// Datengetrieben: eine neue Form im Core erscheint hier automatisch.
 #[tauri::command]
@@ -483,7 +492,14 @@ pub fn shape_catalog() -> Vec<ShapeInfo> {
 /// `shape` = stabiler Bezeichner aus dem Katalog (z. B. "hex"); unbekannte
 /// Bezeichner werden ignoriert (Zustand bleibt unverändert).
 #[tauri::command]
-pub fn add_polygon(data: State<AppData>, shape: String, cx: f64, cy: f64, r: f64, rot: f64) -> Scene {
+pub fn add_polygon(
+    data: State<AppData>,
+    shape: String,
+    cx: f64,
+    cy: f64,
+    r: f64,
+    rot: f64,
+) -> Scene {
     let mut s = data.state();
     if let Some(kind) = PolyShape::from_id(&shape) {
         let pts = kind.points(cx, cy, r, rot);
