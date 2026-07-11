@@ -14,8 +14,9 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::datetime::now_iso8601;
 use crate::geometry::{ImageMode, ImageParams};
-use crate::project::{data_root, now_iso8601};
+use crate::project::data_root;
 
 /// Unterordner des Datenverzeichnisses für den Asset-Store.
 pub const ASSETS_DIR: &str = "Assets";

@@ -15,6 +15,7 @@
 pub mod arrange;
 pub mod assets;
 pub mod bezier;
+pub mod datetime;
 pub mod dither;
 pub mod geo_ops;
 pub mod geometry;
