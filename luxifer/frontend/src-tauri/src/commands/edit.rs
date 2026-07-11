@@ -97,6 +97,19 @@ pub fn scale_selected(
     scene_with(&s, &data)
 }
 
+/// Dreht die Auswahl um `degrees` (Grad) um den Mittelpunkt der Gruppen-Box.
+/// Die Vorschau während der Geste macht das Frontend (Overlay + GPU-Transform);
+/// hier kommt EIN Aufruf am Gesten-Ende mit dem Gesamtwinkel → ein Undo-Punkt.
+#[tauri::command]
+pub fn rotate_selected(data: State<AppData>, degrees: f64) -> Scene {
+    let mut s = data.state();
+    if degrees != 0.0 {
+        s.push_undo();
+        s.rotate_selection(degrees);
+    }
+    scene_with(&s, &data)
+}
+
 #[tauri::command]
 pub fn align(data: State<AppData>, kind: String) -> Scene {
     use luxifer_core::Align;
@@ -129,7 +142,6 @@ pub fn distribute(data: State<AppData>, kind: String) -> Scene {
     s.distribute_selection(k);
     scene_with(&s, &data)
 }
-
 
 /// Spiegelt die Auswahl an der Mittelachse ihrer gemeinsamen BBox.
 /// `axis`: "h" = horizontal spiegeln (links↔rechts, vertikale Achse),

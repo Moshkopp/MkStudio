@@ -205,6 +205,9 @@
   ) {
     scene = await core.scaleSelected(start, target);
   }
+  async function onrotate(degrees: number) {
+    scene = await core.rotateSelected(degrees);
+  }
 
   // Datei importieren: Bilder (ADR 0004) gehen in den Asset-Store, Vektor-
   // Dateien (SVG/DXF) werden zu Polylinien auf dem aktiven Layer. Die Endung
@@ -717,6 +720,7 @@
       {onselectrect}
       {onmove}
       {onscale}
+      {onrotate}
       laserHead={laserHead}
       laserOrigin={laserOrigin}
       oneditimage={(i) => (editImage = i)}

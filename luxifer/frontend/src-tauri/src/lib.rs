@@ -4,23 +4,19 @@
 use std::sync::Mutex;
 
 use luxifer_core::preview::JobPreview;
-use luxifer_core::{
-    AppState, LaserRegistry, UiSettings,
-};
+use luxifer_core::{AppState, LaserRegistry, UiSettings};
 use tauri::{Manager, State};
 
 mod commands;
 mod shared;
-use commands::laser::*;
-use commands::project::*;
 use commands::edit::*;
 use commands::image::*;
+use commands::laser::*;
+use commands::project::*;
 use commands::shapes::*;
 use shared::{
-    plan_with_assets, scene, scene_with,
-    ActiveDriver, AppData, CurrentProject, PreviewDto, Scene,
+    plan_with_assets, scene, scene_with, ActiveDriver, AppData, CurrentProject, PreviewDto, Scene,
 };
-
 
 #[tauri::command]
 fn get_scene(data: State<AppData>) -> Scene {
@@ -32,9 +28,6 @@ fn swatch_colors() -> Vec<[u8; 3]> {
     luxifer_core::SWATCH_COLORS.to_vec()
 }
 
-
-
-
 /// Leitet aus dem aktuellen Zustand die Laser-Vorschau ab (ADR 0005): die zu
 /// fahrenden Segmente in Ausführungsreihenfolge inkl. Verfahrwege. Reine
 /// Ableitung des `JobPlan` — kein Undo, keine Mutation.
@@ -45,7 +38,6 @@ fn job_preview(data: State<AppData>) -> PreviewDto {
     let preview = JobPreview::from_plan(&plan);
     PreviewDto::from_preview(&preview)
 }
-
 
 /// Lädt die GUI-Settings (Theming, Arbeitsplatz) — ADR 0002.
 /// Fehlt die Datei, kommt der Default zurück; die GUI startet immer.
@@ -62,8 +54,6 @@ fn save_ui_settings(mut settings: UiSettings) -> Result<UiSettings, String> {
     settings.save()?;
     Ok(settings)
 }
-
-
 
 #[tauri::command]
 fn undo(data: State<AppData>) -> Scene {
@@ -114,6 +104,7 @@ pub fn run() {
             ungroup_op,
             move_selected,
             scale_selected,
+            rotate_selected,
             align,
             distribute,
             mirror,

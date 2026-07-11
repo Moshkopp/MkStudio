@@ -347,6 +347,11 @@ export const scaleSelected = (
     tx: t[0], ty: t[1], tw: t[2], th: t[3],
   });
 
+// Dreht die Auswahl um `degrees` (Grad) um den Mittelpunkt der Gruppen-Box.
+// Ein Aufruf pro Geste (Gesamtwinkel) = ein Undo-Punkt.
+export const rotateSelected = (degrees: number) =>
+  invoke<Scene>("rotate_selected", { degrees });
+
 export type AlignKind = "left" | "hcenter" | "right" | "top" | "vcenter" | "bottom" | "center";
 export type DistributeKind = "h" | "v" | "space-h" | "space-v";
 export const align = (kind: AlignKind) => invoke<Scene>("align", { kind });

@@ -124,6 +124,33 @@ impl AppState {
         self.dirty = true;
     }
 
+    /// Dreht die Auswahl als starren Körper um `degrees` (Grad, im Uhrzeigersinn
+    /// bei y-nach-unten) um den Mittelpunkt der Gruppen-Box. Jede Form wandert
+    /// mit ihrem Geometrie-Zentrum auf dem Kreisbogen um den Pivot und dreht sich
+    /// zusätzlich um denselben Winkel um ihr eigenes Zentrum — so bleibt der
+    /// Block formtreu (wie ein gemeinsames Blatt gedreht). Bilder werden nicht
+    /// verdreht dargestellt, drehen aber wie alle anderen mit (Box + rotation).
+    /// (Aufrufer setzt bei Drag-Beginn einen Undo-Punkt.)
+    pub fn rotate_selection(&mut self, degrees: f64) {
+        if degrees == 0.0 {
+            return;
+        }
+        let Some(pivot) = self.selection_bbox().map(|b| b.center()) else {
+            return;
+        };
+        for &idx in &self.selected {
+            if let Some(s) = self.shapes.get_mut(idx) {
+                // Geometrie-Zentrum (ohne Eigen-Rotation) um den Pivot drehen und
+                // die Form dorthin verschieben; Eigen-Rotation um den Winkel erhöhen.
+                let (cx, cy) = s.geo.bbox().center();
+                let (nx, ny) = crate::geometry::rotate_point(cx, cy, pivot.0, pivot.1, degrees);
+                s.translate(nx - cx, ny - cy);
+                s.rotation = (s.rotation + degrees).rem_euclid(360.0);
+            }
+        }
+        self.dirty = true;
+    }
+
     /// Wählt alle Shapes, deren Bounding-Box vollständig im Rechteck liegt
     /// (Marquee). Überspringt unsichtbare/gesperrte Layer. Ersetzt die Auswahl.
     pub fn select_in_rect(&mut self, x1: f64, y1: f64, x2: f64, y2: f64) {
@@ -202,6 +229,53 @@ mod tests {
         let b = s.shapes[0].bbox();
         assert!((b.w - 200.0).abs() < 1e-9);
         assert!((b.h - 50.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn rotate_selection_dreht_um_gruppenzentrum() {
+        let mut s = AppState::new();
+        // Zwei Rechtecke nebeneinander; Gruppen-Zentrum liegt mittig dazwischen.
+        s.add_shape(Geo::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 10.0,
+            h: 10.0,
+        });
+        s.add_shape(Geo::Rect {
+            x: 30.0,
+            y: 0.0,
+            w: 10.0,
+            h: 10.0,
+        });
+        s.selected = vec![0, 1];
+        let before = s.selection_bbox().unwrap().center();
+        s.rotate_selection(90.0);
+        // Zentrum der Gruppe bleibt bei 90°-Drehung erhalten.
+        let after = s.selection_bbox().unwrap().center();
+        assert!((before.0 - after.0).abs() < 1e-6);
+        assert!((before.1 - after.1).abs() < 1e-6);
+        // Jede Form trägt jetzt die 90°-Eigenrotation.
+        assert!((s.shapes[0].rotation - 90.0).abs() < 1e-6);
+        assert!((s.shapes[1].rotation - 90.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn rotate_selection_einzelform_nur_eigenrotation() {
+        let mut s = AppState::new();
+        s.add_shape(Geo::Rect {
+            x: 0.0,
+            y: 0.0,
+            w: 20.0,
+            h: 10.0,
+        });
+        s.selected = vec![0];
+        let before = s.selection_bbox().unwrap().center();
+        s.rotate_selection(45.0);
+        let after = s.selection_bbox().unwrap().center();
+        // Einzelform dreht um ihr eigenes Zentrum → Zentrum unverändert.
+        assert!((before.0 - after.0).abs() < 1e-6);
+        assert!((before.1 - after.1).abs() < 1e-6);
+        assert!((s.shapes[0].rotation - 45.0).abs() < 1e-6);
     }
 
     #[test]
