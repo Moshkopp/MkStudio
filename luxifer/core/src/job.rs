@@ -113,32 +113,48 @@ impl JobPlan {
         for layer in &self.layers {
             match &layer.work {
                 LayerWork::Cut { paths } => {
-                    for path in paths { pts.extend(path.points.iter().copied()); }
+                    for path in paths {
+                        pts.extend(path.points.iter().copied());
+                    }
                 }
                 LayerWork::Fill { segments } => {
-                    for s in segments { pts.extend([(s.x0, s.y), (s.x1, s.y)]); }
+                    for s in segments {
+                        pts.extend([(s.x0, s.y), (s.x1, s.y)]);
+                    }
                 }
                 LayerWork::Raster { rows, .. } => {
                     for row in rows {
-                        for &(x0, x1) in &row.runs { pts.extend([(x0, row.y), (x1, row.y)]); }
+                        for &(x0, x1) in &row.runs {
+                            pts.extend([(x0, row.y), (x1, row.y)]);
+                        }
                     }
                 }
             }
         }
         pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
         pts.dedup();
-        if pts.len() <= 2 { return pts; }
+        if pts.len() <= 2 {
+            return pts;
+        }
         fn cross(o: Pt, a: Pt, b: Pt) -> f64 {
             (a.0 - o.0) * (b.1 - o.1) - (a.1 - o.1) * (b.0 - o.0)
         }
         let mut lower = Vec::new();
         for &p in &pts {
-            while lower.len() >= 2 && cross(lower[lower.len()-2], lower[lower.len()-1], p) <= 0.0 { lower.pop(); }
+            while lower.len() >= 2
+                && cross(lower[lower.len() - 2], lower[lower.len() - 1], p) <= 0.0
+            {
+                lower.pop();
+            }
             lower.push(p);
         }
         let mut upper = Vec::new();
         for &p in pts.iter().rev() {
-            while upper.len() >= 2 && cross(upper[upper.len()-2], upper[upper.len()-1], p) <= 0.0 { upper.pop(); }
+            while upper.len() >= 2
+                && cross(upper[upper.len() - 2], upper[upper.len() - 1], p) <= 0.0
+            {
+                upper.pop();
+            }
             upper.push(p);
         }
         lower.pop();
@@ -626,7 +642,12 @@ mod tests {
     #[test]
     fn konvexe_huelle_umschliesst_motiv() {
         let mut st = AppState::new();
-        st.add_shape(Geo::Rect { x: 2.0, y: 3.0, w: 8.0, h: 5.0 });
+        st.add_shape(Geo::Rect {
+            x: 2.0,
+            y: 3.0,
+            w: 8.0,
+            h: 5.0,
+        });
         let hull = JobPlan::from_shapes(&st.shapes, &st.layers).convex_hull();
         assert_eq!(hull.len(), 4);
         assert!(hull.contains(&(2.0, 3.0)));
