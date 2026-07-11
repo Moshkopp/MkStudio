@@ -17,12 +17,13 @@ Stand 11.07.2026 wurden die ersten kritischen Grundlagen bereits korrigiert:
 - Editierbare Text-Metadaten besitzen eine feste Transformationsregel: proportionale Skalierung aktualisiert `size_mm`; nichtproportionale Skalierung und Spiegelung entfernen die nicht mehr reproduzierbaren Textparameter und lassen sichere normale Konturen zurück.
 - Die beiden bestehenden Clippy-Warnungen im Pattern-Fill-Beispiel und im UI-Settings-Test sind behoben; das vollständige Clippy-Gate kann wieder als belastbare Prüfung für neue Änderungen dienen.
 - Der Bézier-Segment-Hit-Test liegt im Rust-Core. Das Frontend übergibt nur Weltposition und zoomabhängige Toleranz; Shape, Segment und Kurvenparameter `t` werden zentral und rotationsbewusst bestimmt.
+- Alle Tauri-Aufrufe laufen im Frontend durch eine gemeinsame Invoke-Grenze. Fehler werden als `EditorError` mit Code, Meldung, Command und optionalen Details normalisiert, zentral protokolliert und über einen gemeinsamen UI-Fehlerkanal angezeigt. App, Projektbrowser und Textdialog verwenden dieselbe lesbare Meldung.
 - Die zuvor offenen Änderungen sind in zwei getrennten Commits gesichert:
   - `ba52247 Stabilisiere Transformationen und Anordnen`
   - `97823ea Berücksichtige Rotation in Weltgrenzen`
 - Der geprüfte Stand umfasst 211 erfolgreiche Rust-Tests, einen fehlerfreien `svelte-check` und einen erfolgreichen Produktions-Build.
 
-Noch offen bleiben insbesondere die einheitliche Fehlerbehandlung und die Modulzerlegung.
+Als größerer Strukturpunkt bleibt insbesondere die Modulzerlegung offen.
 
 Bereits vorhandene Probleme
 1. Kritisch: Bézier-Knoten werden bei Transformationen nicht mitgeführt

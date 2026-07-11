@@ -77,7 +77,7 @@
     try {
       list = await core.projectList();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -125,7 +125,7 @@
       // Assets des Projekts laden (aus asset_refs).
       assets = await core.projectAssets(name);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -144,7 +144,7 @@
       await refresh();
       if (fName) await selectProject(fName);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -153,7 +153,7 @@
     try {
       await onopen(selected);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -167,7 +167,7 @@
       detail = null;
       await refresh();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -179,7 +179,7 @@
       // Detail neu laden, damit Liste + aktuelle Version stimmen.
       await selectProject(selected);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -192,7 +192,7 @@
       await refresh();
       await selectProject(neu);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -204,7 +204,7 @@
     try {
       await core.projectExport(selected, ziel);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 

@@ -1,6 +1,67 @@
 // Brücke zum Rust-Core über Tauri-Commands. Das Frontend hält KEINEN eigenen
 // Wahrheits-Zustand — es holt den Zustand hier und zeichnet ihn nur.
-import { invoke } from "@tauri-apps/api/core";
+import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+
+export interface EditorErrorData {
+  code: string;
+  message: string;
+  command?: string;
+  details?: string;
+}
+
+export class EditorError extends Error {
+  readonly code: string;
+  readonly command?: string;
+  readonly details?: string;
+
+  constructor(data: EditorErrorData) {
+    super(data.message);
+    this.name = "EditorError";
+    this.code = data.code;
+    this.command = data.command;
+    this.details = data.details;
+  }
+}
+
+type ErrorListener = (error: EditorError) => void;
+const errorListeners = new Set<ErrorListener>();
+
+/** Zentraler Fehlerkanal für UI-Shell und modale Unterkomponenten. */
+export function onCommandError(listener: ErrorListener): () => void {
+  errorListeners.add(listener);
+  return () => errorListeners.delete(listener);
+}
+
+export function normalizeError(error: unknown, command?: string): EditorError {
+  if (error instanceof EditorError) return error;
+  if (error instanceof Error) {
+    return new EditorError({ code: "command_failed", message: error.message, command, details: error.stack });
+  }
+  if (typeof error === "object" && error !== null) {
+    const data = error as Partial<EditorErrorData>;
+    return new EditorError({
+      code: typeof data.code === "string" ? data.code : "command_failed",
+      message: typeof data.message === "string" ? data.message : "Unbekannter Editorfehler",
+      command,
+      details: typeof data.details === "string" ? data.details : undefined,
+    });
+  }
+  return new EditorError({ code: "command_failed", message: String(error), command });
+}
+
+export function errorMessage(error: unknown): string {
+  return normalizeError(error).message;
+}
+
+async function invoke<T>(command: string, args?: Record<string, unknown>): Promise<T> {
+  try {
+    return await tauriInvoke<T>(command, args);
+  } catch (cause) {
+    const error = normalizeError(cause, command);
+    for (const listener of errorListeners) listener(error);
+    throw error;
+  }
+}
 
 // Bildverarbeitungs-Modus (ADR 0004).
 export type ImageMode =

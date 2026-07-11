@@ -2,7 +2,7 @@
   // Text-Werkzeug: Text + Font + Größe → Vektorpfade im Canvas (Text→Pfad).
   // Der Core erzeugt die Glyph-Konturen; hier nur Eingabe + Font-Auswahl.
   import { onMount } from "svelte";
-  import { listFonts, textPreview, uploadFont, type FontInfo } from "./core";
+  import { errorMessage, listFonts, textPreview, uploadFont, type FontInfo } from "./core";
 
   import type { TextMeta } from "./core";
 
@@ -111,7 +111,7 @@
       fontPath = path;
       error = "";
     } catch (e) {
-      error = `Font nicht installierbar: ${e}`;
+      error = `Font nicht installierbar: ${errorMessage(e)}`;
     }
   }
 </script>

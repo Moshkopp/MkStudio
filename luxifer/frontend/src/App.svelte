@@ -42,6 +42,15 @@
   // Versteckter Datei-Input fuer den Bild-Import (per Button ausgeloest).
   let fileInput = $state<HTMLInputElement | null>(null);
   let status = $state<string | null>(null);
+  let stopErrorListener: (() => void) | null = null;
+
+  // Alle Tauri-/Core-Fehler laufen durch denselben Kanal, auch wenn der Aufruf
+  // aus einer modalen Unterkomponente stammt.
+  stopErrorListener = core.onCommandError((e) => {
+    error = e.message;
+    console.error(`[${e.code}] ${e.command ?? "editor"}: ${e.message}`, e.details ?? "");
+  });
+  $effect(() => () => stopErrorListener?.());
 
   // --- Laser (ADR 0007) -----------------------------------------------------
   let laserReg = $state<core.LaserRegistry | null>(null);
@@ -88,7 +97,7 @@
       refreshConnection();
       setInterval(refreshConnection, 3000);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   load();
@@ -123,7 +132,7 @@
       settings = await core.saveUiSettings(next);
       applyTheme(settings.theme);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -186,7 +195,7 @@
           ? await core.importVectorFile(bytes, file.name)
           : await core.importImageFile(bytes, file.name);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -324,7 +333,7 @@
       scene = await core.patternFillOp(p, gapX, gapY, angle, size);
       geoTool = null;
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   let textOpen = $state(false);
@@ -369,7 +378,7 @@
       laserReg = await core.laserList();
       laserActions = await core.laserActions();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function selectLaser(id: string) {
@@ -377,7 +386,7 @@
       laserReg = await core.laserSetActive(id);
       laserActions = await core.laserActions();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function runLaserAction(action: string, params: core.JobParamsDto) {
@@ -385,7 +394,7 @@
       status = await core.laserRunAction(action, params);
       setTimeout(() => (status = null), 4000);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   // Job als Datei herunterladen (.rd bzw. .gcode) — kein natives Plugin nötig.
@@ -404,21 +413,21 @@
       status = `Exportiert: ${dto.filename} (${dto.bytes.length} Byte)`;
       setTimeout(() => (status = null), 4000);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function jogLaser(dx: number, dy: number, speed: number) {
     try {
       await core.laserJog(dx, dy, speed);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function homeLaser(speed: number) {
     try {
       await core.laserHome(speed);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   // Kopf- und Ursprungsposition lesen und als Marker im Canvas zeigen.
@@ -431,7 +440,7 @@
       status = `Kopf ${p.head[0].toFixed(1)}/${p.head[1].toFixed(1)} mm`;
       setTimeout(() => (status = null), 4000);
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   // Verbindungs-LED: periodisch pingen, solange ein Laser aktiv ist.
@@ -451,7 +460,7 @@
       laserReg = await core.laserSave(profile);
       laserActions = await core.laserActions();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function deleteLaser(id: string) {
@@ -459,7 +468,7 @@
       laserReg = await core.laserDelete(id);
       laserActions = await core.laserActions();
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -493,7 +502,7 @@
         );
         flash("Gespeichert ✓ · Shift+Strg+S legt eine Version an");
       } catch (e) {
-        error = String(e);
+        error = core.errorMessage(e);
       }
     } else {
       // Namenlos: Projekt-Reiter zum Benennen öffnen.
@@ -524,7 +533,7 @@
       scene = await core.saveVersion("", thumb);
       flash("Version festgehalten ✓");
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
 
@@ -543,7 +552,7 @@
       saveMode = false;
       activeTab = "Design";
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function doNew() {
@@ -552,7 +561,7 @@
       saveMode = false;
       activeTab = "Design";
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   async function openVersion(name: string, versionId: string) {
@@ -560,7 +569,7 @@
       scene = await core.openVersion(name, versionId);
       activeTab = "Design";
     } catch (e) {
-      error = String(e);
+      error = core.errorMessage(e);
     }
   }
   // Version löschen: der Core liefert die neue Scene zurück (bei gelöschter
@@ -657,7 +666,10 @@
 
 <main>
   {#if error}
-    <div class="error">Fehler: {error}</div>
+    <div class="error" role="alert">
+      <span>Fehler: {error}</span>
+      <button onclick={() => (error = null)} aria-label="Fehlermeldung schließen" title="Schließen">×</button>
+    </div>
   {/if}
 
   {#if scene && activeTab !== "Projekt" && activeTab !== "Preview"}
@@ -1177,6 +1189,20 @@
     padding: 6px 12px;
     border-radius: 8px;
     z-index: 90;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    border: 1px solid #e5645d55;
+    box-shadow: 0 6px 24px rgba(0, 0, 0, 0.3);
+  }
+  .error button {
+    border: 0;
+    background: transparent;
+    color: inherit;
+    padding: 0 2px;
+    font-size: 18px;
+    line-height: 1;
+    cursor: pointer;
   }
   .status {
     position: absolute;
