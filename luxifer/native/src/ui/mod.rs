@@ -174,7 +174,20 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
 
     dialogs::laser_settings_window(ctx, app);
     dialogs::text_dialog_window(ctx, app);
-    dialogs::layer_dialog_window(ctx, app);
+
+    // Layer-Dialog: der Entwurf wird als &mut gereicht, der Root behandelt das
+    // Ergebnis (Übernahme über die validierende Session bzw. Verwerfen).
+    if let Some(state) = app.layer_dialog.as_mut() {
+        match dialogs::layer_dialog_window(ctx, &mut state.params) {
+            dialogs::DialogOutcome::None => {}
+            dialogs::DialogOutcome::Commit => {
+                if app.commit_layer_dialog() {
+                    app.layer_dialog = None;
+                }
+            }
+            dialogs::DialogOutcome::Cancel => app.layer_dialog = None,
+        }
+    }
 }
 
 /// Leitet die reine Ebenen-Sicht für `layers_panel` aus der Session ab.

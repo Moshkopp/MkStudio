@@ -5,23 +5,24 @@
 //! zusätzlich erzwungen.
 
 use egui::RichText;
+use luxifer_application::LayerParams;
 
-use crate::app::App;
+use super::DialogOutcome;
 
-pub(in crate::ui) fn layer_dialog_window(ctx: &egui::Context, app: &mut App) {
+/// Zeichnet das Fenster auf `p` (den kurzlebigen Entwurf) und meldet, ob der
+/// Nutzer übernehmen/abbrechen will. Keine Mutation außerhalb des Entwurfs.
+pub(in crate::ui) fn layer_dialog_window(
+    ctx: &egui::Context,
+    p: &mut LayerParams,
+) -> DialogOutcome {
     use luxifer_core::LayerMode;
-    if app.layer_dialog.is_none() {
-        return;
-    }
-    let mut commit = false;
-    let mut close = false;
+    let mut outcome = DialogOutcome::None;
     egui::Window::new("Ebene bearbeiten")
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
         .show(ctx, |ui| {
             ui.set_min_width(340.0);
-            let p = &mut app.layer_dialog.as_mut().unwrap().params;
             let is_image = p.mode == LayerMode::Image;
 
             egui::Grid::new("layer_cfg")
@@ -113,18 +114,12 @@ pub(in crate::ui) fn layer_dialog_window(ctx: &egui::Context, app: &mut App) {
             ui.add_space(10.0);
             ui.horizontal(|ui| {
                 if ui.button("Speichern").clicked() {
-                    commit = true;
+                    outcome = DialogOutcome::Commit;
                 }
                 if ui.button("Abbrechen").clicked() {
-                    close = true;
+                    outcome = DialogOutcome::Cancel;
                 }
             });
         });
-
-    if commit && app.commit_layer_dialog() {
-        close = true;
-    }
-    if close {
-        app.layer_dialog = None;
-    }
+    outcome
 }
