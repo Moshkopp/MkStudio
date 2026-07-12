@@ -4,6 +4,7 @@
 
 mod app;
 mod camera;
+mod canvas;
 mod fonts;
 mod gpu;
 mod icons;
