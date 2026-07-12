@@ -22,6 +22,7 @@ use crate::ui::{
 };
 
 mod image;
+mod laser;
 mod project;
 mod text;
 
@@ -595,110 +596,6 @@ impl App {
         if let Some(c) = self.session.active_color() {
             self.accent = c;
         }
-    }
-
-    // ---- Laser-Aktionen (verdrahtet das Panel mit dem echten Treiber) --------
-
-    /// Die (ggf. nur selektierten) Shapes + Layer für einen Job.
-    fn laser_shapes(&self) -> (Vec<luxifer_core::Shape>, Vec<luxifer_core::Layer>) {
-        let shapes = if self.laser.selection_only {
-            self.session
-                .selected
-                .iter()
-                .filter_map(|&i| self.session.shapes.get(i).cloned())
-                .collect()
-        } else {
-            self.session.shapes.clone()
-        };
-        (shapes, self.session.layers.clone())
-    }
-
-    pub fn laser_select(&mut self, id: &str) {
-        self.laser_backend.set_active(id);
-        self.laser_msg.clear();
-    }
-
-    /// Führt eine Job-Aktion des aktiven Treibers aus.
-    pub fn laser_run(&mut self, action: luxifer_core::JobAction) {
-        let (shapes, layers) = self.laser_shapes();
-        let sm = self.laser.start_mode;
-        let anchor = self.laser.anchor;
-        match self
-            .laser_backend
-            .run_action(action, &shapes, &layers, sm, anchor)
-        {
-            Ok(msg) => self.laser_msg = msg,
-            Err(error) => self.app_error = Some(error),
-        }
-    }
-
-    /// Kompiliert den Job und speichert ihn über einen Datei-Dialog.
-    pub fn laser_export(&mut self) {
-        let ext = match self.laser_backend.active_profile().map(|p| p.kind) {
-            Some(luxifer_core::DriverKind::Ruida) => "rd",
-            _ => "gcode",
-        };
-        if let Some(path) = rfd::FileDialog::new()
-            .set_file_name(format!("job.{ext}"))
-            .save_file()
-        {
-            let (shapes, layers) = self.laser_shapes();
-            let sm = self.laser.start_mode;
-            let anchor = self.laser.anchor;
-            match self
-                .laser_backend
-                .export_to(&path, &shapes, &layers, sm, anchor)
-            {
-                Ok(()) => self.laser_msg = format!("Exportiert: {}", path.display()),
-                Err(error) => self.app_error = Some(error),
-            }
-        }
-    }
-
-    pub fn laser_jog(&mut self, dx: f64, dy: f64) {
-        let speed = self.laser.jog_speed;
-        if let Err(error) = self.laser_backend.jog(dx, dy, speed) {
-            self.app_error = Some(error);
-        }
-    }
-
-    pub fn laser_home(&mut self) {
-        let speed = self.laser.jog_speed;
-        if let Err(error) = self.laser_backend.home(speed) {
-            self.app_error = Some(error);
-        }
-    }
-
-    /// Öffnet den Einstellungen-Dialog: bestehendes Profil bearbeiten oder ein
-    /// neues (Default) anlegen.
-    pub fn open_laser_settings(&mut self, edit_active: bool) {
-        self.laser_settings = Some(if edit_active {
-            self.laser_backend
-                .active_profile()
-                .cloned()
-                .unwrap_or_default()
-        } else {
-            luxifer_core::LaserProfile::default()
-        });
-    }
-
-    pub fn save_laser_settings(&mut self) {
-        if let Some(profile) = self.laser_settings.take() {
-            let new = profile.id.is_empty();
-            self.laser_backend.save_profile(profile);
-            // Neu angelegtes Profil gleich aktivieren, wenn noch keins aktiv war.
-            if new && self.laser_backend.active_profile().is_none() {
-                if let Some(p) = self.laser_backend.registry.profiles.last() {
-                    let id = p.id.clone();
-                    self.laser_backend.set_active(&id);
-                }
-            }
-        }
-    }
-
-    pub fn delete_laser_profile(&mut self, id: &str) {
-        self.laser_backend.delete_profile(id);
-        self.laser_settings = None;
     }
 
     /// Ob nach dem letzten Frame sofort weiter gezeichnet werden soll
