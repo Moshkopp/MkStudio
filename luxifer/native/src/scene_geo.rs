@@ -176,9 +176,56 @@ pub fn handle_marker(cx: f32, cy: f32, hw: f32, color: [f32; 4]) -> Vec<Vertex> 
     v
 }
 
+/// Baut das Arbeitsbett: Rahmen + mm-Gitter (grob alle `major` mm kräftiger,
+/// fein alle `minor` mm dezent) + Nullpunkt-Kreuz. Gibt dem Canvas das Gefühl
+/// einer Werkbank statt leeren Graus.
+/// Gefülltes Rechteck (2 Dreiecke) mit side=0 (keine Verdickung) — für Flächen.
+pub fn fill_rect(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Vec<Vertex> {
+    let mk = |px: f32, py: f32| Vertex { pos: [px, py], dir: [1.0, 0.0], side: 0.0, color };
+    vec![
+        mk(x, y), mk(x + w, y), mk(x + w, y + h),
+        mk(x, y), mk(x + w, y + h), mk(x, y + h),
+    ]
+}
+
+pub fn bed_grid(w: f32, h: f32) -> Vec<Vertex> {
+    // Bett-Fläche zuunterst, etwas heller als der Fenster-Hintergrund.
+    let mut v = fill_rect(0.0, 0.0, w, h, [0.10, 0.11, 0.13, 1.0]);
+    let minor = 10.0_f32;
+    let major = 50.0_f32;
+    let fine = [1.0, 1.0, 1.0, 0.05];
+    let coarse = [1.0, 1.0, 1.0, 0.12];
+
+    // Vertikale Linien.
+    let mut x = 0.0;
+    while x <= w + 0.01 {
+        let is_major = (x % major).abs() < 0.01 || ((x % major) - major).abs() < 0.01;
+        push_seg(&mut v, [x, 0.0], [x, h], if is_major { coarse } else { fine });
+        x += minor;
+    }
+    // Horizontale Linien.
+    let mut y = 0.0;
+    while y <= h + 0.01 {
+        let is_major = (y % major).abs() < 0.01 || ((y % major) - major).abs() < 0.01;
+        push_seg(&mut v, [0.0, y], [w, y], if is_major { coarse } else { fine });
+        y += minor;
+    }
+    // Bett-Rahmen kräftiger.
+    for seg in rect_outline(0.0, 0.0, w, h, BED_COLOR) {
+        v.push(seg);
+    }
+    // Nullpunkt-Kreuz (links oben = Maschinen-0) in Akzentfarbe.
+    let o = 14.0;
+    push_seg(&mut v, [0.0, 0.0], [o, 0.0], ORIGIN_COLOR);
+    push_seg(&mut v, [0.0, 0.0], [0.0, o], ORIGIN_COLOR);
+    v
+}
+
 /// Farbwert für den Tisch-Rahmen (dezentes Grau).
-pub const BED_COLOR: [f32; 4] = [0.35, 0.38, 0.42, 1.0];
+pub const BED_COLOR: [f32; 4] = [0.42, 0.46, 0.52, 0.9];
 /// Auswahl-BBox-Rahmen (heller Akzentton).
 pub const SEL_BOX_COLOR: [f32; 4] = [0.4, 0.7, 1.0, 0.9];
 /// Transform-Handles (weiß).
 pub const HANDLE_COLOR: [f32; 4] = [0.95, 0.97, 1.0, 1.0];
+/// Nullpunkt-Kreuz (Akzentgrün).
+pub const ORIGIN_COLOR: [f32; 4] = [0.25, 0.72, 0.5, 1.0];

@@ -61,17 +61,30 @@ impl ApplicationHandler for Runner {
         }
         if matches!(event, WindowEvent::RedrawRequested) {
             app.render();
-            app.window.request_redraw();
+            // KEIN blindes request_redraw hier — sonst rennt die Schleife auf
+            // Vollgas. Neu gezeichnet wird nur bei Events (siehe unten) oder
+            // wenn egui selbst einen Repaint anfordert.
+            if app.egui_wants_repaint() {
+                app.window.request_redraw();
+            }
             return;
         }
-        app.window_event(&event);
+        // Jedes eingehende Fenster-Event kann etwas ändern → einmal neu zeichnen.
+        let changed = app.window_event(&event);
+        if changed {
+            app.window.request_redraw();
+        }
     }
 }
 
 fn main() {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
+    // Nur Warnungen/Fehler loggen — das INFO-Log von wgpu würde sonst das
+    // Terminal fluten (Device::maintain je Frame).
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let el = EventLoop::new().unwrap();
-    el.set_control_flow(winit::event_loop::ControlFlow::Poll);
+    // Warten statt pollen: der Editor zeichnet nur bei Bedarf neu, nicht in einer
+    // Endlosschleife. Spart CPU/GPU und beruhigt das Terminal.
+    el.set_control_flow(winit::event_loop::ControlFlow::Wait);
     let mut runner = Runner::default();
     el.run_app(&mut runner).unwrap();
 }

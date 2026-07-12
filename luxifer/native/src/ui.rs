@@ -114,10 +114,10 @@ fn project_browser(ui: &mut egui::Ui, app: &mut App) {
             app.new_project_name.clear();
         }
         ui.separator();
-        if ui.button("💾 Speichern").clicked() {
+        if ui.button("Speichern").clicked() {
             app.project_save();
         }
-        if ui.button("＋ Version").clicked() {
+        if ui.button("Neue Version").clicked() {
             app.project_save_version();
         }
     });
@@ -315,29 +315,82 @@ fn laser_settings_window(ctx: &egui::Context, app: &mut App) {
     }
 }
 
+/// Werkzeug-Knopf mit gemaltem Icon + Label. `on` = aktiv (Akzent-Hintergrund).
+/// Gibt true bei Klick zurück.
+fn tool_button(ui: &mut egui::Ui, on: bool, tool: Tool) -> bool {
+    let size = egui::vec2(ui.available_width(), 38.0);
+    let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let accent = Color32::from_rgb(0x3B, 0x82, 0xF6);
+    let bg = if on {
+        accent.gamma_multiply(0.85)
+    } else if resp.hovered() {
+        Color32::from_rgb(0x25, 0x2a, 0x33)
+    } else {
+        Color32::from_rgb(0x1c, 0x1f, 0x26)
+    };
+    ui.painter().rect(rect, 8.0, bg, egui::Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x36)));
+    let fg = Color32::from_rgb(0xec, 0xee, 0xf1);
+    // Icon-Bereich links (quadratisch), Label rechts.
+    let ic = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 7.0), egui::vec2(24.0, 24.0));
+    let c = ic.center();
+    let p = ui.painter();
+    let stroke = egui::Stroke::new(1.6, fg);
+    match tool {
+        Tool::Select => {
+            // Cursor-Pfeil.
+            let pts = vec![
+                c + egui::vec2(-6.0, -7.0),
+                c + egui::vec2(-6.0, 7.0),
+                c + egui::vec2(-1.5, 2.5),
+                c + egui::vec2(2.0, 8.0),
+                c + egui::vec2(4.5, 6.5),
+                c + egui::vec2(1.0, 1.0),
+                c + egui::vec2(7.0, 0.0),
+            ];
+            p.add(egui::Shape::convex_polygon(pts, fg, egui::Stroke::NONE));
+        }
+        Tool::Rect => {
+            p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(15.0, 12.0)), 1.5, stroke);
+        }
+        Tool::Ellipse => {
+            p.circle_stroke(c, 8.0, stroke);
+        }
+        Tool::Polygon => {
+            // Dreieck/Polygon-Umriss.
+            let pts = vec![
+                c + egui::vec2(0.0, -8.0),
+                c + egui::vec2(8.0, 4.0),
+                c + egui::vec2(-8.0, 4.0),
+            ];
+            p.add(egui::Shape::closed_line(pts, stroke));
+        }
+    }
+    p.text(
+        egui::pos2(ic.right() + 8.0, c.y),
+        egui::Align2::LEFT_CENTER,
+        tool.label(),
+        egui::FontId::proportional(13.0),
+        fg,
+    );
+    resp.clicked()
+}
+
 fn tools_panel(ui: &mut egui::Ui, app: &mut App) {
     ui.add_space(6.0);
     ui.label(RichText::new("WERKZEUG").small().weak());
     ui.add_space(4.0);
     for t in [Tool::Select, Tool::Rect, Tool::Ellipse, Tool::Polygon] {
-        let on = app.tool == t;
-        if ui
-            .add_sized(
-                [ui.available_width(), 34.0],
-                egui::SelectableLabel::new(on, t.label()),
-            )
-            .clicked()
-        {
+        if tool_button(ui, app.tool == t, t) {
             app.tool = t;
         }
     }
     ui.add_space(10.0);
     ui.separator();
     ui.add_space(6.0);
-    if ui.button("↶ Undo").clicked() {
+    if ui.button("Undo").clicked() {
         app.state.undo();
     }
-    if ui.button("↷ Redo").clicked() {
+    if ui.button("Redo").clicked() {
         app.state.redo();
     }
 
@@ -345,21 +398,21 @@ fn tools_panel(ui: &mut egui::Ui, app: &mut App) {
     ui.separator();
     ui.add_space(6.0);
     ui.label(RichText::new("DATEI").small().weak());
-    if ui.button("📂 Vektor…").clicked() {
+    if ui.button("Vektor…").clicked() {
         app.import_dialog();
     }
-    if ui.button("🖼 Bild…").clicked() {
+    if ui.button("Bild…").clicked() {
         app.import_image_dialog();
     }
-    if ui.button("🅣 Text…").clicked() {
+    if ui.button("Text…").clicked() {
         app.open_text_dialog();
     }
     // Schnellzugriff auf die große Testdatei (Aztec) für den Fill-Stresstest.
     let aztec = std::path::Path::new("/home/moshy/Schreibtisch/Aztec.svg");
-    if aztec.exists() && ui.button("⬇ Aztec laden").clicked() {
+    if aztec.exists() && ui.button("Aztec laden").clicked() {
         app.import_path(aztec);
     }
-    if ui.button("▦ Fill an/aus").clicked() {
+    if ui.button("Fill an/aus").clicked() {
         app.toggle_fill();
     }
 }

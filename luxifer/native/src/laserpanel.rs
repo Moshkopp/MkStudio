@@ -110,7 +110,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut App) {
                         }
                     }
                 });
-            if ui.button("⚙").on_hover_text("Laser verwalten").clicked() {
+            if ui.button("Verwalten").on_hover_text("Laser verwalten").clicked() {
                 pending = Some(PanelAction::EditProfile);
             }
         });
@@ -164,7 +164,7 @@ pub fn show(ui: &mut egui::Ui, app: &mut App) {
 
     ui.add_space(8.0);
     ui.checkbox(&mut app.laser.selection_only, "Nur Auswahl lasern");
-    if has(JobAction::ExportFile) && ui.button("⬇ Als Datei exportieren").clicked() {
+    if has(JobAction::ExportFile) && ui.button("Als Datei exportieren").clicked() {
         pending = Some(PanelAction::Export);
     }
 

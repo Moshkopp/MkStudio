@@ -90,6 +90,9 @@ pub struct App {
     // unberührt (die Projektion macht der Shader), daher bleiben sie gecacht.
     verts: Vec<Vertex>,
     last_fp: u64,
+    /// Ob egui im letzten Frame einen sofortigen weiteren Repaint wollte
+    /// (laufende Animation/Interaktion) — steuert die Render-Schleife.
+    wants_repaint: bool,
     /// Bild-Texturen (asset-id → GPU-Textur) und ob neu geladen werden muss.
     images: crate::image_gpu::ImageStore,
     image_dirty: bool,
@@ -190,6 +193,7 @@ impl App {
             fps: 0.0,
             verts: Vec::new(),
             last_fp: 0,
+            wants_repaint: false,
             images: crate::image_gpu::ImageStore::default(),
             image_dirty: false,
             text_dialog: None,
@@ -832,15 +836,9 @@ impl App {
         v
     }
 
-    /// Baut die Zeichendaten (Tisch, Shapes, Auswahl-BBox, laufendes Polygon).
+    /// Baut die Zeichendaten (Tisch-Gitter, Shapes, Auswahl-BBox, Polygon-Zug).
     fn build_vertices(&self) -> Vec<Vertex> {
-        let mut v = scene_geo::rect_outline(
-            0.0,
-            0.0,
-            self.state.bed_w_mm as f32,
-            self.state.bed_h_mm as f32,
-            scene_geo::BED_COLOR,
-        );
+        let mut v = scene_geo::bed_grid(self.state.bed_w_mm as f32, self.state.bed_h_mm as f32);
         // Füllung zuerst (liegt unter den Konturen), dann die Umrisse.
         v.extend(scene_geo::fill_lines(&self.state));
         v.extend(scene_geo::shape_lines(&self.state, self.accent));
@@ -868,6 +866,12 @@ impl App {
         v
     }
 
+    /// Ob nach dem letzten Frame sofort weiter gezeichnet werden soll
+    /// (egui-Animation/Interaktion läuft). Steuert die Render-Schleife.
+    pub fn egui_wants_repaint(&self) -> bool {
+        self.wants_repaint
+    }
+
     pub fn render(&mut self) {
         // FPS.
         let dt = self.last_frame.elapsed().as_secs_f32();
@@ -881,6 +885,12 @@ impl App {
         let full = self.egui_ctx.clone().run(raw, |ctx| ui::build(ctx, self));
         self.egui_state
             .handle_platform_output(&self.window, full.platform_output);
+        // Will egui gleich wieder zeichnen (laufende Animation/Interaktion)?
+        // Delay == 0 → ja. So bleibt die Schleife nur bei Bedarf aktiv.
+        self.wants_repaint = full
+            .viewport_output
+            .values()
+            .any(|v| v.repaint_delay.is_zero());
         let tris = self.egui_ctx.tessellate(full.shapes, full.pixels_per_point);
 
         // Canvas-Vertices nur neu bauen+hochladen, wenn sich die Szene änderte
