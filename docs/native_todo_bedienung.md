@@ -43,7 +43,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
 | ID | Klasse | Prio | Beschreibung |
 |----|--------|------|--------------|
-| D1 | BUG | P1 | Fills werden schon im Design-Tab als Raster dargestellt (sollten Fläche/Kontur sein, Raster nur im Laser/Preview). |
+| D1 | ENTSCHIEDEN | — | Scanlines bleiben bewusst im Design-Tab: direkte Kontrolle des Fill-Ergebnisses; der native Vertex-Cache zeigt aktuell keinen spürbaren Performance-Einbruch. |
 | D2 | FEHLT | P1 | Laser-Preview-Tab fehlt komplett. |
 
 ## E. Panels / Layout / Views
@@ -99,3 +99,8 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
   die rechteckige Bildfläche in der Layer-Kennfarbe über. Zusätzlich lag die
   Textur vor dem opaken Bett. Die Reihenfolge ist nun Bett/Gitter → Bildtexturen
   → Vektorgeometrie → Overlay; Image-Layer erzeugen keine Fill-Scanlines mehr.
+- D1 (bewusst beibehalten): Anders als zunächst geplant bleiben Fill-Scanlines
+  im Design-Tab sichtbar. Sie liefern sofortige visuelle Kontrolle über das
+  tatsächliche Fill-Ergebnis; dank gecachtem Vertexpuffer ist derzeit kein
+  wahrnehmbarer Performanceverlust vorhanden. Nur bei belegbarer Regression
+  erneut aufgreifen.
