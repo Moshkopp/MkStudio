@@ -7,4 +7,4 @@ mod error;
 mod session;
 
 pub use error::AppError;
-pub use session::EditorSession;
+pub use session::{BoxShape, EditorSession, PointPath};

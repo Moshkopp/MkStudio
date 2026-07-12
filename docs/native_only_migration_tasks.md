@@ -139,8 +139,8 @@ Ziel: Ein kleiner, ehrlicher Editor, der zuverlässig benutzt werden kann.
 
 - [ ] Szene lesen und Render-Invalidierung aus Application-Zustand ableiten.
 - [x] Auswahl: Klick, additiv, Rechteckauswahl, Auswahl löschen.
-- [ ] Zeichnen: Rechteck, Ellipse, Linie, Polygon einschließlich Abbruch und
-      Abschluss.
+- [x] Zeichnen: Rechteck, Ellipse, Linie, Polygon, Polylinie, Spline und Bézier
+      einschließlich Abbruch und Abschluss.
 - [ ] Transformieren: Verschieben, Skalieren, proportional Skalieren, Rotieren,
       Spiegeln (Move/Resize/Rotate besitzen jetzt einen gemeinsamen
       Application-Gestenlebenszyklus; Spiegeln folgt als eigener Schnitt).
@@ -168,6 +168,13 @@ Gruppenerweiterung, Marquee und den Gestenlebenszyklus
 Move-Drag legte zuvor keinen eigenen Undo-Punkt an, verwarf beim Loslassen aber
 potenziell den letzten fremden Undo-Eintrag. Validierung: 242 Workspace-Tests
 und Clippy mit `-D warnings` grün.
+
+Zeichen-Schnitt 2026-07-12: `EditorSession` kapselt nun auch Boxformen, Linie,
+Core-Polygonformen sowie punktbasierte Polylinie/Spline/Bézier-Pfade. Native
+sammelt nur Werkzeugtyp und Weltpunkte. Mindestgrößen, Auswahl des Ergebnisses
+und Undo liegen unterhalb der UI-Grenze; ungültige Mini-Gesten bleiben ohne
+Mutation und ohne Undo-Eintrag. Validierung: 245 Workspace-Tests und Clippy mit
+`-D warnings` grün.
 
 ## Phase 3 — Projekt, Versionen und Assets
 

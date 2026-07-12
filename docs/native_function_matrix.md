@@ -63,13 +63,13 @@ Quelle: `frontend/src-tauri/src/commands/shapes.rs`.
 |---|---|---|---|
 | `import_vector_file` | Application/Core | vorhanden, prüfen | SVG/DXF, Dateifehler, großer Import, Undo |
 | `pattern_fill_op` | Core/Application | UI-Aktion, prüfen | Parameterdialog, Auswahlvoraussetzung, Fehler |
-| `add_spline` | Core/Application | Werkzeug sichtbar, prüfen | Geste, Abschluss/Abbruch, Undo |
+| `add_spline` | Core/Application | über `EditorSession` | Abschluss/Abbruch und einzelner Core-Undo-Punkt |
 | `upload_font` | Application | fehlt | Zielverzeichnis, Namens-/Schreibfehler |
 | `list_fonts` | Application | eigene Native-Variante | eine kanonische Fontquelle herstellen |
 | `add_text` | Core/Application | vorhanden, prüfen | Font, Metadaten, Gruppierung, Undo |
 | `text_preview` | Core/Application | fehlt | Vorschau ohne Mutation |
 | `update_text` | Core/Application | fehlt | bestehenden Textblock atomar ersetzen |
-| `add_bezier` | Core/Application | Werkzeug sichtbar, prüfen | ThorBurn-Zeichenregeln und Undo |
+| `add_bezier` | Core/Application | über `EditorSession` | Basis-Zeichenablauf und Undo migriert; Tangentenregeln folgen Node-Schnitt |
 | `add_bezier_nodes` | Core/Application | prüfen | Handles und geschlossener Pfad |
 | `drag_node` | Core | fehlt/prüfen | Anker/Tangenten, smooth-Regel, Gesten-Undo |
 | `split_node` | Core | fehlt | Segmentparameter und Metadaten |
@@ -85,12 +85,12 @@ Quelle: `frontend/src-tauri/src/commands/shapes.rs`.
 | `nest_op` | Core/Application | vorhanden, prüfen | Gap, Bettgrenzen, Gruppen |
 | `nest_fill_op` | Core/Application | vorhanden, prüfen | Füllalgorithmus und Abbruch/Fehler |
 | `insert_coasters` | Core/Application | vorhanden, prüfen | rund/eckig und Layer/Farbe |
-| `add_rect` | Core | vorhanden, prüfen | beide Ziehrichtungen, Mindestgröße, Abbruch |
-| `add_ellipse` | Core | vorhanden, prüfen | Mittelpunkt-/BBox-Regel eindeutig |
-| `add_line` | Core | vorhanden, prüfen | Null-Länge und Abbruch |
-| `add_polyline` | Core | vorhanden, prüfen | offen/geschlossen, Abschluss/Abbruch |
+| `add_rect` | Core/Application | über `EditorSession` | beide Ziehrichtungen, Mindestgröße und Undo getestet |
+| `add_ellipse` | Core/Application | über `EditorSession` | normalisierte BBox, Mindestgröße und Undo getestet |
+| `add_line` | Core/Application | über `EditorSession` | Mindestlänge; ungültige Geste ohne Undo |
+| `add_polyline` | Core/Application | über `EditorSession` | offener Pfad, Abschluss/Abbruch und Undo |
 | `shape_catalog` | Core | Native-Auswahl vorhanden | eine Core-Quelle für Katalog/Parameter |
-| `add_polygon` | Core/Application | vorhanden, prüfen | Shapevarianten, Seitenzahl/Parameter, Undo |
+| `add_polygon` | Core/Application | über `EditorSession` | Core-`PolyShape`, Mindestradius und Undo |
 
 ## Bilder und Assets
 

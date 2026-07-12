@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use egui_wgpu::ScreenDescriptor;
-use luxifer_application::{AppError, EditorSession};
+use luxifer_application::{AppError, BoxShape, EditorSession, PointPath};
 use luxifer_core::geometry::Geo;
 use luxifer_core::state::AppState;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -570,72 +570,40 @@ impl App {
         // Polygon: Form vom Zentrum `a` mit Radius = Abstand zur Maus aufziehen
         // (wie Tauri: ondrawpolygon(shape, cx, cy, r, rot)).
         if self.tool == Tool::Polygon {
-            let r = (a[0] - b[0]).hypot(a[1] - b[1]);
-            if r < 1.0 {
-                return;
+            if self.session.add_polygon(self.active_shape, a, b).is_some() {
+                self.refresh_accent();
             }
-            let pts = self.active_shape.points(a[0], a[1], r, 0.0);
-            let idx = self.session.add_shape(Geo::Polyline { pts, closed: true });
-            self.session.selected = vec![idx];
-            self.refresh_accent();
             return;
         }
         // Linie: 2-Punkt-Polyline (auch bei kleinem Zug erlaubt).
         if self.tool == Tool::Line {
-            if (a[0] - b[0]).hypot(a[1] - b[1]) < 0.5 {
-                return;
+            if self.session.add_line(a, b).is_some() {
+                self.refresh_accent();
             }
-            let idx = self.session.add_shape(Geo::Polyline {
-                pts: vec![(a[0], a[1]), (b[0], b[1])],
-                closed: false,
-            });
-            self.session.selected = vec![idx];
-            self.refresh_accent();
             return;
         }
-        let x = a[0].min(b[0]);
-        let y = a[1].min(b[1]);
-        let w = (a[0] - b[0]).abs();
-        let h = (a[1] - b[1]).abs();
-        if w < 0.5 || h < 0.5 {
-            return;
-        }
-        let geo = match self.tool {
-            Tool::Ellipse => Geo::Ellipse {
-                cx: x + w / 2.0,
-                cy: y + h / 2.0,
-                rx: w / 2.0,
-                ry: h / 2.0,
-            },
-            _ => Geo::Rect { x, y, w, h },
+        let shape = match self.tool {
+            Tool::Ellipse => BoxShape::Ellipse,
+            _ => BoxShape::Rect,
         };
-        let idx = self.session.add_shape(geo);
-        self.session.selected = vec![idx];
-        self.refresh_accent();
+        if self.session.add_box_shape(shape, a, b).is_some() {
+            self.refresh_accent();
+        }
     }
 
     /// Schließt den punktbasierten Zug ab (Enter/Doppelklick). Je nach Werkzeug:
     /// Polygon (geschlossen), Polylinie (offen), Spline (glatt), Bézier (Feder).
     fn finish_polygon(&mut self) {
-        use luxifer_core::geometry::catmull_rom;
         let pts = std::mem::take(&mut self.poly_pts);
-        if pts.len() < 2 {
-            return;
-        }
-        let idx = match self.tool {
-            Tool::Polyline => self.session.add_shape(Geo::Polyline { pts, closed: false }),
-            Tool::Spline => {
-                let smooth = catmull_rom(&pts, false, 12);
-                self.session.add_shape(Geo::Polyline {
-                    pts: smooth,
-                    closed: false,
-                })
-            }
-            Tool::Bezier => self.session.add_bezier(pts, false),
+        let path = match self.tool {
+            Tool::Polyline => PointPath::Polyline,
+            Tool::Spline => PointPath::Spline,
+            Tool::Bezier => PointPath::Bezier,
             _ => return,
         };
-        self.session.selected = vec![idx];
-        self.refresh_accent();
+        if self.session.add_point_path(path, pts).is_some() {
+            self.refresh_accent();
+        }
     }
 
     pub fn pick_color(&mut self, c: [u8; 3]) {
