@@ -52,7 +52,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 |----|--------|------|--------------|
 | E1 | ERLEDIGT | P1 | Rechtes Panel ist mit 340 px sinnvoll vorbelegt und zwischen 300–460 px responsiv verstellbar. |
 | E2 | ERLEDIGT | P2 | Layer erscheinen als lesbare Inspector-Karten mit Name, Modus, Objektzahl und ausgeschriebenen Zuständen. |
-| E3 | BUG | P2 | Im Laser-Tab kann man weiterhin zeichnen, hat aber keine Layerliste mehr. |
+| E3 | ERLEDIGT | P2 | Laser-Tab erzwingt Auswahl, sperrt Zeichnen/Löschen und gibt Layer nur temporär für Verschieben/Skalieren/Drehen frei. |
 | E4 | UX | P1 | Projektmanager unbrauchbar: nur eine überbreite Liste, keine Details, keine Thumbnails. |
 
 ## F. Header / Werkzeug-Zugänge
@@ -114,3 +114,8 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 - E1/E2 (erledigt): Der Inspector ist breiter und resizbar. Layer-Karten trennen
   Identität (Farbe/Name/Modus/Objektzahl), Zustände (Sichtbar/Job/Gesperrt/Luft)
   und Reihenfolge klar; der Name öffnet den Parameterdialog direkt.
+- E3 (erledigt): Der Laser-Tab setzt automatisch das Auswahlwerkzeug und hält
+  alle Layer zunächst nur in der UI gesperrt. Einzelne Layer lassen sich unter
+  „Position bearbeiten“ temporär für Move/Resize/Rotate freigeben; beim
+  Tabwechsel verfallen die Freigaben. Core-Locks, Dirty-State und Undo bleiben
+  vom reinen Ansichtswechsel unberührt.

@@ -117,16 +117,20 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         }
         View::Design | View::Laser => {
             let cur_tool = app.canvas.tool;
-            let left = egui::SidePanel::left("tools")
-                .exact_width(96.0)
-                .resizable(false)
-                .show(ctx, |ui| tools::tools_panel(ui, cur_tool));
-            app.left_w = left.response.rect.width();
-            for action in left.inner {
-                app.dispatch(action);
+            let is_laser = app.view == View::Laser;
+            if is_laser {
+                app.left_w = 0.0;
+            } else {
+                let left = egui::SidePanel::left("tools")
+                    .exact_width(96.0)
+                    .resizable(false)
+                    .show(ctx, |ui| tools::tools_panel(ui, cur_tool));
+                app.left_w = left.response.rect.width();
+                for action in left.inner {
+                    app.dispatch(action);
+                }
             }
 
-            let is_laser = app.view == View::Laser;
             // Sichten vorab ableiten, damit die Panels keinen App-/Backend-
             // Zugriff brauchen. `laser_view` ruft `actions()` (baut den Treiber
             // lazy), daher &mut vor der Closure.
@@ -135,11 +139,8 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             } else {
                 None
             };
-            let layer_rows: Vec<layers::LayerRow> = if is_laser {
-                Vec::new()
-            } else {
-                layer_rows(app)
-            };
+            let layer_rows: Vec<layers::LayerRow> = layer_rows(app);
+            let laser_editable = app.canvas.laser_editable_layers.clone().unwrap_or_default();
             let right = egui::SidePanel::right("inspector")
                 .default_width(340.0)
                 .width_range(300.0..=460.0)
@@ -147,7 +148,9 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                 .show(ctx, |ui| {
                     ui.add_space(6.0);
                     if let Some(view) = &laser_view {
-                        laserpanel::show(ui, view, &mut app.laser)
+                        let mut actions = laserpanel::show(ui, view, &mut app.laser);
+                        actions.extend(layers::laser_edit_layers(ui, &layer_rows, &laser_editable));
+                        actions
                     } else {
                         layers::layers_panel(ui, &layer_rows)
                     }

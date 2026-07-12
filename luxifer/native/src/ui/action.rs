@@ -66,6 +66,8 @@ pub enum UiAction {
     ExportProject(String),
     /// Haupt-Ansicht (Reiter) wechseln.
     SelectView(View),
+    /// Einen Layer im Laser-Tab vorübergehend für Transformationen freigeben.
+    ToggleLaserEditLayer(usize),
     /// Rückgängig.
     Undo,
     /// Wiederholen.

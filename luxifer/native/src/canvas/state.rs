@@ -22,6 +22,9 @@ pub struct CanvasState {
     pub poly_pts: Vec<(f64, f64)>,
     /// Native Bézier-Feder: Anker samt beim Ziehen erzeugten Tangenten.
     pub bezier_nodes: Vec<luxifer_core::bezier::BezierNode>,
+    /// Nur im Laser-Tab: Layer, deren Shapes vorübergehend transformierbar sind.
+    /// `None` = normale Design-Bearbeitung, `Some` = Laser-Policy aktiv.
+    pub laser_editable_layers: Option<std::collections::HashSet<usize>>,
     /// Letzter Links-Klick (Zeit + Weltposition) für die Doppelklick-Erkennung.
     last_click: Option<(std::time::Instant, [f64; 2])>,
 }
@@ -39,6 +42,7 @@ impl CanvasState {
             shift_down: false,
             poly_pts: Vec::new(),
             bezier_nodes: Vec::new(),
+            laser_editable_layers: None,
             last_click: None,
         }
     }

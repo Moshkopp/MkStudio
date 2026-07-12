@@ -113,8 +113,22 @@ impl CanvasState {
     }
 
     fn begin_select(&mut self, session: &mut EditorSession, w: [f64; 2]) {
+        let selection_editable =
+            |session: &EditorSession, allowed: &Option<std::collections::HashSet<usize>>| {
+                allowed.as_ref().is_none_or(|set| {
+                    session.selected.iter().all(|&i| {
+                        session
+                            .shapes
+                            .get(i)
+                            .is_some_and(|shape| set.contains(&shape.layer_id))
+                    })
+                })
+            };
         // Zuerst: wurde ein Transform-Handle der aktuellen Auswahl getroffen?
-        if let Some(b) = session.selection_bbox() {
+        let editable_bbox = selection_editable(session, &self.laser_editable_layers)
+            .then(|| session.selection_bbox())
+            .flatten();
+        if let Some(b) = editable_bbox {
             // etwas großzügiger als sichtbar; Handle-Geometrie aus canvas::overlay.
             let pick = super::overlay::handle_hw(self.cam.scale) as f64 * 1.8;
             // Rotate-Handle?
@@ -148,7 +162,7 @@ impl CanvasState {
         let hit = session.select_at(w[0], w[1], tol, self.shift_down);
         if self.shift_down {
             self.drag = Drag::None;
-        } else if hit.is_some() {
+        } else if hit.is_some() && selection_editable(session, &self.laser_editable_layers) {
             session.begin_edit();
             self.drag = Drag::MoveShapes { last: w };
         } else {
@@ -341,5 +355,28 @@ mod tests {
         };
         assert!(*closed);
         assert_eq!(pts.len(), 3);
+    }
+
+    #[test]
+    fn laser_policy_erlaubt_transformation_nur_nach_temporaerer_freigabe() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        canvas.laser_editable_layers = Some(Default::default());
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [100.0, 50.0]);
+        let before = session.shapes[0].bbox();
+
+        canvas.cursor = canvas.cam.world_to_screen([0.0, 0.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        assert!(!matches!(
+            canvas.drag,
+            Drag::MoveShapes { .. } | Drag::Resize { .. } | Drag::Rotate { .. }
+        ));
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([-10.0, -5.0]));
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert_eq!(session.shapes[0].bbox(), before);
+
+        canvas.laser_editable_layers.as_mut().unwrap().insert(0);
+        assert!(canvas.laser_editable_layers.as_ref().unwrap().contains(&0));
     }
 }

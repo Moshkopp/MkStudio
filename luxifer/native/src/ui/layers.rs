@@ -93,3 +93,32 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
     }
     actions
 }
+
+pub(super) fn laser_edit_layers(
+    ui: &mut egui::Ui,
+    rows: &[LayerRow],
+    editable: &std::collections::HashSet<usize>,
+) -> Vec<UiAction> {
+    let mut actions = Vec::new();
+    ui.separator();
+    ui.label(RichText::new("POSITION BEARBEITEN").small().weak());
+    ui.label(
+        RichText::new("Temporäre Freigabe im Laser-Tab")
+            .small()
+            .weak(),
+    );
+    for i in (0..rows.len()).rev() {
+        let row = &rows[i];
+        ui.horizontal(|ui| {
+            let (rect, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+            ui.painter().rect_filled(rect, 4.0, c32(row.color));
+            if ui
+                .selectable_label(editable.contains(&i), &row.name)
+                .clicked()
+            {
+                actions.push(UiAction::ToggleLaserEditLayer(i));
+            }
+        });
+    }
+    actions
+}

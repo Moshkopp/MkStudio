@@ -143,6 +143,10 @@ impl App {
             should_exit: false,
             fonts: Vec::new(),
         };
+        if app.view == crate::tools::View::Laser {
+            app.canvas.tool = crate::tools::Tool::Select;
+            app.canvas.laser_editable_layers = Some(Default::default());
+        }
         if let Some(path) = auto_import {
             app.import_path(std::path::Path::new(&path));
             // Beim Auto-Import gleich füllen (Fill-Stresstest sichtbar machen).
@@ -196,6 +200,11 @@ impl App {
                         if let Some(shortcut) =
                             crate::tools::resolve_shortcut(key, mods, pressed, blocked)
                         {
+                            if self.view == crate::tools::View::Laser
+                                && !matches!(shortcut, crate::tools::Shortcut::PanModifier(_))
+                            {
+                                return true;
+                            }
                             self.apply_shortcut(shortcut);
                         }
                     }
@@ -408,7 +417,20 @@ impl App {
             A::ExportProject(name) => self.project_export(&name),
             A::SelectView(view) => {
                 self.view = view;
+                if view == crate::tools::View::Laser {
+                    self.canvas.tool = crate::tools::Tool::Select;
+                    self.canvas.laser_editable_layers = Some(Default::default());
+                } else {
+                    self.canvas.laser_editable_layers = None;
+                }
                 self.renderer.invalidate_scene();
+            }
+            A::ToggleLaserEditLayer(index) => {
+                if let Some(editable) = self.canvas.laser_editable_layers.as_mut() {
+                    if !editable.insert(index) {
+                        editable.remove(&index);
+                    }
+                }
             }
             A::Undo => self.undo(),
             A::Redo => self.redo(),
