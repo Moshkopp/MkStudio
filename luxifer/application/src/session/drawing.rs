@@ -1,6 +1,28 @@
 use super::{BoxShape, EditorSession, PointPath};
 
 impl EditorSession {
+    pub fn replace_text_block(
+        &mut self,
+        index: usize,
+        contours: Vec<(Vec<luxifer_core::Pt>, bool)>,
+        meta: luxifer_core::TextMeta,
+    ) -> Result<(), crate::AppError> {
+        if self.state.shapes.get(index).is_none() {
+            return Err(crate::AppError::new(
+                "shape_not_found",
+                "Der zu bearbeitende Textblock existiert nicht mehr.",
+            ));
+        }
+        if contours.is_empty() {
+            return Err(crate::AppError::new(
+                "empty_text_geometry",
+                "Der Text hat keine darstellbare Kontur erzeugt.",
+            ));
+        }
+        self.state.replace_text_block(index, contours, meta);
+        Ok(())
+    }
+
     pub fn add_box_shape(
         &mut self,
         shape: BoxShape,

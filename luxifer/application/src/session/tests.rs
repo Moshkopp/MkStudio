@@ -173,6 +173,34 @@ fn fertige_bezier_knoten_behalten_ihre_tangenten() {
 }
 
 #[test]
+fn textblock_ersetzen_erzeugt_genau_einen_undo_schritt() {
+    let mut session = EditorSession::default();
+    let old = vec![(vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)], true)];
+    let meta = luxifer_core::TextMeta {
+        text: "Alt".into(),
+        font_path: "font.ttf".into(),
+        size_mm: 10.0,
+    };
+    let indices = session.add_text_block(old, meta);
+    session.mark_saved();
+    let new = vec![(vec![(0.0, 0.0), (20.0, 0.0), (20.0, 10.0)], true)];
+    let meta = luxifer_core::TextMeta {
+        text: "Neu".into(),
+        font_path: "font.ttf".into(),
+        size_mm: 10.0,
+    };
+
+    session.replace_text_block(indices[0], new, meta).unwrap();
+    assert_eq!(session.shapes[0].text_meta.as_ref().unwrap().text, "Neu");
+    assert!(session.undo());
+    assert_eq!(session.shapes[0].text_meta.as_ref().unwrap().text, "Alt");
+    // Der nächste Undo gehört bereits zum ursprünglichen Einfügen; ein
+    // doppelter Replace-Snapshot würde hier den alten Text nochmals behalten.
+    assert!(session.undo());
+    assert!(session.shapes.is_empty());
+}
+
+#[test]
 fn job_preview_ist_abgeleitete_read_only_sicht() {
     let mut session = EditorSession::default();
     session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [20.0, 10.0]);

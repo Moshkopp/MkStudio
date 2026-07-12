@@ -876,10 +876,10 @@ impl App {
                 };
                 if let Some(index) = edit_index {
                     // Bestehenden Textblock atomar ersetzen.
-                    self.session.state_mut_for_migration().push_undo();
-                    self.session
-                        .state_mut_for_migration()
-                        .replace_text_block(index, contours, meta);
+                    if let Err(error) = self.session.replace_text_block(index, contours, meta) {
+                        self.app_error = Some(error);
+                        return false;
+                    }
                 } else {
                     let idxs = self.session.add_text_block(contours, meta);
                     self.session.selected = idxs;
