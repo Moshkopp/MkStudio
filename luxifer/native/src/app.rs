@@ -641,6 +641,12 @@ impl App {
             A::SaveProject => self.project_save(),
             A::SaveProjectVersion => self.project_save_version(),
             A::OpenProject(name) => self.project_open(&name),
+            A::SelectView(view) => self.view = view,
+            A::Undo => self.undo(),
+            A::Redo => self.redo(),
+            A::ImportVector => self.import_dialog(),
+            A::ImportImage => self.import_image_dialog(),
+            A::ImportPath(path) => self.import_path(&path),
         }
     }
 

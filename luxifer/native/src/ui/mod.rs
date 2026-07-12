@@ -15,6 +15,7 @@ mod layers;
 mod palette;
 mod project;
 mod tools;
+mod topbar;
 
 pub use action::UiAction;
 
@@ -33,54 +34,19 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     use crate::tools::View;
     apply_theme(ctx);
 
-    // Oben: Reiter | Undo/Redo + Datei-Aktionen | Projektname. Wie die Tauri-App
-    // liegen die globalen Aktionen im Header, nicht im Werkzeug-Panel.
-    egui::TopBottomPanel::top("topbar").show(ctx, |ui| {
-        ui.add_space(4.0);
-        ui.horizontal(|ui| {
-            for v in [View::Projekt, View::Design, View::Laser] {
-                if ui
-                    .selectable_label(app.view == v, format!("  {}  ", v.label()))
-                    .clicked()
-                {
-                    app.view = v;
-                }
-            }
-            // Datei-/Verlaufs-Aktionen nur im Design-Reiter.
-            if app.view == View::Design {
-                ui.separator();
-                if ui.button("Undo").clicked() {
-                    app.undo();
-                }
-                if ui.button("Redo").clicked() {
-                    app.redo();
-                }
-                ui.separator();
-                if ui.button("Vektor…").clicked() {
-                    app.import_dialog();
-                }
-                if ui.button("Bild…").clicked() {
-                    app.import_image_dialog();
-                }
-                if ui.button("Text…").clicked() {
-                    app.open_text_dialog();
-                }
-                let aztec = std::path::Path::new("/home/moshy/Schreibtisch/Aztec.svg");
-                if aztec.exists() && ui.button("Aztec laden").clicked() {
-                    app.import_path(aztec);
-                }
-            }
-            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let name = app
-                    .project
-                    .open_name()
-                    .unwrap_or("— (ungespeichert)")
-                    .to_string();
-                ui.label(RichText::new(name).weak());
-            });
-        });
-        ui.add_space(4.0);
-    });
+    // Oben: Reiter | Undo/Redo + Datei-Aktionen | Projektname.
+    let view = app.view;
+    let project_name = app
+        .project
+        .open_name()
+        .unwrap_or("— (ungespeichert)")
+        .to_string();
+    let topbar_actions = egui::TopBottomPanel::top("topbar")
+        .show(ctx, |ui| topbar::topbar(ui, view, &project_name))
+        .inner;
+    for action in topbar_actions {
+        app.dispatch(action);
+    }
 
     if let Some(error) = app.app_error.as_ref() {
         let code = error.code();

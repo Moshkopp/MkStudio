@@ -7,10 +7,12 @@
 //! migrierten Panels ab. Panels, die noch `&mut App` erhalten, tragen hier noch
 //! nichts bei.
 
+use std::path::PathBuf;
+
 use luxifer_application::LayerToggle;
 use luxifer_core::{Align, Distribute, PolyShape};
 
-use crate::tools::{Tool, ToolAction};
+use crate::tools::{Tool, ToolAction, View};
 
 /// Eine vom UI ausgelöste Absicht. Rein beschreibend — kein Verhalten.
 /// Nicht `Copy`, weil einzelne Varianten Eigentum tragen (z. B. Projektname).
@@ -58,4 +60,16 @@ pub enum UiAction {
     SaveProjectVersion,
     /// Projekt mit diesem Namen öffnen.
     OpenProject(String),
+    /// Haupt-Ansicht (Reiter) wechseln.
+    SelectView(View),
+    /// Rückgängig.
+    Undo,
+    /// Wiederholen.
+    Redo,
+    /// Vektor-Import-Dialog (SVG/DXF) öffnen.
+    ImportVector,
+    /// Bild-Import-Dialog öffnen.
+    ImportImage,
+    /// Datei von einem bekannten Pfad importieren (Entwickler-Shortcut).
+    ImportPath(PathBuf),
 }

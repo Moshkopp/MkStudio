@@ -16,7 +16,7 @@ pub enum Tool {
 }
 
 /// Haupt-Ansicht (Reiterleiste oben), analog zur Tauri-App.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum View {
     Projekt,
     Design,
