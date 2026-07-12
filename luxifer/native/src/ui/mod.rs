@@ -133,8 +133,35 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         View::Design | View::Laser => {
             let cur_tool = app.canvas.tool;
             let is_laser = app.view == View::Laser;
+            let layer_rows: Vec<layers::LayerRow> = layer_rows(app);
+            let laser_editable = app.canvas.laser_editable_layers.clone().unwrap_or_default();
             if is_laser {
-                app.left_w = 0.0;
+                // Links: Ebenenliste + Positionsfreigabe in eigenem Panel —
+                // bei vielen Ebenen teilt sie sich sonst gequetscht die rechte
+                // Spalte mit dem Laser-Bedienpanel.
+                let left = egui::SidePanel::left("laser_layers")
+                    .default_width(300.0)
+                    .width_range(260.0..=420.0)
+                    .resizable(true)
+                    .show(ctx, |ui| {
+                        egui::ScrollArea::vertical()
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.add_space(6.0);
+                                let mut actions = layers::layers_panel(ui, &layer_rows);
+                                actions.extend(layers::laser_edit_layers(
+                                    ui,
+                                    &layer_rows,
+                                    &laser_editable,
+                                ));
+                                actions
+                            })
+                            .inner
+                    });
+                app.left_w = left.response.rect.width();
+                for action in left.inner {
+                    app.dispatch(action);
+                }
             } else {
                 let left = egui::SidePanel::left("tools")
                     .exact_width(96.0)
@@ -154,11 +181,9 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             } else {
                 None
             };
-            let layer_rows: Vec<layers::LayerRow> = layer_rows(app);
-            let laser_editable = app.canvas.laser_editable_layers.clone().unwrap_or_default();
-            // Der Inspector-Inhalt (Laserpanel + Ebenen) ist länger als kleine
-            // Fenster: vertikal scrollen, ohne die Breite schrumpfen zu lassen
-            // (auto_shrink false hält die Zeilen exakt auf Panelbreite).
+            // Der Inspector-Inhalt ist länger als kleine Fenster: vertikal
+            // scrollen, ohne die Breite schrumpfen zu lassen (auto_shrink
+            // false hält die Zeilen exakt auf Panelbreite).
             let right = egui::SidePanel::right("inspector")
                 .default_width(340.0)
                 .width_range(300.0..=460.0)
@@ -169,19 +194,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                         .show(ui, |ui| {
                             ui.add_space(6.0);
                             if let Some(view) = &laser_view {
-                                let mut actions = laserpanel::show(ui, view, &mut app.laser);
-                                // Volle Ebenenliste auch im Laser-Tab: Job an/aus,
-                                // Parameter und Reihenfolge gehören zur Brennvorbereitung.
-                                ui.add_space(8.0);
-                                ui.separator();
-                                ui.add_space(6.0);
-                                actions.extend(layers::layers_panel(ui, &layer_rows));
-                                actions.extend(layers::laser_edit_layers(
-                                    ui,
-                                    &layer_rows,
-                                    &laser_editable,
-                                ));
-                                actions
+                                laserpanel::show(ui, view, &mut app.laser)
                             } else {
                                 layers::layers_panel(ui, &layer_rows)
                             }

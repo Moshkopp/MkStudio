@@ -54,7 +54,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 | E2 | ERLEDIGT | P2 | Layer erscheinen als lesbare Inspector-Karten mit Name, Modus, Objektzahl und ausgeschriebenen Zuständen. |
 | E3 | ERLEDIGT | P2 | Laser-Tab erzwingt Auswahl, sperrt Zeichnen/Löschen und gibt Layer nur temporär für Verschieben/Skalieren/Drehen frei. |
 | E4 | ERLEDIGT | P1 | Projektbrowser ist Master-Detail: Liste links, rechts Metadaten, Vektor-Miniatur, Umbenennen, Export, zweistufiges Löschen und Versionsliste (Laden/Löschen). PNG-Thumbnails pro Version bleiben offen. |
-| E5 | ERLEDIGT | P1 | Laser-Tab: Panel lief über den rechten Rand hinaus (Profilzeile zu breit), die Ebenenliste fehlte, und die Treiber-Rückmeldung stand unsichtbar ganz unten. Inspector scrollt jetzt, Ebenenliste + Positionsfreigabe unter dem Laserpanel, Rückmeldung bei den Job-Kacheln. |
+| E5 | ERLEDIGT | P1 | Laser-Tab: Panel lief über den rechten Rand hinaus (Profilzeile zu breit), die Ebenenliste fehlte, und die Treiber-Rückmeldung stand unsichtbar ganz unten. Jetzt: Ebenenliste + Positionsfreigabe in eigenem linken Panel (resizierbar, scrollt), Laser-Bedienpanel rechts, Rückmeldung bei den Job-Kacheln. |
 
 ## F. Header / Werkzeug-Zugänge
 
@@ -147,9 +147,12 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
   liegt der Knopf rechtsbündig (right-to-left) und die Combo füllt exakt den
   Rest. Der Inspector-Inhalt (Design und Laser) steckt in einer vertikalen
   ScrollArea (`auto_shrink false`), damit kleine Fenster bedienbar bleiben.
-  Im Laser-Tab folgt unter dem Bedienpanel die volle Ebenenliste (Job an/aus,
-  Parameterdialog, Reihenfolge — Brennvorbereitung) plus die
-  Positions-Freigabeliste. Die Start/Stopp/Rahmen-Verdrahtung war bereits
+  Im Laser-Tab liegt die volle Ebenenliste (Job an/aus, Parameterdialog,
+  Reihenfolge — Brennvorbereitung) plus Positions-Freigabeliste in einem
+  EIGENEN linken Panel (260–420 px, resizierbar): rechts mit dem Bedienpanel
+  zusammengequetscht wäre sie bei zehn Ebenen unbrauchbar; links ersetzt sie
+  die im Laser-Tab ohnehin gesperrte Werkzeugleiste.
+  Die Start/Stopp/Rahmen-Verdrahtung war bereits
   vollständig (`UiAction::LaserRun` → `LaserService::run_action`, hardwarelos
   getestet); nur der Modulkommentar behauptete noch „loggen vorerst". Die
   Treiber-Rückmeldung erscheint jetzt direkt unter den Job-Kacheln.
