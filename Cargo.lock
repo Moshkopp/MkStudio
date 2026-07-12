@@ -1826,6 +1826,8 @@ name = "luxifer-application"
 version = "0.1.0"
 dependencies = [
  "luxifer-core",
+ "luxifer-driver-grbl",
+ "luxifer-driver-ruida",
 ]
 
 [[package]]
@@ -1868,8 +1870,6 @@ dependencies = [
  "log",
  "luxifer-application",
  "luxifer-core",
- "luxifer-driver-grbl",
- "luxifer-driver-ruida",
  "pollster 0.3.0",
  "rfd",
  "wgpu",

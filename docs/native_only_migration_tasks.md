@@ -337,15 +337,17 @@ Ziel: Alle produktiv benötigten Operationen mit expliziten Voraussetzungen.
 
 - [x] Ausrichten und Verteilen inklusive Gruppen über Application/Core.
 - [x] Gruppieren/Aufheben und Spiegeln über Application/Core.
-- [ ] Boolean: Vereinigung, Schnitt und Differenz.
-- [ ] Offset und Fillet.
-- [ ] Bridge und Ecken-Fillet.
-- [ ] Nesting und Nest-Fill.
-- [ ] Pattern Fill und Coaster-Einfügen.
-- [ ] Bézier/Spline: Anlegen, Segment-Hit-Test, Knoten teilen/löschen,
-      glatt/eckig und Handles ziehen.
+- [x] Boolean: Vereinigung, Schnitt und Differenz (Parameterdialog über Session).
+- [x] Offset und Fillet (Distanz-/Radiusdialog über Session).
+- [ ] Bridge und Ecken-Fillet (eigene Operationen; „nicht migriert").
+- [x] Nesting und Nest-Fill (über Session; feste 2 mm — Gap-Dialog optional).
+- [ ] Pattern Fill (Core hat `pattern_fill_selected`; UI/Parameterdialog offen)
+      und Coaster-Einfügen (über Session vorhanden).
+- [ ] Bézier/Spline: Anlegen (vorhanden), Segment-Hit-Test, Knoten teilen/
+      löschen, glatt/eckig und Handles ziehen (Node-Editing offen).
 - [ ] Aktionen bei ungeeigneter Auswahl deaktivieren; Grund per Tooltip oder
-      Statusmeldung erklären.
+      Statusmeldung erklären (Session liefert bereits stabile AppError-Gründe;
+      UI-Deaktivierung/Tooltip offen).
 
 Abnahme Phase 5:
 

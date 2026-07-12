@@ -36,7 +36,7 @@ pub struct App {
     /// Puffer für den „Neues Projekt"-Namen im Projekt-Reiter.
     pub new_project_name: String,
     pub laser: LaserUi,
-    pub laser_backend: crate::laser::LaserBackend,
+    pub laser_backend: luxifer_application::LaserService,
     /// Letzte Laser-Rückmeldung (Statuszeile im Panel).
     pub laser_msg: String,
     /// Zentraler, nutzerlesbarer Fehlerkanal der Anwendungsschicht.
@@ -125,7 +125,7 @@ impl App {
             project_msg: String::new(),
             new_project_name: String::new(),
             laser: LaserUi::default(),
-            laser_backend: crate::laser::LaserBackend::load(),
+            laser_backend: luxifer_application::LaserService::load(),
             laser_msg: String::new(),
             app_error: None,
             laser_settings: None,
@@ -897,7 +897,7 @@ impl App {
             .run_action(action, &shapes, &layers, sm, anchor)
         {
             Ok(msg) => self.laser_msg = msg,
-            Err(e) => self.laser_msg = format!("Fehler: {e}"),
+            Err(error) => self.app_error = Some(error),
         }
     }
 
@@ -919,22 +919,22 @@ impl App {
                 .export_to(&path, &shapes, &layers, sm, anchor)
             {
                 Ok(()) => self.laser_msg = format!("Exportiert: {}", path.display()),
-                Err(e) => self.laser_msg = format!("Export-Fehler: {e}"),
+                Err(error) => self.app_error = Some(error),
             }
         }
     }
 
     pub fn laser_jog(&mut self, dx: f64, dy: f64) {
         let speed = self.laser.jog_speed;
-        if let Err(e) = self.laser_backend.jog(dx, dy, speed) {
-            self.laser_msg = format!("Jog-Fehler: {e}");
+        if let Err(error) = self.laser_backend.jog(dx, dy, speed) {
+            self.app_error = Some(error);
         }
     }
 
     pub fn laser_home(&mut self) {
         let speed = self.laser.jog_speed;
-        if let Err(e) = self.laser_backend.home(speed) {
-            self.laser_msg = format!("Home-Fehler: {e}");
+        if let Err(error) = self.laser_backend.home(speed) {
+            self.app_error = Some(error);
         }
     }
 

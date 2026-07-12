@@ -8,4 +8,6 @@ description = "UI-unabhängige Anwendungsschicht für LuxiFer."
 
 [dependencies]
 luxifer-core = { path = "../core" }
+luxifer-driver-ruida = { path = "../drivers/ruida" }
+luxifer-driver-grbl = { path = "../drivers/grbl" }
 

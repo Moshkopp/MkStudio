@@ -9,7 +9,6 @@ mod fonts;
 mod gpu;
 mod icons;
 mod image_gpu;
-mod laser;
 mod laserpanel;
 mod render;
 mod scene_geo;

@@ -12,8 +12,6 @@ authors.workspace = true
 [dependencies]
 luxifer-core = { path = "../core" }
 luxifer-application = { path = "../application" }
-luxifer-driver-ruida = { path = "../drivers/ruida" }
-luxifer-driver-grbl = { path = "../drivers/grbl" }
 
 winit = "0.30"
 wgpu = "22"
