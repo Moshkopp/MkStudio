@@ -18,6 +18,10 @@ Diese Matrix beschreibt das Ziel, nicht den bloßen aktuellen Button-Bestand.
 Eine Zeile wird erst `erledigt`, wenn Erfolgs- und Fehlerpfad getestet, Native
 angebunden und die ersetzte Tauri-Implementierung entfernt ist.
 
+Application-Struktur: `EditorSession` ist nach `selection`, `drawing`,
+`actions` und `layers` geschnitten. Der Session-Root darf nicht erneut zum
+Sammelmodul werden; Projekt-, Asset- und Laserabläufe erhalten eigene Services.
+
 ## Shell, Zustand und Einstellungen
 
 | Tauri-Command | Ziel | Native-Stand | Migration/Abnahme |

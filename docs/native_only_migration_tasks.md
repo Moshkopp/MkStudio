@@ -133,6 +133,15 @@ Validierung des ersten Schnitts (2026-07-12): `cargo fmt --all -- --check`,
 dokumentierte Migrationsbrücke; neue Schnitte müssen benannte Session-/Service-
 Methoden ergänzen und den Direktzugriff schrittweise verkleinern.
 
+Strukturkorrektur 2026-07-12: Nach den ersten Schnitten war `session.rs` auf
+600 Zeilen und 29 öffentliche Methoden angewachsen. Der Monolith wurde ohne
+API-/Verhaltensänderung nach Verantwortung in `session/{selection,drawing,
+actions,layers}.rs` zerlegt; Tests liegen separat in `session/tests.rs`. Der
+Session-Root besitzt nur noch Zustand/Lebenszyklus, Undo/Redo, gemeinsame
+Invarianten und die ausdrücklich temporäre Migrationsbrücke. Neue Features
+müssen in das zuständige Modul oder einen eigenen Service, nicht zurück in den
+Root.
+
 ## Phase 2 — Editor-Grundworkflow vollständig migrieren
 
 Ziel: Ein kleiner, ehrlicher Editor, der zuverlässig benutzt werden kann.
