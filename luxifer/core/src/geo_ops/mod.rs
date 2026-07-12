@@ -63,10 +63,15 @@ pub fn boolean(subject: &[Vec<Pt>], clip: &[Vec<Pt>], op: BoolOp) -> Vec<Vec<Pt>
 /// Parallele Kontur im Abstand `dist` (mm): positiv = nach außen, negativ =
 /// nach innen (bei geschlossenen Konturen). Kann mehrere Konturen liefern
 /// (Selbstüberschneidungen werden aufgelöst) oder keine (Kontur kollabiert).
-/// Bögen der Offset-Kurve werden zu Polylinien-Segmenten abgeflacht.
+/// Geschlossene konvexe Linienkonturen erhalten harte Miter-Ecken. Offene und
+/// konkave Konturen laufen über `cavalier_contours`, dessen End-/Selbstschnitt-
+/// behandlung dafür robuster ist; Bögen werden dort zu Linien abgeflacht.
 pub fn offset(points: &[Pt], closed: bool, dist: f64) -> Vec<Vec<Pt>> {
     if points.len() < 2 || dist == 0.0 {
         return Vec::new();
+    }
+    if closed && points.len() >= 3 && is_convex_contour(points) {
+        return offset_closed_miter(points, dist).into_iter().collect();
     }
     let mut pl: Polyline<f64> = if closed {
         Polyline::new_closed()
@@ -97,6 +102,98 @@ pub fn offset(points: &[Pt], closed: bool, dist: f64) -> Vec<Vec<Pt>> {
         }
     }
     out
+}
+
+fn is_convex_contour(points: &[Pt]) -> bool {
+    let pts = if points.len() > 3 && points.first() == points.last() {
+        &points[..points.len() - 1]
+    } else {
+        points
+    };
+    let mut sign = 0.0_f64;
+    for i in 0..pts.len() {
+        let a = pts[i];
+        let b = pts[(i + 1) % pts.len()];
+        let c = pts[(i + 2) % pts.len()];
+        let cross = (b.0 - a.0) * (c.1 - b.1) - (b.1 - a.1) * (c.0 - b.0);
+        if cross.abs() < 1e-9 {
+            continue;
+        }
+        if sign != 0.0 && cross.signum() != sign {
+            return false;
+        }
+        sign = cross.signum();
+    }
+    sign != 0.0
+}
+
+/// Offset einer geschlossenen, geraden Kontur mit scharfen Ecken. Die
+/// Schnittpunkte benachbarter verschobener Kanten sind die Miter-Knoten.
+fn offset_closed_miter(points: &[Pt], dist: f64) -> Option<Vec<Pt>> {
+    let mut pts = points.to_vec();
+    if pts.len() > 3 && pts.first() == pts.last() {
+        pts.pop();
+    }
+    let signed_area = pts
+        .iter()
+        .zip(pts.iter().cycle().skip(1))
+        .take(pts.len())
+        .map(|(a, b)| a.0 * b.1 - b.0 * a.1)
+        .sum::<f64>()
+        * 0.5;
+    if signed_area.abs() < 1e-9 {
+        return None;
+    }
+    // Bei CCW liegt außen rechts der Kante, bei CW links.
+    let side = if signed_area > 0.0 { 1.0 } else { -1.0 };
+    let shifted = |a: Pt, b: Pt| -> Option<(Pt, Pt)> {
+        let dx = b.0 - a.0;
+        let dy = b.1 - a.1;
+        let len = dx.hypot(dy);
+        if len < 1e-9 {
+            return None;
+        }
+        let n = (side * dy / len * dist, -side * dx / len * dist);
+        Some(((a.0 + n.0, a.1 + n.1), (b.0 + n.0, b.1 + n.1)))
+    };
+    let line_intersection = |a: Pt, b: Pt, c: Pt, d: Pt| -> Option<Pt> {
+        let ab = (b.0 - a.0, b.1 - a.1);
+        let cd = (d.0 - c.0, d.1 - c.1);
+        let det = ab.0 * cd.1 - ab.1 * cd.0;
+        if det.abs() < 1e-9 {
+            return None;
+        }
+        let ac = (c.0 - a.0, c.1 - a.1);
+        let t = (ac.0 * cd.1 - ac.1 * cd.0) / det;
+        Some((a.0 + t * ab.0, a.1 + t * ab.1))
+    };
+
+    let n = pts.len();
+    let mut out = Vec::with_capacity(n);
+    for i in 0..n {
+        let prev = shifted(pts[(i + n - 1) % n], pts[i])?;
+        let next = shifted(pts[i], pts[(i + 1) % n])?;
+        // Kollineare Nachbarkanten brauchen keinen unendlichen Schnittpunkt.
+        out.push(line_intersection(prev.0, prev.1, next.0, next.1).unwrap_or(next.0));
+    }
+    let out_area = out
+        .iter()
+        .zip(out.iter().cycle().skip(1))
+        .take(out.len())
+        .map(|(a, b)| a.0 * b.1 - b.0 * a.1)
+        .sum::<f64>()
+        * 0.5;
+    // Ein zu großer Innenoffset klappt die Kontur um; fachlich ist sie dann
+    // kollabiert und darf nicht als scheinbar neue Fläche zurückkehren.
+    let edges_keep_direction = (0..n).all(|i| {
+        let original = (pts[(i + 1) % n].0 - pts[i].0, pts[(i + 1) % n].1 - pts[i].1);
+        let shifted = (out[(i + 1) % n].0 - out[i].0, out[(i + 1) % n].1 - out[i].1);
+        original.0 * shifted.0 + original.1 * shifted.1 > 1e-9
+    });
+    if out_area.abs() < 1e-9 || out_area.signum() != signed_area.signum() || !edges_keep_direction {
+        return None;
+    }
+    Some(out)
 }
 
 /// Verrundet die Ecken einer Polylinie mit Radius `r` (mm): jede Ecke wird
@@ -521,8 +618,18 @@ mod tests {
         let sq = rect(0.0, 0.0, 10.0, 10.0);
         let out = offset(&sq, true, 2.0);
         assert_eq!(out.len(), 1);
-        // 10×10 + 2mm außen: Fläche > 14×14 − Eckenrundung, sicher > 180.
-        assert!(area(&out[0]) > 180.0, "war {}", area(&out[0]));
+        assert_eq!(out[0].len(), 4, "harte Rechteck-Ecken bleiben hart");
+        assert!(
+            (area(&out[0]) - 196.0).abs() < 1e-6,
+            "war {}",
+            area(&out[0])
+        );
+        let xs: Vec<f64> = out[0].iter().map(|p| p.0).collect();
+        let ys: Vec<f64> = out[0].iter().map(|p| p.1).collect();
+        assert_eq!(xs.iter().copied().fold(f64::INFINITY, f64::min), -2.0);
+        assert_eq!(xs.iter().copied().fold(f64::NEG_INFINITY, f64::max), 12.0);
+        assert_eq!(ys.iter().copied().fold(f64::INFINITY, f64::min), -2.0);
+        assert_eq!(ys.iter().copied().fold(f64::NEG_INFINITY, f64::max), 12.0);
     }
 
     #[test]

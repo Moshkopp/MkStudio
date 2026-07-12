@@ -27,7 +27,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
 | ID | Klasse | Prio | Beschreibung |
 |----|--------|------|--------------|
-| B1 | BUG | P1 | Offset macht aus harten Kanten ein Offset mit Fills (falsches Ergebnis). |
+| B1 | ERLEDIGT | P1 | Geschlossene konvexe Linienkonturen behalten beim Offset harte Miter-Ecken statt verrundeter Übergänge. |
 | B2 | FEHLT | P2 | Musterfüllung ist nur Stub. |
 | B3 | FEHLT | P2 | Haltesteg ist nur Stub. |
 
@@ -90,3 +90,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 - A3 (erledigt): Eine bildschirmkonstante 10-px-Fangzone schließt Pfade ab drei
   Knoten. Overlay-Gummiband und Startmarker zeigen das Einrasten; Application
   erzeugt für Klick und Enter echte geschlossene Polyline-/Spline-/Bézier-Pfade.
+- B1 (erledigt): `cavalier_contours` erzeugte standardmäßig runde Außen-Joins.
+  Geschlossene konvexe Linienkonturen nutzen nun im Core Schnittpunkte
+  benachbarter Parallelkanten (Miter); kollabierte Innenoffsets bleiben leer.
+  Konkave und offene Konturen behalten die robuste Selbstschnittbehandlung.
