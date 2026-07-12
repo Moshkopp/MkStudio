@@ -609,6 +609,21 @@ impl App {
         self.session.selected.len()
     }
 
+    /// Führt eine typisierte UI-Absicht aus (ADR 0011: „UI erzeugt Absicht, App
+    /// koordiniert"). Die eigentliche Fachlogik liegt weiterhin in den
+    /// bestehenden Methoden bzw. der `EditorSession`.
+    pub fn dispatch(&mut self, action: crate::ui::UiAction) {
+        use crate::ui::UiAction as A;
+        match action {
+            A::Align(kind) => self.align(kind),
+            A::Distribute(kind) => self.distribute(kind),
+            A::Group => self.group(),
+            A::Ungroup => self.ungroup(),
+            A::Nest(gap) => self.nest(gap),
+            A::NestFill(gap) => self.nest_fill(gap),
+        }
+    }
+
     pub fn toggle_layer(&mut self, index: usize, toggle: LayerToggle) {
         let result = self.session.toggle_layer(index, toggle);
         self.report(result);

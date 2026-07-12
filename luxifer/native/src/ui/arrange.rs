@@ -1,9 +1,12 @@
 //! Anordnen-Leiste (zweite Kopfzeile im Design-Reiter): Ausrichten, Verteilen,
 //! Gruppieren/Lösen und Nesting.
+//!
+//! Pilot der `UiAction`-Grenze (ADR 0011): Das Panel zeichnet nur, liest allein
+//! die Auswahlanzahl und liefert Absichten zurück, statt `App` zu mutieren.
 
 use egui::Color32;
 
-use crate::app::App;
+use super::action::UiAction;
 
 /// Kleiner horizontaler Icon-Knopf (Anordnen-Leiste). `dim` = deaktiviert.
 fn bar_icon(ui: &mut egui::Ui, icon: &str, tip: &str, enabled: bool) -> bool {
@@ -31,67 +34,71 @@ fn bar_icon(ui: &mut egui::Ui, icon: &str, tip: &str, enabled: bool) -> bool {
 }
 
 /// Anordnen-Leiste: Ausrichten (7), Verteilen (4), Gruppieren/Lösen, Nesting.
-pub(super) fn arrange_bar(ui: &mut egui::Ui, app: &mut App) {
+/// `selection` = Anzahl der (gruppierten) Auswahleinheiten; steuert nur die
+/// Aktivierung. Gibt die ausgelösten Absichten zurück.
+pub(super) fn arrange_bar(ui: &mut egui::Ui, selection: usize) -> Vec<UiAction> {
     use luxifer_core::{Align, Distribute};
-    let n = app.selection_count();
+    let mut actions = Vec::new();
+    let n = selection;
     ui.horizontal(|ui| {
         // Ausrichten (ab 1 Objekt).
         let a1 = n >= 1;
         if bar_icon(ui, "align-left", "Links ausrichten", a1) {
-            app.align(Align::Left);
+            actions.push(UiAction::Align(Align::Left));
         }
         if bar_icon(ui, "align-hcenter", "Horizontal zentrieren", a1) {
-            app.align(Align::HCenter);
+            actions.push(UiAction::Align(Align::HCenter));
         }
         if bar_icon(ui, "align-right", "Rechts ausrichten", a1) {
-            app.align(Align::Right);
+            actions.push(UiAction::Align(Align::Right));
         }
         ui.add_space(2.0);
         if bar_icon(ui, "align-top", "Oben ausrichten", a1) {
-            app.align(Align::Top);
+            actions.push(UiAction::Align(Align::Top));
         }
         if bar_icon(ui, "align-vcenter", "Vertikal zentrieren", a1) {
-            app.align(Align::VCenter);
+            actions.push(UiAction::Align(Align::VCenter));
         }
         if bar_icon(ui, "align-bottom", "Unten ausrichten", a1) {
-            app.align(Align::Bottom);
+            actions.push(UiAction::Align(Align::Bottom));
         }
         if bar_icon(ui, "align-center", "Auf beiden Achsen zentrieren", a1) {
-            app.align(Align::Center);
+            actions.push(UiAction::Align(Align::Center));
         }
         ui.separator();
         // Verteilen (ab 3 Objekten).
         let a3 = n >= 3;
         if bar_icon(ui, "dist-h", "Horizontal verteilen", a3) {
-            app.distribute(Distribute::Horizontal);
+            actions.push(UiAction::Distribute(Distribute::Horizontal));
         }
         if bar_icon(ui, "space-h", "Horizontale Abstände angleichen", a3) {
-            app.distribute(Distribute::SpaceHorizontal);
+            actions.push(UiAction::Distribute(Distribute::SpaceHorizontal));
         }
         if bar_icon(ui, "dist-v", "Vertikal verteilen", a3) {
-            app.distribute(Distribute::Vertical);
+            actions.push(UiAction::Distribute(Distribute::Vertical));
         }
         if bar_icon(ui, "space-v", "Vertikale Abstände angleichen", a3) {
-            app.distribute(Distribute::SpaceVertical);
+            actions.push(UiAction::Distribute(Distribute::SpaceVertical));
         }
         ui.separator();
         // Gruppieren.
         if bar_icon(ui, "group", "Gruppieren", n >= 2) {
-            app.group();
+            actions.push(UiAction::Group);
         }
         if bar_icon(ui, "ungroup", "Gruppierung lösen", n >= 1) {
-            app.ungroup();
+            actions.push(UiAction::Ungroup);
         }
         ui.separator();
         // Nesting: Packen (≥2) / Bett füllen (≥1), fester Abstand 2 mm.
         if bar_icon(ui, "nest", "Auswahl packen (2 mm)", n >= 2) {
-            app.nest(2.0);
+            actions.push(UiAction::Nest(2.0));
         }
         if ui
             .add_enabled(n >= 1, egui::Button::new("Bett füllen"))
             .clicked()
         {
-            app.nest_fill(2.0);
+            actions.push(UiAction::NestFill(2.0));
         }
     });
+    actions
 }

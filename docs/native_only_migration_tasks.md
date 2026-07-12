@@ -376,12 +376,31 @@ Ziel: Spike-Struktur in wartbare Produktstruktur überführen.
 Native-Strukturschnitt 2026-07-12 (begonnen): Der UI-Monolith `ui.rs`
 (1025 Zeilen) wurde rein mechanisch nach Verantwortung in `ui/{mod,project,
 tools,layers,palette,arrange}.rs` und `ui/dialogs/{layer,text,laser_settings}.rs`
-zerlegt — ohne Verhaltens-/API-Änderung. Die Panels bekommen vorerst weiter
-`&mut App`; die geplante `UiAction`-Grenze (Panels liefern Absichten statt den
-`App`-Zustand zu mutieren) folgt als eigener Schritt. Nächste geplante
-Schnitte: Overlay-/Cache-Erzeugung aus `app.rs` nach `canvas/`, dann der
-Render-Frame nach `render/`, dann Maus-/Gestensteuerung. Erst danach `UiAction`/
-`NativeAction` und die Reduktion von `App` auf einen Composition Root.
+zerlegt — ohne Verhaltens-/API-Änderung.
+
+UiAction-Grenze 2026-07-12 (Fundament + Pilot): Konkretisierung der ADR-0011-
+Regel „UI erzeugt Absicht, App koordiniert" für Native. Ein Panel zeichnet und
+gibt `Vec<UiAction>` zurück, statt `App` zu mutieren; der Root führt sie über
+`App::dispatch` aus. Umgesetzt sind das `UiAction`-Enum (`ui/action.rs`),
+`App::dispatch` und die Rückgabe aus dem `arrange`-Panel über
+`TopBottomPanel::show(...).inner`. Bewusst nur `arrange_bar` als Pilot (fast nur
+einfache Aktionen, liest nur die Auswahlanzahl, kein Dialogentwurf/I/O), um die
+Ergonomie der Grenze zu prüfen, bevor die übrigen Panels folgen.
+
+Regel für die weitere Migration:
+- Reine Aktionen → `UiAction`-Variante + `App::dispatch`.
+- Lesezugriffe → das Panel erhält die nötigen Werte/View-Modelle als `&`.
+- Dialog-/Textfeld-Entwürfe (immediate mode) → das Panel erhält seinen
+  kurzlebigen Draft weiterhin als `&mut` (nicht `&mut App`); das Übernehmen läuft
+  als `UiAction`.
+
+Das `UiAction`-Enum wächst dabei schnittweise mit; noch nicht migrierte Panels
+behalten vorübergehend `&mut App`.
+
+Nächste geplante Schnitte: übrige Aktions-Panels (tools, layers, palette) auf
+`UiAction` umstellen; parallel Overlay-/Cache-Erzeugung aus `app.rs` nach
+`canvas/`, dann der Render-Frame nach `render/`, dann Maus-/Gestensteuerung.
+Zuletzt die Reduktion von `App` auf einen Composition Root.
 - [ ] UI-Größen, DPI-Skalierung und Ultrawide-/kleine Fenster testen.
 - [ ] Tooltips, deaktivierte Zustände, Fokus und Tastaturnavigation.
 - [ ] Rechte Panels sinnvoll skalierbar/resizable machen.

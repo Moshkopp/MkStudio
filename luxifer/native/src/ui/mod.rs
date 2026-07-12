@@ -8,12 +8,15 @@
 //! Panels bekommen vorerst weiterhin `&mut App` — die `UiAction`-Grenze folgt
 //! als eigener Schritt.)
 
+mod action;
 mod arrange;
 mod dialogs;
 mod layers;
 mod palette;
 mod project;
 mod tools;
+
+pub use action::UiAction;
 
 use egui::{Color32, RichText};
 
@@ -96,13 +99,21 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     }
 
     // Zweite Kopfzeile: Anordnen (Ausrichten/Verteilen/Gruppieren/Nesting) — nur
-    // im Design-Reiter. Wie in der Tauri-App liegt das im Kopf.
+    // im Design-Reiter. Wie in der Tauri-App liegt das im Kopf. Pilot der
+    // UiAction-Grenze: Das Panel liefert Absichten, der Root führt sie aus.
     if app.view == View::Design {
-        egui::TopBottomPanel::top("arrange").show(ctx, |ui| {
-            ui.add_space(3.0);
-            arrange::arrange_bar(ui, app);
-            ui.add_space(3.0);
-        });
+        let selection = app.selection_count();
+        let actions = egui::TopBottomPanel::top("arrange")
+            .show(ctx, |ui| {
+                ui.add_space(3.0);
+                let a = arrange::arrange_bar(ui, selection);
+                ui.add_space(3.0);
+                a
+            })
+            .inner;
+        for action in actions {
+            app.dispatch(action);
+        }
     }
 
     // Statuszeile unten.
