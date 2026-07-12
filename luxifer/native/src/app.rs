@@ -8,8 +8,8 @@ use egui_wgpu::ScreenDescriptor;
 use luxifer_application::{AppError, EditorSession, LayerParams, LayerToggle};
 use luxifer_core::geometry::Geo;
 use luxifer_core::state::AppState;
-use winit::event::{ElementState, MouseScrollDelta, WindowEvent};
-use winit::keyboard::{KeyCode, PhysicalKey};
+use winit::event::{ElementState, WindowEvent};
+use winit::keyboard::PhysicalKey;
 use winit::window::Window;
 
 use crate::camera::Camera;
@@ -181,7 +181,7 @@ impl App {
             WindowEvent::KeyboardInput { event, .. } => {
                 let pressed = event.state == ElementState::Pressed;
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    if let Some(key) = map_keycode(code) {
+                    if let Some(key) = crate::canvas::input::map_keycode(code) {
                         let mods = crate::tools::Mods {
                             ctrl: self.canvas.ctrl_down,
                             shift: self.canvas.shift_down,
@@ -195,30 +195,13 @@ impl App {
                     }
                 }
             }
-            WindowEvent::CursorMoved { position, .. } => {
-                let new = [position.x as f32, position.y as f32];
-                self.canvas.on_cursor_move(&mut self.session, new);
-            }
-            WindowEvent::MouseInput { state, button, .. } => {
-                let added = self.canvas.on_mouse(
-                    &mut self.session,
-                    *button,
-                    *state == ElementState::Pressed,
-                );
-                if added {
+            // Reine Canvas-Zeiger-Events übersetzt canvas::input; erzeugt die
+            // Geste ein Shape, frischt der Root die Zeichenfarbe auf.
+            _ => {
+                if self.canvas.handle_pointer_event(&mut self.session, event) {
                     self.refresh_accent();
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } => {
-                let s = match delta {
-                    MouseScrollDelta::LineDelta(_, y) => *y,
-                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 40.0,
-                };
-                self.canvas
-                    .cam
-                    .zoom_at(1.12_f32.powf(s), self.canvas.cursor);
-            }
-            _ => {}
         }
         true
     }
@@ -922,26 +905,6 @@ impl App {
             self.egui_renderer.free_texture(id);
         }
     }
-}
-
-/// Übersetzt die für Shortcuts relevanten physischen Tasten in das
-/// UI-unabhängige `tools::Key`. Alles andere ignoriert die Shortcut-Ebene.
-fn map_keycode(code: KeyCode) -> Option<crate::tools::Key> {
-    use crate::tools::Key;
-    Some(match code {
-        KeyCode::KeyS => Key::S,
-        KeyCode::Delete | KeyCode::Backspace => Key::Delete,
-        KeyCode::Escape => Key::Escape,
-        KeyCode::Enter => Key::Enter,
-        KeyCode::Space => Key::Space,
-        KeyCode::KeyV => Key::V,
-        KeyCode::KeyR => Key::R,
-        KeyCode::KeyE => Key::E,
-        KeyCode::KeyP => Key::P,
-        KeyCode::KeyZ => Key::Z,
-        KeyCode::KeyY => Key::Y,
-        _ => return None,
-    })
 }
 
 #[cfg(test)]
