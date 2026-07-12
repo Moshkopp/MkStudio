@@ -419,9 +419,23 @@ Bewusst NICHT über UiAction geführt: die reine Panelbreiten-Rückschreibung
 (`left_w`/`right_w`) ist Layout-Rückmeldung von egui an den Root, kein
 Fachzustand — dokumentierte Ausnahme, kein offener Schuldposten.
 
-Nächste geplante Schnitte: Overlay-/Cache-Erzeugung aus `app.rs` nach `canvas/`,
-dann der Render-Frame nach `render/`, dann Maus-/Gestensteuerung. Zuletzt die
-Reduktion von `App` auf einen Composition Root.
+canvas-Schnitte 2026-07-12 (begonnen): Die app.rs-Zerlegung läuft. Bisher:
+- `canvas/scene.rs` + `canvas/overlay.rs`: der reine „Zustand → Vertices"-Aufbau
+  (Basis-Puffer bzw. Frame-Overlay) als App-freie Funktionen; `OverlayInput`
+  bündelt den nur gelesenen Zustand.
+- `canvas/state.rs` (`CanvasState`): der Interaktions-/Kamerazustand (cam, tool,
+  active_shape, drag, cursor, Modifier, poly_pts) aus App herausgelöst; App hält
+  ein `canvas`-Feld.
+- `canvas/gestures.rs`: die Maus-Gesten als `impl CanvasState` (+ `&mut
+  EditorSession`); shape-erzeugende Gesten geben `bool` zurück, den Accent
+  frischt der Root auf.
+app.rs von ~1481 auf ~1070 Zeilen. Kein Verhaltenswechsel.
+
+Nächste geplante Schnitte: Event-/Input-Übersetzung (`window_event`/`map_keycode`
+/`apply_shortcut`) nach `canvas/input.rs`; danach der Render-Frame nach
+`render/` (verlangt einen `Renderer`, der Gpu/egui/ImageStore/Cache besitzt —
+echter Ownership-Umbau). Zuletzt die Reduktion von `App` auf einen Composition
+Root.
 - [ ] UI-Größen, DPI-Skalierung und Ultrawide-/kleine Fenster testen.
 - [ ] Tooltips, deaktivierte Zustände, Fokus und Tastaturnavigation.
 - [ ] Rechte Panels sinnvoll skalierbar/resizable machen.
