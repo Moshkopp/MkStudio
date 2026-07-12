@@ -328,43 +328,20 @@ impl App {
             WindowEvent::KeyboardInput { event, .. } => {
                 let pressed = event.state == ElementState::Pressed;
                 if let PhysicalKey::Code(code) = event.physical_key {
-                    // Strg+S / Shift+Strg+S: speichern bzw. neue Version.
-                    if pressed && self.ctrl_down && code == KeyCode::KeyS {
-                        if self.shift_down {
-                            self.project_save_version();
-                        } else {
-                            self.project_save();
+                    if let Some(key) = map_keycode(code) {
+                        let mods = crate::tools::Mods {
+                            ctrl: self.ctrl_down,
+                            shift: self.shift_down,
+                        };
+                        // Fokus-Gate: hat ein egui-Textfeld/Dialog den Tastatur-
+                        // fokus, feuert kein Canvas-Shortcut. Das schützt die
+                        // Szene vor Tippen hinter einem offenen Dialog.
+                        let editing = self.egui_ctx.wants_keyboard_input();
+                        if let Some(shortcut) =
+                            crate::tools::resolve_shortcut(key, mods, pressed, editing)
+                        {
+                            self.apply_shortcut(shortcut);
                         }
-                        return true;
-                    }
-                    match code {
-                        KeyCode::Space => self.space_down = pressed,
-                        KeyCode::Delete | KeyCode::Backspace if pressed => {
-                            if !self.session.selected.is_empty() {
-                                self.delete_selected();
-                            }
-                        }
-                        KeyCode::Escape if pressed => {
-                            self.poly_pts.clear();
-                            if self.session.edit_active() {
-                                self.session.cancel_edit();
-                                self.drag = Drag::None;
-                            } else {
-                                self.session.clear_selection();
-                            }
-                        }
-                        KeyCode::Enter if pressed => self.finish_polygon(),
-                        KeyCode::KeyV if pressed => self.tool = Tool::Select,
-                        KeyCode::KeyR if pressed => self.tool = Tool::Rect,
-                        KeyCode::KeyE if pressed => self.tool = Tool::Ellipse,
-                        KeyCode::KeyP if pressed => self.tool = Tool::Polygon,
-                        KeyCode::KeyZ if pressed => {
-                            self.undo();
-                        }
-                        KeyCode::KeyY if pressed => {
-                            self.redo();
-                        }
-                        _ => {}
                     }
                 }
             }
@@ -404,6 +381,36 @@ impl App {
 
     pub fn redo(&mut self) {
         self.session.redo();
+    }
+
+    /// Führt eine typisierte Tastatur-Aktion aus. Die Zuordnung Taste→Aktion
+    /// (inklusive Fokusregeln) liegt in `tools::resolve_shortcut`; hier steht
+    /// nur die Ausführung über die Session/den UI-Zustand.
+    fn apply_shortcut(&mut self, shortcut: crate::tools::Shortcut) {
+        use crate::tools::Shortcut as S;
+        match shortcut {
+            S::Save => self.project_save(),
+            S::SaveVersion => self.project_save_version(),
+            S::Delete => {
+                if !self.session.selected.is_empty() {
+                    self.delete_selected();
+                }
+            }
+            S::Cancel => {
+                self.poly_pts.clear();
+                if self.session.edit_active() {
+                    self.session.cancel_edit();
+                    self.drag = Drag::None;
+                } else {
+                    self.session.clear_selection();
+                }
+            }
+            S::FinishPolygon => self.finish_polygon(),
+            S::Undo => self.undo(),
+            S::Redo => self.redo(),
+            S::SelectTool(tool) => self.tool = tool,
+            S::PanModifier(down) => self.space_down = down,
+        }
     }
 
     fn on_mouse(&mut self, button: MouseButton, pressed: bool) {
@@ -1393,6 +1400,26 @@ impl App {
             self.egui_renderer.free_texture(id);
         }
     }
+}
+
+/// Übersetzt die für Shortcuts relevanten physischen Tasten in das
+/// UI-unabhängige `tools::Key`. Alles andere ignoriert die Shortcut-Ebene.
+fn map_keycode(code: KeyCode) -> Option<crate::tools::Key> {
+    use crate::tools::Key;
+    Some(match code {
+        KeyCode::KeyS => Key::S,
+        KeyCode::Delete | KeyCode::Backspace => Key::Delete,
+        KeyCode::Escape => Key::Escape,
+        KeyCode::Enter => Key::Enter,
+        KeyCode::Space => Key::Space,
+        KeyCode::KeyV => Key::V,
+        KeyCode::KeyR => Key::R,
+        KeyCode::KeyE => Key::E,
+        KeyCode::KeyP => Key::P,
+        KeyCode::KeyZ => Key::Z,
+        KeyCode::KeyY => Key::Y,
+        _ => return None,
+    })
 }
 
 #[cfg(test)]

@@ -158,7 +158,8 @@ Ziel: Ein kleiner, ehrlicher Editor, der zuverlässig benutzt werden kann.
       numerische Layerwerte (`set_layer_params` mit Validierung) sind migriert.
 - [x] Löschen, Gruppieren, Aufheben, Undo und Redo laufen über
       `EditorSession`.
-- [ ] Tastaturkürzel einschließlich Fokusregeln für Textfelder/Dialoge.
+- [x] Tastaturkürzel einschließlich Fokusregeln für Textfelder/Dialoge
+      (typisierte `Shortcut`-Zuordnung, Fokus-Gate über `wants_keyboard_input`).
 - [x] Jede direkte Move-/Resize-/Rotate-Geste erzeugt genau einen sinnvollen
       Undo-Schritt.
 - [x] Abbruch einer direkten Manipulationsgeste stellt den Ausgangszustand
@@ -216,6 +217,18 @@ Mutation (kein Dirty, kein zusätzlicher Undo-Punkt); ein gültiger Wechsel ist
 genau ein Undo-Schritt. Native hält nur den Dialogentwurf; Speichern läuft über
 die Session, Abbrechen verändert nichts. Validierung: 262 Workspace-Tests
 (200 Core, 27 Application) und Clippy mit `-D warnings` grün.
+
+Tastatur-/Fokusschnitt 2026-07-12: Die Canvas-Tastatur läuft über eine
+typisierte `Shortcut`-Ebene (`tools::resolve_shortcut`), getrennt vom Auslösen,
+und ist ohne winit/egui testbar. Das Fokus-Gate nutzt
+`egui::Context::wants_keyboard_input`: hat ein Textfeld oder Dialog den
+Tastaturfokus, feuert kein Canvas-Shortcut — Tippen hinter einem offenen
+Layer-/Text-Dialog mutiert die Szene nicht mehr und wechselt kein Werkzeug.
+Zusätzlich behoben: Undo/Redo verlangen jetzt Strg (ein nacktes „z"/„y" war
+zuvor Undo/Redo). Die Ausführung (`App::apply_shortcut`) läuft weiter über die
+`EditorSession`; die reine Taste→Aktion-Zuordnung bleibt Native-Präsentation.
+Validierung: 267 Workspace-Tests (16 Native, davon 5 Shortcut-Tests) und Clippy
+mit `-D warnings` grün; native App startet und rendert ohne Panic.
 
 ## Phase 3 — Projekt, Versionen und Assets
 
