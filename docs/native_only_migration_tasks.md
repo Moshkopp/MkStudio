@@ -10,6 +10,9 @@ Svelte/Tauri zu einer ausschließlich nativen LuxiFer-Anwendung. Jeder Agent
 liest vor Änderungen zuerst ADR 0010, ADR 0011, diese Datei und danach nur die
 für den nächsten offenen Schnitt genannten Quelldateien.
 
+Die vollständige Command- und UI-Inventur wird in
+[`docs/native_function_matrix.md`](native_function_matrix.md) fortgeführt.
+
 Nach jedem stabilen Arbeitspaket:
 
 - Checkboxen und Befunde hier aktualisieren;
@@ -64,13 +67,13 @@ Ziel: Keine weitere scheinbare Funktionsbreite; belastbare Migrationsmatrix.
       „Noch nicht migriert“ kennzeichnen.
 - [ ] Fehlerhafte Aktionen entweder reparieren oder bis zu ihrem Schnitt
       deaktivieren.
-- [ ] Tauri-Commands vollständig inventarisieren:
-  - [ ] `frontend/src-tauri/src/lib.rs`
-  - [ ] `commands/shapes.rs`
-  - [ ] `commands/edit.rs`
-  - [ ] `commands/image.rs`
-  - [ ] `commands/project.rs`
-  - [ ] `commands/laser.rs`
+- [x] Tauri-Commands auf Funktionsebene vollständig inventarisieren:
+  - [x] `frontend/src-tauri/src/lib.rs`
+  - [x] `commands/shapes.rs`
+  - [x] `commands/edit.rs`
+  - [x] `commands/image.rs`
+  - [x] `commands/project.rs`
+  - [x] `commands/laser.rs`
 - [ ] Für jeden Command eine Zeile in der Funktionsmatrix ergänzen:
 
 | Bereich | Funktion | Quelle heute | Ziel | Status | Entscheidung/Abnahme |
@@ -82,6 +85,10 @@ Ziel: Keine weitere scheinbare Funktionsbreite; belastbare Migrationsmatrix.
 | Import | Bild | Core + Adapter | Application | prüfen | Asset-Lebenszyklus und Parameter |
 | Text | Font/Text→Pfad | Core + Adapter | Application | prüfen | Fontfehler, Metadaten, Editieren |
 | Laser | Profile/Aktionen/Job | Tauri + Native-Duplikat | Application | prüfen | kein Hardwarezugriff im UI |
+
+Detailmatrix: [`docs/native_function_matrix.md`](native_function_matrix.md).
+Die Command-Zeilen und ersten Zielzuordnungen sind vollständig; Status und
+Abnahmebefunde werden pro vertikalem Schnitt fortgeschrieben.
 
 Abnahme Phase 0:
 
@@ -330,10 +337,11 @@ eingetragen werden; sie blockieren nicht Phase 0/1:
 Nächster sinnvoller Schritt ist **Phase 0**, nicht weitere UI-Implementierung:
 
 1. `git status --short` lesen und die vorhandenen Native-Änderungen schützen.
-2. Tauri-Commands per `rg "#\[tauri::command\]"` vollständig erfassen.
-3. Funktionsmatrix in dieser Datei vervollständigen.
-4. Native-Buttons den Funktionen zuordnen und Attrappen deaktivieren.
-5. Erst danach den minimalen `luxifer-application`-Schnitt entwerfen.
+2. Die vollständige Inventur in `docs/native_function_matrix.md` gegen die
+   aktuelle UI prüfen und Statusabweichungen ergänzen.
+3. Native-Buttons den Funktionen zuordnen und Attrappen deaktivieren.
+4. Danach den dort beschriebenen minimalen `luxifer-application`-Schnitt
+   umsetzen.
 
 Bei Unsicherheit gilt die Grenze aus ADR 0011: Core besitzt Fachregeln,
 Application besitzt Abläufe und Ressourcenkoordination, Native besitzt nur
