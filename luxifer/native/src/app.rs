@@ -16,7 +16,7 @@ use crate::canvas::CanvasState;
 use crate::gpu::Gpu;
 use crate::render::Renderer;
 use crate::tools::{Drag, LaserUi};
-use crate::ui::{self, LayerDialogState, TextDialogState};
+use crate::ui::{self, LayerDialogState, PendingProjectAction, TextDialogState};
 
 pub struct App {
     pub window: Arc<Window>,
@@ -53,6 +53,8 @@ pub struct App {
     pub text_dialog: Option<TextDialogState>,
     /// Offener Layer-Parameter-Dialog (Doppelklick auf Ebene) oder None.
     pub layer_dialog: Option<LayerDialogState>,
+    /// Projektaktion, die auf Bestätigung wartet (Dirty-Guard) oder None.
+    pub pending_project: Option<PendingProjectAction>,
     /// Verfügbare System-Fonts (einmalig gescannt, lazy).
     pub fonts: Vec<crate::fonts::FontEntry>,
 }
@@ -122,6 +124,7 @@ impl App {
             image_dirty: false,
             text_dialog: None,
             layer_dialog: None,
+            pending_project: None,
             fonts: Vec::new(),
         };
         if let Some(path) = auto_import {
@@ -423,8 +426,37 @@ impl App {
 
     // ---- Projekt (README-3c) -------------------------------------------------
 
-    /// Projekt öffnen: ersetzt den Canvas-Zustand durch den geladenen.
+    /// Projekt öffnen. Dirty-Guard: liegen ungespeicherte Änderungen vor, wird
+    /// erst bestätigt (Dialog), statt den Zustand kommentarlos zu ersetzen.
     pub fn project_open(&mut self, name: &str) {
+        if self.session.is_dirty() {
+            self.pending_project = Some(PendingProjectAction::Open(name.to_string()));
+        } else {
+            self.do_project_open(name);
+        }
+    }
+
+    /// Neues Projekt anlegen. Dirty-Guard wie bei `project_open`.
+    pub fn project_new(&mut self, name: &str) {
+        if self.session.is_dirty() {
+            self.pending_project = Some(PendingProjectAction::New(name.to_string()));
+        } else {
+            self.do_project_new(name);
+        }
+    }
+
+    /// Führt die durch den Dirty-Guard bestätigte Aktion aus (verwirft die
+    /// ungespeicherten Änderungen). Ohne wartende Aktion ein No-op.
+    pub fn confirm_pending_project(&mut self) {
+        match self.pending_project.take() {
+            Some(PendingProjectAction::New(name)) => self.do_project_new(&name),
+            Some(PendingProjectAction::Open(name)) => self.do_project_open(&name),
+            None => {}
+        }
+    }
+
+    /// Projekt öffnen: ersetzt den Editorzustand durch den geladenen.
+    fn do_project_open(&mut self, name: &str) {
         match self.project.open(name) {
             Ok(state) => {
                 self.session.replace_state(state);
@@ -443,9 +475,10 @@ impl App {
     }
 
     /// Neues Projekt aus dem aktuellen Canvas anlegen und speichern.
-    pub fn project_new(&mut self, name: &str) {
+    fn do_project_new(&mut self, name: &str) {
         match self.project.new_project(self.session.state(), name) {
             Ok(()) => {
+                self.session.mark_saved();
                 self.project_msg = format!("Neues Projekt: {}", name.trim());
                 self.view = crate::tools::View::Design;
             }
@@ -456,7 +489,10 @@ impl App {
     /// In-place speichern (Strg+S).
     pub fn project_save(&mut self) {
         match self.project.save(self.session.state()) {
-            Ok(v) => self.project_msg = format!("Gespeichert ({})", v.label),
+            Ok(v) => {
+                self.session.mark_saved();
+                self.project_msg = format!("Gespeichert ({})", v.label);
+            }
             Err(error) => self.app_error = Some(error),
         }
     }
@@ -464,7 +500,10 @@ impl App {
     /// Als neue Version speichern (Shift+Strg+S).
     pub fn project_save_version(&mut self) {
         match self.project.save_version(self.session.state()) {
-            Ok(v) => self.project_msg = format!("Neue Version {}", v.label),
+            Ok(v) => {
+                self.session.mark_saved();
+                self.project_msg = format!("Neue Version {}", v.label);
+            }
             Err(error) => self.app_error = Some(error),
         }
     }

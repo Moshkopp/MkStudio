@@ -64,6 +64,16 @@ impl EditorSession {
         std::mem::replace(&mut self.state, state)
     }
 
+    /// Ob ungespeicherte Änderungen vorliegen (für den Dirty-Guard).
+    pub fn is_dirty(&self) -> bool {
+        self.state.dirty
+    }
+
+    /// Nach erfolgreichem Speichern: der Zustand gilt als gesichert.
+    pub fn mark_saved(&mut self) {
+        self.state.mark_saved();
+    }
+
     pub(super) fn require_selection(&self, action: &str) -> Result<(), AppError> {
         if self.state.selected.is_empty() {
             Err(AppError::new(

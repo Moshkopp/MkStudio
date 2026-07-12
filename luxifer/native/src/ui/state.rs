@@ -28,3 +28,14 @@ impl Default for TextDialogState {
         }
     }
 }
+
+/// Eine Projektaktion, die den aktuellen Editorzustand ersetzen würde und
+/// deshalb bei ungespeicherten Änderungen erst bestätigt werden muss
+/// (Dirty-Guard). Wird ausgeführt, sobald der Nutzer „Verwerfen" wählt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PendingProjectAction {
+    /// Neues Projekt mit diesem Namen anlegen.
+    New(String),
+    /// Projekt mit diesem Namen öffnen.
+    Open(String),
+}

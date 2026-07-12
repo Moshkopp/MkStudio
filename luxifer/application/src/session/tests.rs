@@ -14,6 +14,18 @@ fn session_with_rect() -> EditorSession {
 }
 
 #[test]
+fn is_dirty_und_mark_saved_bilden_den_dirty_guard_ab() {
+    // Frischer Zustand ist sauber; eine Mutation macht ihn dirty; mark_saved
+    // (nach erfolgreichem Speichern) setzt ihn zurück.
+    let mut session = EditorSession::default();
+    assert!(!session.is_dirty());
+    session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [10.0, 10.0]);
+    assert!(session.is_dirty());
+    session.mark_saved();
+    assert!(!session.is_dirty());
+}
+
+#[test]
 fn loeschen_ohne_auswahl_liefert_stabilen_fehler_ohne_mutation() {
     let mut session = EditorSession::default();
     let error = session.delete_selected().unwrap_err();

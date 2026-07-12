@@ -21,7 +21,7 @@ mod tools;
 mod topbar;
 
 pub use action::UiAction;
-pub use state::{LayerDialogState, TextDialogState};
+pub use state::{LayerDialogState, PendingProjectAction, TextDialogState};
 
 use egui::Color32;
 
@@ -222,6 +222,20 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                 }
             }
             dialogs::DialogOutcome::Cancel => app.layer_dialog = None,
+        }
+    }
+
+    // Dirty-Guard: eine Projektaktion (Neu/Öffnen) wartet auf Bestätigung, weil
+    // sie ungespeicherte Änderungen verwerfen würde.
+    if let Some(pending) = app.pending_project.as_ref() {
+        let label = match pending {
+            PendingProjectAction::New(_) => "Neues Projekt anlegen",
+            PendingProjectAction::Open(_) => "Projekt öffnen",
+        };
+        match dialogs::guard_dialog(ctx, label) {
+            dialogs::DialogOutcome::None => {}
+            dialogs::DialogOutcome::Commit => app.confirm_pending_project(),
+            dialogs::DialogOutcome::Cancel => app.pending_project = None,
         }
     }
 }
