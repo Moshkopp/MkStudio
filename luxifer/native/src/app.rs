@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use egui_wgpu::ScreenDescriptor;
-use luxifer_application::{AppError, BoxShape, EditorSession, LayerToggle, PointPath};
+use luxifer_application::{AppError, BoxShape, EditorSession, LayerParams, LayerToggle, PointPath};
 use luxifer_core::geometry::Geo;
 use luxifer_core::state::AppState;
 use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
@@ -177,8 +177,18 @@ pub struct App {
     image_dirty: bool,
     /// Offener Text-Dialog (Eingabe/Font/Größe) oder None.
     pub text_dialog: Option<TextDialogState>,
+    /// Offener Layer-Parameter-Dialog (Doppelklick auf Ebene) oder None.
+    pub layer_dialog: Option<LayerDialogState>,
     /// Verfügbare System-Fonts (einmalig gescannt, lazy).
     pub fonts: Vec<crate::fonts::FontEntry>,
+}
+
+/// Kurzlebiger Entwurf des Layer-Parameter-Dialogs. Native hält nur diesen
+/// Entwurf; die Wahrheit liegt im `AppState`. Speichern läuft über die Session,
+/// Abbrechen verwirft den Entwurf ohne Mutation.
+pub struct LayerDialogState {
+    pub index: usize,
+    pub params: LayerParams,
 }
 
 /// Zustand des Text-Dialogs.
@@ -278,6 +288,7 @@ impl App {
             images: crate::image_gpu::ImageStore::default(),
             image_dirty: false,
             text_dialog: None,
+            layer_dialog: None,
             fonts: Vec::new(),
         };
         if let Some(path) = auto_import {
@@ -673,6 +684,34 @@ impl App {
     pub fn move_layer(&mut self, from: usize, to: usize) {
         let result = self.session.move_layer(from, to);
         self.report(result);
+    }
+
+    /// Öffnet den Layer-Parameter-Dialog mit den aktuellen Werten als Entwurf.
+    pub fn open_layer_dialog(&mut self, index: usize) {
+        if let Some(layer) = self.session.layers.get(index) {
+            self.layer_dialog = Some(LayerDialogState {
+                index,
+                params: LayerParams::from_layer(layer),
+            });
+        }
+    }
+
+    /// Übernimmt den Dialogentwurf über die Session. Bei Erfolg true (Dialog
+    /// schließen); bei Validierungsfehler bleibt der Dialog offen und der Fehler
+    /// erscheint im zentralen Kanal.
+    pub fn commit_layer_dialog(&mut self) -> bool {
+        let Some(st) = self.layer_dialog.as_ref() else {
+            return false;
+        };
+        let index = st.index;
+        let params = st.params.clone();
+        match self.session.set_layer_params(index, params) {
+            Ok(()) => true,
+            Err(error) => {
+                self.app_error = Some(error);
+                false
+            }
+        }
     }
 
     /// Sofort-Aktion aus der Werkzeugleiste. Boolean/Fillet/Offset laufen mit

@@ -153,9 +153,9 @@ Ziel: Ein kleiner, ehrlicher Editor, der zuverlässig benutzt werden kann.
 - [x] Transformieren: Verschieben, Skalieren, proportional Skalieren, Rotieren
       und Spiegeln laufen über `EditorSession`.
 - [ ] Transform-Handles und BBox ausschließlich aus kanonischer Core-Geometrie.
-- [ ] Layer/Farbe: Aktivieren, Sichtbarkeit, Job-Aktivierung, Sperre, Air Assist
+- [x] Layer/Farbe: Aktivieren, Sichtbarkeit, Job-Aktivierung, Sperre, Air Assist
       und Reihenfolge laufen über `EditorSession`; Parameterdialog und
-      numerische Layerwerte folgen im nächsten Layer-Teilschnitt.
+      numerische Layerwerte (`set_layer_params` mit Validierung) sind migriert.
 - [x] Löschen, Gruppieren, Aufheben, Undo und Redo laufen über
       `EditorSession`.
 - [ ] Tastaturkürzel einschließlich Fokusregeln für Textfelder/Dialoge.
@@ -201,7 +201,19 @@ mehr direkt. Sichtbarkeit, Job-Aktivierung, Sperre, Air Assist und Reihenfolge
 laufen über validierte `EditorSession`-Methoden und sind Dirty-/Undo-fähig.
 Reihenfolge nutzt weiterhin die kanonische Core-Remap-Operation für
 `shape.layer_id`. Validierung: 250 Workspace-Tests und Clippy mit `-D warnings`
-grün. Offen bleiben Layer-Parameterdialog und Wertevalidierung.
+grün.
+
+Layer-Parameterschnitt 2026-07-12: Der vollständige Parameterdialog
+(Doppelklick auf eine Ebene) läuft über `EditorSession::set_layer_params`. Der
+UI-unabhängige `LayerParams`-Typ nutzt den typisierten `LayerMode` statt eines
+String-DTOs. Validiert werden Leistung im Prozentbereich, `min ≤ max`, positive
+Geschwindigkeit/Zeilenabstand/DPI (NaN gilt als ungültig), mindestens ein
+Durchlauf sowie die Bild-Invariante (kein Wechsel Image↔Vektor). Ungültige
+Werte liefern einen stabilen `AppError` ohne jede Mutation (kein Dirty, kein
+zusätzlicher Undo-Punkt); ein gültiger Wechsel ist genau ein Undo-Schritt.
+Native hält nur den Dialogentwurf; Speichern läuft über die Session, Abbrechen
+verändert nichts. Validierung: 258 Workspace-Tests (200 Core, 23 Application)
+und Clippy mit `-D warnings` grün.
 
 ## Phase 3 — Projekt, Versionen und Assets
 

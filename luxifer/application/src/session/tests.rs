@@ -170,6 +170,133 @@ fn ungueltiger_layerindex_liefert_fehler_ohne_mutation() {
     assert_eq!(session.layers.len(), 1);
 }
 
+fn valid_params() -> LayerParams {
+    LayerParams {
+        name: "Kontur".into(),
+        mode: luxifer_core::LayerMode::Cut,
+        speed_mm_s: 120.0,
+        power_pct: 60.0,
+        min_power_pct: 20.0,
+        passes: 2,
+        air_assist: true,
+        line_step_mm: 0.2,
+        dpi: 300.0,
+        bidirectional: false,
+    }
+}
+
+#[test]
+fn layer_parameter_vollstaendig_setzen_ist_ein_undo_schritt() {
+    let mut session = session_with_rect();
+    let before = session.layers[0].clone();
+    session.set_layer_params(0, valid_params()).unwrap();
+    let l = &session.layers[0];
+    assert_eq!(l.name, "Kontur");
+    assert_eq!(l.speed_mm_s, 120.0);
+    assert_eq!(l.power_pct, 60.0);
+    assert_eq!(l.min_power_pct, 20.0);
+    assert_eq!(l.passes, 2);
+    assert!(l.air_assist);
+    assert!(!l.bidirectional);
+    assert!(session.dirty);
+    assert!(session.undo());
+    assert_eq!(session.layers[0], before);
+    assert!(session.redo());
+    assert_eq!(session.layers[0].name, "Kontur");
+}
+
+#[test]
+fn ungueltige_leistung_ausserhalb_prozentbereich_mutiert_nicht() {
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().dirty = false;
+    let before = session.layers[0].clone();
+    let mut params = valid_params();
+    params.power_pct = 140.0;
+    let error = session.set_layer_params(0, params).unwrap_err();
+    assert_eq!(error.code(), "power_range");
+    assert_eq!(session.layers[0], before);
+    assert!(!session.dirty);
+    // Kein zusätzlicher Undo-Punkt: der einzige Undo (aus dem Setup) entfernt
+    // das Rechteck, danach ist die Historie leer.
+    assert!(session.undo());
+    assert!(session.shapes.is_empty());
+    assert!(!session.undo());
+}
+
+#[test]
+fn minimale_leistung_ueber_maximaler_wird_abgewiesen() {
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().dirty = false;
+    let mut params = valid_params();
+    params.min_power_pct = 80.0;
+    params.power_pct = 50.0;
+    let error = session.set_layer_params(0, params).unwrap_err();
+    assert_eq!(error.code(), "power_order");
+    assert!(!session.dirty);
+}
+
+#[test]
+fn nicht_positive_geschwindigkeit_wird_abgewiesen() {
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().dirty = false;
+    let mut params = valid_params();
+    params.speed_mm_s = 0.0;
+    let error = session.set_layer_params(0, params).unwrap_err();
+    assert_eq!(error.code(), "speed_invalid");
+    assert!(!session.dirty);
+    // Nur der Setup-Undo-Punkt existiert; die Validierung fügte keinen hinzu.
+    assert!(session.undo());
+    assert!(session.shapes.is_empty());
+    assert!(!session.undo());
+}
+
+#[test]
+fn parameter_setzen_bei_ungueltigem_index_liefert_fehler() {
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().dirty = false;
+    let error = session.set_layer_params(9, valid_params()).unwrap_err();
+    assert_eq!(error.code(), "layer_not_found");
+    assert!(!session.dirty);
+}
+
+#[test]
+fn image_layer_kann_nicht_zu_vektor_umgewandelt_werden() {
+    let mut session = session_with_rect();
+    session.layers[0].mode = luxifer_core::LayerMode::Image;
+    session.state_mut_for_migration().dirty = false;
+    let before = session.layers[0].clone();
+    let mut params = valid_params();
+    params.mode = luxifer_core::LayerMode::Cut;
+    let error = session.set_layer_params(0, params).unwrap_err();
+    assert_eq!(error.code(), "image_layer_mode");
+    assert_eq!(session.layers[0], before);
+    assert!(!session.dirty);
+}
+
+#[test]
+fn vektor_layer_kann_nicht_versehentlich_image_werden() {
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().dirty = false;
+    let mut params = valid_params();
+    params.mode = luxifer_core::LayerMode::Image;
+    let error = session.set_layer_params(0, params).unwrap_err();
+    assert_eq!(error.code(), "image_layer_mode");
+    assert!(!session.dirty);
+}
+
+#[test]
+fn image_layer_darf_seine_bildparameter_aendern() {
+    let mut session = session_with_rect();
+    session.layers[0].mode = luxifer_core::LayerMode::Image;
+    let mut params = LayerParams::from_layer(&session.layers[0]);
+    params.dpi = 508.0;
+    params.bidirectional = false;
+    session.set_layer_params(0, params).unwrap();
+    assert_eq!(session.layers[0].dpi, 508.0);
+    assert!(!session.layers[0].bidirectional);
+    assert_eq!(session.layers[0].mode, luxifer_core::LayerMode::Image);
+}
+
 #[test]
 fn layer_verschieben_behaelt_shape_zuordnung_und_ist_undo_faehig() {
     let mut session = session_with_rect();

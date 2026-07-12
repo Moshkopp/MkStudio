@@ -55,7 +55,7 @@ Quelle: `frontend/src-tauri/src/commands/edit.rs`.
 | `mirror` | Core/Application | über `EditorSession` | horizontal/vertikal; Core hält Metadaten synchron |
 | `clear_selection` | Core/Application | über `EditorSession` | keine Dirty-/Undo-Änderung; Escape ohne aktive Geste |
 | `delete_selected` | Core/Application | über `EditorSession` | Fehler ohne Auswahl sowie Löschen/Undo/Redo getestet |
-| `set_layer_params` | Core/Application | fehlt | nativer Dialog und alle Laser-/Rasterparameter validieren |
+| `set_layer_params` | Core/Application | über `EditorSession` | nativer Dialog; alle Laser-/Rasterparameter validiert, Bild-Invariante, ein Undo |
 | `toggle_layer` | Core/Application | über `EditorSession` | visible/enabled/locked/air_assist atomar und undo-fähig |
 | `move_layer` | Core/Application | über `EditorSession` | Core remappt Shape-Layer-IDs; Application validiert Indizes |
 

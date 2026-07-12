@@ -3,6 +3,8 @@ mod drawing;
 mod layers;
 mod selection;
 
+pub use layers::LayerParams;
+
 use std::ops::{Deref, DerefMut};
 
 use luxifer_core::AppState;
