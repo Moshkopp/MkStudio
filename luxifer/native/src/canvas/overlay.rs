@@ -22,6 +22,9 @@ pub struct OverlayInput<'a> {
     pub world_cursor: [f64; 2],
     /// Kamera-Skalierung (px/mm) für bildschirmkonstante Markergrößen.
     pub cam_scale: f32,
+    /// Job-Startpunkt (mm) für den Laser-Tab: der Anker der Job-BBox bei
+    /// relativem Startmodus. None = kein Marker (Absolut/leerer Job).
+    pub job_start: Option<[f64; 2]>,
 }
 
 /// Halbe Handle-Kantenlänge in Welt-mm, damit sie am Bildschirm konstant
@@ -67,6 +70,42 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
     // Selektierte Shapes in Akzentfarbe über die (auswahlfreien) gecachten
     // Konturen legen — jeden Frame, damit der Vertex-Cache auswahlfrei bleibt.
     v.extend(scene_geo::selected_outlines(input.session, input.accent));
+
+    // Job-Startmarker (Laser-Tab): grünes Fadenkreuz am Anker der Job-BBox —
+    // dort setzt der Controller bei „Aktuelle Position"/„Benutzerursprung" an.
+    if let Some([mx, my]) = input.job_start {
+        let r = (10.0 / input.cam_scale) as f64;
+        let green = [0.25, 0.7, 0.5, 1.0];
+        scene_geo::push_seg(
+            &mut v,
+            [(mx - r) as f32, my as f32],
+            [(mx + r) as f32, my as f32],
+            green,
+        );
+        scene_geo::push_seg(
+            &mut v,
+            [mx as f32, (my - r) as f32],
+            [mx as f32, (my + r) as f32],
+            green,
+        );
+        // Kleines Quadrat um den Punkt, damit er auch über Konturen auffällt.
+        let q = r * 0.4;
+        let corners = [
+            (mx - q, my - q),
+            (mx + q, my - q),
+            (mx + q, my + q),
+            (mx - q, my + q),
+            (mx - q, my - q),
+        ];
+        for w in corners.windows(2) {
+            scene_geo::push_seg(
+                &mut v,
+                [w[0].0 as f32, w[0].1 as f32],
+                [w[1].0 as f32, w[1].1 as f32],
+                green,
+            );
+        }
+    }
 
     let preview = [0.6, 0.8, 1.0, 0.9];
     // Das Auswahlrechteck ist reines, kameraabhängiges Feedback. Es gehört

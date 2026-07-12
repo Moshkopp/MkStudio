@@ -1161,6 +1161,18 @@ impl App {
                 bezier_nodes: &self.canvas.bezier_nodes,
                 world_cursor: self.canvas.world(),
                 cam_scale: self.canvas.cam.scale,
+                // Startmarker nur im Laser-Tab: Dort wird der Job platziert.
+                job_start: if self.view == crate::tools::View::Laser {
+                    self.session
+                        .job_start_marker(
+                            self.laser.selection_only,
+                            self.laser.start_mode,
+                            luxifer_core::Anchor::from_index(self.laser.anchor),
+                        )
+                        .map(|(x, y)| [x, y])
+                } else {
+                    None
+                },
             },
             image_dirty,
             preview: self.view == crate::tools::View::Preview,

@@ -56,7 +56,9 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 | E4 | ERLEDIGT | P1 | Projektbrowser ist Master-Detail: Liste links, rechts Metadaten, Vektor-Miniatur, Umbenennen, Export, zweistufiges Löschen und Versionsliste (Laden/Löschen). PNG-Thumbnails pro Version bleiben offen. |
 | E5 | ERLEDIGT | P1 | Laser-Tab: Panel lief über den rechten Rand hinaus (Profilzeile zu breit), die Ebenenliste fehlte, und die Treiber-Rückmeldung stand unsichtbar ganz unten. Jetzt: Ebenenliste + Positionsfreigabe in eigenem linken Panel (resizierbar, scrollt), Laser-Bedienpanel rechts, Rückmeldung bei den Job-Kacheln. |
 | E6 | ERLEDIGT | P1 | Job-Buttons schlugen IMMER fehl („Laser-Aktion fehlgeschlagen [laser_action]"): Der LaserService rief nie `connect()` auf — jede Geräteaktion lief in `NotConnected`. Jetzt verbindet er vor verbindungsbedürftigen Aktionen (Export weiterhin ohne Gerät); das Fehlerbanner zeigt zusätzlich die technische Ursache. HW-verifiziert: Absolut fährt korrekt. |
-| E7 | ERLEDIGT | P1 | Startmodus „Aktuelle Position"/„Benutzerursprung" fuhr trotzdem absolut (an HW beobachtet): Dem Ruida-Job fehlten F-Block + zweiter BBox-Satz — ohne diese Register ignoriert der Controller das Startmodus-Byte der Preamble. Struktur jetzt wie die HW-verifizierte Referenz. **HW-Abnahme der relativen Modi steht aus.** |
+| E7 | ERLEDIGT | P1 | Startmodus „Aktuelle Position"/„Benutzerursprung" fuhr trotzdem absolut (an HW beobachtet): Dem Ruida-Job fehlten F-Block + zweiter BBox-Satz — ohne diese Register ignoriert der Controller das Startmodus-Byte der Preamble. **HW-verifiziert: Start fährt jetzt relativ korrekt.** |
+| E8 | ERLEDIGT | P1 | Rahmen/Gummiband ignorierten den Startmodus (fuhren immer die absolute Job-BBox ab, an HW beobachtet) und nullten die Leistung nicht. Jetzt Referenzlogik: Ankerpunkt der Rahmen-BBox landet auf Kopfposition bzw. Benutzerursprung; Leistungsregister werden im Rahmen-Paket genullt. **HW-Abnahme steht aus.** |
+| E9 | ERLEDIGT | P1 | Startmarker im Laser-Canvas fehlte: grünes Fadenkreuz am gewählten Job-Nullpunkt-Anker der Job-BBox (nur bei relativem Startmodus, wie in der Tauri-App). |
 
 ## F. Header / Werkzeug-Zugänge
 
@@ -183,6 +185,18 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
   relative Modus die Job-BBox (F2 03 = −Anker), nicht aber die Layer-BBox
   verschiebt. **Bitte an der Maschine gegenprüfen: „Aktuelle Position" und
   „Benutzerursprung" mit Anker Mitte/Ecken.**
+- E8/E9 (erledigt): `frame`/`rubber_frame` fuhren die Job-BBox bzw. Hülle in
+  absoluten Tischkoordinaten ab — Startmodus und Anker wurden ignoriert, und
+  die Leistungsregister blieben ungenullt. Beide laufen jetzt über einen
+  gemeinsamen `drive_frame` nach der Referenzlogik: Referenzpunkt je Modus
+  lesen (Kopfposition bzw. Benutzerursprung), Ankerpunkt der Rahmen-BBox
+  dorthin verschieben (`shift_frame_points`, getestet), Sequenz nullt vorher
+  MIN/MAX-Leistung und kehrt zur Ausgangsposition zurück — alles in einem
+  Paket. Der `MachineDriver`-Trait gibt `frame`/`rubber_frame` dafür die
+  `JobParams` mit. Der Startmarker (E9) kommt aus
+  `EditorSession::job_start_marker` (Anker auf der Job-BBox aus denselben
+  rotierten Konturpunkten wie der Plan, ohne Fill-/Raster-Rechnung) und wird
+  im Laser-Tab als bildschirmkonstantes Overlay gezeichnet.
 - E1/E2 (erledigt): Der Inspector ist breiter und resizbar. Layer-Karten trennen
   Identität (Farbe/Name/Modus/Objektzahl), Zustände (Sichtbar/Job/Gesperrt/Luft)
   und Reihenfolge klar; der Name öffnet den Parameterdialog direkt.

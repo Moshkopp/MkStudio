@@ -551,13 +551,26 @@ pub trait MachineDriver {
         Err(DriverError::NotSupported)
     }
 
-    /// Die Job-Bounding-Box abfahren, um die Platzierung zu prüfen.
-    fn frame(&self, _plan: &JobPlan, _speed_mm_s: f64) -> Result<(), DriverError> {
+    /// Die Job-Bounding-Box abfahren, um die Platzierung zu prüfen. `params`
+    /// bestimmt wie beim Job selbst Startmodus und Anker — der Rahmen fährt
+    /// dort, wo der Job brennen würde.
+    fn frame(
+        &self,
+        _plan: &JobPlan,
+        _speed_mm_s: f64,
+        _params: &JobParams,
+    ) -> Result<(), DriverError> {
         Err(DriverError::NotSupported)
     }
 
-    /// Konvexe Außenkontur des Jobs abfahren (Gummiband-Rahmen).
-    fn rubber_frame(&self, _plan: &JobPlan, _speed_mm_s: f64) -> Result<(), DriverError> {
+    /// Konvexe Außenkontur des Jobs abfahren (Gummiband-Rahmen), Platzierung
+    /// wie [`frame`](MachineDriver::frame).
+    fn rubber_frame(
+        &self,
+        _plan: &JobPlan,
+        _speed_mm_s: f64,
+        _params: &JobParams,
+    ) -> Result<(), DriverError> {
         Err(DriverError::NotSupported)
     }
 

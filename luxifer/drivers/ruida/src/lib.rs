@@ -16,7 +16,7 @@ pub use scan_offset::{ScanOffset, ScanOffsetPoint};
 pub use transport::{RuidaTransport, TransportError};
 
 use luxifer_core::{
-    DriverError, JobAction, JobLayer, JobParams, JobPlan, Layer, LayerWork, MachineDriver,
+    Anchor, DriverError, JobAction, JobLayer, JobParams, JobPlan, Layer, LayerWork, MachineDriver,
     MachineStatus, StartMode,
 };
 use protocol::*;
@@ -74,6 +74,48 @@ impl RuidaDriver {
 }
 
 impl RuidaDriver {
+    /// Fährt einen geschlossenen Punktzug (µm) als Rahmen ab, je Startmodus/
+    /// Anker verschoben (Referenzlogik): Bei „Aktuelle Position"/
+    /// „Benutzerursprung" landet der Ankerpunkt der Rahmen-BBox auf der
+    /// Kopfposition bzw. dem Benutzerursprung. Die Sequenz nullt vorher die
+    /// Leistungsregister (Rahmen darf nie brennen) und kehrt am Ende zur
+    /// Ausgangsposition zurück — alles in EINEM Paket.
+    fn drive_frame(
+        &self,
+        mut pts: Vec<(i32, i32)>,
+        speed_mm_s: f64,
+        params: &JobParams,
+    ) -> Result<(), DriverError> {
+        let t = self.transport()?;
+        // Ausgangsposition lesen (Rückkehrpunkt; bei „Aktuelle Position" auch
+        // der Referenzpunkt).
+        let cx = read_reg(t, ADDR_POS_X)?;
+        let cy = read_reg(t, ADDR_POS_Y)?;
+        let reference = match params.start_mode {
+            StartMode::Absolut => None,
+            StartMode::AktuellePosition => Some((cx, cy)),
+            StartMode::Benutzerursprung => {
+                Some((read_reg(t, ADDR_ORIGIN_X)?, read_reg(t, ADDR_ORIGIN_Y)?))
+            }
+        };
+        shift_frame_points(&mut pts, reference, params.anchor);
+
+        // Speed 0 → Leistung nullen → zur Startecke → Speed → Segmente →
+        // Speed 0 → zurück zur Ausgangsposition.
+        let mut seq = cmd_set_speed(0.0);
+        for reg in [0x01u8, 0x02, 0x21, 0x22] {
+            seq.extend_from_slice(&[0xC6, reg, 0x00, 0x00]);
+        }
+        seq.extend(cmd_rapid_move_xy(pts[0].0, pts[0].1));
+        seq.extend(cmd_set_speed(speed_mm_s));
+        for &(x, y) in &pts[1..] {
+            seq.extend(cmd_rapid_move_xy(x, y));
+        }
+        seq.extend(cmd_set_speed(0.0));
+        seq.extend(cmd_rapid_move_xy(cx, cy));
+        t.send(&seq).map_err(to_driver_err)
+    }
+
     /// Baut den Job mit Standardparametern (Absolut/Mitte).
     pub fn build_job(&self, plan: &JobPlan) -> Vec<u8> {
         self.build_job_with(plan, &JobParams::default())
@@ -329,41 +371,41 @@ impl MachineDriver for RuidaDriver {
         t.send(&payload).map_err(to_driver_err)
     }
 
-    fn frame(&self, plan: &JobPlan, speed_mm_s: f64) -> Result<(), DriverError> {
-        let t = self.transport()?;
+    fn frame(
+        &self,
+        plan: &JobPlan,
+        speed_mm_s: f64,
+        params: &JobParams,
+    ) -> Result<(), DriverError> {
         let (minx, miny, maxx, maxy) = plan.bbox.ok_or(DriverError::NotSupported)?;
-        // Aktuelle Position lesen, um am Ende dorthin zurückzukehren.
-        let cx = read_reg(t, ADDR_POS_X)?;
-        let cy = read_reg(t, ADDR_POS_Y)?;
-        let corners = [
+        let pts = vec![
             (mm_to_um(minx), mm_to_um(miny)),
             (mm_to_um(maxx), mm_to_um(miny)),
             (mm_to_um(maxx), mm_to_um(maxy)),
             (mm_to_um(minx), mm_to_um(maxy)),
             (mm_to_um(minx), mm_to_um(miny)),
         ];
-        let mut seq = cmd_set_speed(speed_mm_s);
-        for (x, y) in corners {
-            seq.extend(cmd_rapid_move_xy(x, y));
-        }
-        seq.extend(cmd_rapid_move_xy(cx, cy)); // zurück zur Startposition
-        t.send(&seq).map_err(to_driver_err)
+        self.drive_frame(pts, speed_mm_s, params)
     }
 
-    fn rubber_frame(&self, plan: &JobPlan, speed_mm_s: f64) -> Result<(), DriverError> {
-        let t = self.transport()?;
+    fn rubber_frame(
+        &self,
+        plan: &JobPlan,
+        speed_mm_s: f64,
+        params: &JobParams,
+    ) -> Result<(), DriverError> {
         let hull = plan.convex_hull();
         if hull.len() < 2 {
             return Err(DriverError::NotSupported);
         }
-        let cx = read_reg(t, ADDR_POS_X)?;
-        let cy = read_reg(t, ADDR_POS_Y)?;
-        let mut seq = cmd_set_speed(speed_mm_s);
-        for &(x, y) in hull.iter().chain(hull.first()) {
-            seq.extend(cmd_rapid_move_xy(mm_to_um(x), mm_to_um(y)));
-        }
-        seq.extend(cmd_rapid_move_xy(cx, cy));
-        t.send(&seq).map_err(to_driver_err)
+        let mut pts: Vec<(i32, i32)> = hull
+            .iter()
+            .chain(hull.first())
+            .map(|&(x, y)| (mm_to_um(x), mm_to_um(y)))
+            .collect();
+        // chain(first) schließt den Zug; drive_frame verschiebt und fährt.
+        let _ = &mut pts;
+        self.drive_frame(pts, speed_mm_s, params)
     }
 
     fn send_job(&self, bytes: &[u8]) -> Result<(), DriverError> {
@@ -438,11 +480,11 @@ impl MachineDriver for RuidaDriver {
                 Ok(format!("Job kompiliert ({} Byte).", bytes.len()))
             }
             JobAction::Frame => {
-                self.frame(plan, 100.0)?;
+                self.frame(plan, 100.0, params)?;
                 Ok("Rahmen wird abgefahren.".into())
             }
             JobAction::RubberFrame => {
-                self.rubber_frame(plan, 100.0)?;
+                self.rubber_frame(plan, 100.0, params)?;
                 Ok("Gummiband wird abgefahren.".into())
             }
             JobAction::Pause => {
@@ -477,6 +519,32 @@ fn read_reg(t: &RuidaTransport, addr: u16) -> Result<i32, DriverError> {
         Ok(decode_coord(&resp[4..9]))
     } else {
         Err(DriverError::Transport("unerwartete Antwort".into()))
+    }
+}
+
+/// Verschiebt Rahmenpunkte (µm) so, dass der `anchor`-Punkt ihrer BBox auf
+/// `reference` liegt; `None` (Absolut) lässt sie unverändert. Reine Geometrie —
+/// ohne Transport testbar.
+fn shift_frame_points(pts: &mut [(i32, i32)], reference: Option<(i32, i32)>, anchor: Anchor) {
+    let Some((rx, ry)) = reference else {
+        return;
+    };
+    let (Some(&(x0, y0)), true) = (pts.first(), !pts.is_empty()) else {
+        return;
+    };
+    let mut bbox = (x0, y0, x0, y0);
+    for &(x, y) in pts.iter() {
+        bbox.0 = bbox.0.min(x);
+        bbox.1 = bbox.1.min(y);
+        bbox.2 = bbox.2.max(x);
+        bbox.3 = bbox.3.max(y);
+    }
+    // Anchor::point ist linear — funktioniert in µm wie in mm.
+    let (ax, ay) = anchor.point((bbox.0 as f64, bbox.1 as f64, bbox.2 as f64, bbox.3 as f64));
+    let (dx, dy) = (rx - ax.round() as i32, ry - ay.round() as i32);
+    for p in pts.iter_mut() {
+        p.0 += dx;
+        p.1 += dy;
     }
 }
 
@@ -748,6 +816,26 @@ mod tests {
     /// Sucht eine Bytefolge im Job.
     fn contains_seq(job: &[u8], seq: &[u8]) -> bool {
         job.windows(seq.len()).any(|w| w == seq)
+    }
+
+    #[test]
+    fn rahmenpunkte_verschieben_anker_auf_referenz() {
+        // Rechteck-Rahmen (0,0)–(10,20) mm in µm; Anker Mitte → (5,10) mm.
+        // Referenz (Kopfposition) bei (100, 50) mm: alle Punkte verschieben
+        // sich um (95, 40) mm. Absolut (None) lässt sie unverändert.
+        let mut pts = vec![(0, 0), (10_000, 0), (10_000, 20_000), (0, 20_000), (0, 0)];
+        let original = pts.clone();
+        shift_frame_points(&mut pts, None, Anchor::Center);
+        assert_eq!(pts, original, "Absolut verschiebt nicht");
+
+        shift_frame_points(&mut pts, Some((100_000, 50_000)), Anchor::Center);
+        assert_eq!(pts[0], (95_000, 40_000));
+        assert_eq!(pts[2], (105_000, 60_000));
+
+        // Anker NW: die Min-Ecke landet direkt auf der Referenz.
+        let mut pts = original.clone();
+        shift_frame_points(&mut pts, Some((100_000, 50_000)), Anchor::NW);
+        assert_eq!(pts[0], (100_000, 50_000));
     }
 
     #[test]

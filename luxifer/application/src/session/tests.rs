@@ -707,3 +707,30 @@ fn trace_image_meldet_fehler_stabil() {
     let err = session.trace_image(idx, 128, false).unwrap_err();
     assert_eq!(err.code(), "asset_read");
 }
+
+#[test]
+fn job_start_marker_liegt_am_anker_der_job_bbox() {
+    use luxifer_core::{Anchor, StartMode};
+    // Rechteck (0,0)–(10,10): Anker Mitte → (5,5); Anker NW → (0,0).
+    let session = session_with_rect();
+    let m = session
+        .job_start_marker(false, StartMode::AktuellePosition, Anchor::Center)
+        .expect("Marker");
+    assert_eq!(m, (5.0, 5.0));
+    let m = session
+        .job_start_marker(false, StartMode::Benutzerursprung, Anchor::NW)
+        .expect("Marker");
+    assert_eq!(m, (0.0, 0.0));
+
+    // Absolut: kein Marker (Job liegt, wo er gezeichnet ist).
+    assert!(session
+        .job_start_marker(false, StartMode::Absolut, Anchor::Center)
+        .is_none());
+
+    // Deaktivierter Layer zählt nicht → leerer Job, kein Marker.
+    let mut session = session_with_rect();
+    session.state_mut_for_migration().layers[0].enabled = false;
+    assert!(session
+        .job_start_marker(false, StartMode::AktuellePosition, Anchor::Center)
+        .is_none());
+}
