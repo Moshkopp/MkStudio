@@ -150,6 +150,10 @@ impl App {
                 app.toggle_fill();
             }
         }
+        // Startinhalt (Demo-Shapes / Auto-Import) ist kein bearbeiteter
+        // Nutzerstand: als sauber markieren, sonst schlägt der Dirty-Guard schon
+        // beim ersten „Neu"/„Öffnen" an, obwohl es nichts zu verwerfen gibt.
+        app.session.mark_saved();
         app
     }
 
@@ -263,6 +267,8 @@ impl App {
             || self.geo_op_dialog.is_some()
             || self.text_dialog.is_some()
             || self.laser_settings.is_some()
+            || self.pending_project.is_some()
+            || self.close_pending
     }
 
     /// Führt eine typisierte Tastatur-Aktion aus. Die Zuordnung Taste→Aktion
