@@ -18,9 +18,10 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     use crate::tools::View;
     apply_theme(ctx);
 
-    // Oben: Haupt-Reiterleiste (Projekt / Design / Laser) + offenes Projekt.
+    // Oben: Reiter | Undo/Redo + Datei-Aktionen | Projektname. Wie die Tauri-App
+    // liegen die globalen Aktionen im Header, nicht im Werkzeug-Panel.
     egui::TopBottomPanel::top("topbar").show(ctx, |ui| {
-        ui.add_space(3.0);
+        ui.add_space(4.0);
         ui.horizontal(|ui| {
             for v in [View::Projekt, View::Design, View::Laser] {
                 if ui
@@ -28,6 +29,30 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                     .clicked()
                 {
                     app.view = v;
+                }
+            }
+            // Datei-/Verlaufs-Aktionen nur im Design-Reiter.
+            if app.view == View::Design {
+                ui.separator();
+                if ui.button("Undo").clicked() {
+                    app.state.undo();
+                }
+                if ui.button("Redo").clicked() {
+                    app.state.redo();
+                }
+                ui.separator();
+                if ui.button("Vektor…").clicked() {
+                    app.import_dialog();
+                }
+                if ui.button("Bild…").clicked() {
+                    app.import_image_dialog();
+                }
+                if ui.button("Text…").clicked() {
+                    app.open_text_dialog();
+                }
+                let aztec = std::path::Path::new("/home/moshy/Schreibtisch/Aztec.svg");
+                if aztec.exists() && ui.button("Aztec laden").clicked() {
+                    app.import_path(aztec);
                 }
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -39,7 +64,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                 ui.label(RichText::new(name).weak());
             });
         });
-        ui.add_space(3.0);
+        ui.add_space(4.0);
     });
 
     // Statuszeile unten.
@@ -80,13 +105,21 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                         laserpanel::show(ui, app);
                     } else {
                         layers_panel(ui, app);
-                        ui.add_space(8.0);
-                        ui.separator();
-                        ui.add_space(8.0);
-                        palette_panel(ui, app);
                     }
                 });
             app.right_w = right.response.rect.width();
+
+            // Farbpalette als Dock am unteren Canvas-Rand (nur Design), zentriert
+            // wie das Palette-Dock der Tauri-App.
+            if !is_laser {
+                egui::TopBottomPanel::bottom("palette_dock")
+                    .show_separator_line(true)
+                    .show(ctx, |ui| {
+                        ui.add_space(6.0);
+                        ui.vertical_centered(|ui| palette_panel(ui, app));
+                        ui.add_space(6.0);
+                    });
+            }
         }
     }
 
@@ -328,7 +361,12 @@ fn tool_button(ui: &mut egui::Ui, on: bool, tool: Tool) -> bool {
     } else {
         Color32::from_rgb(0x1c, 0x1f, 0x26)
     };
-    ui.painter().rect(rect, 8.0, bg, egui::Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x36)));
+    ui.painter().rect(
+        rect,
+        8.0,
+        bg,
+        egui::Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x36)),
+    );
     let fg = Color32::from_rgb(0xec, 0xee, 0xf1);
     // Icon-Bereich links (quadratisch), Label rechts.
     let ic = egui::Rect::from_min_size(rect.min + egui::vec2(8.0, 7.0), egui::vec2(24.0, 24.0));
@@ -350,7 +388,11 @@ fn tool_button(ui: &mut egui::Ui, on: bool, tool: Tool) -> bool {
             p.add(egui::Shape::convex_polygon(pts, fg, egui::Stroke::NONE));
         }
         Tool::Rect => {
-            p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(15.0, 12.0)), 1.5, stroke);
+            p.rect_stroke(
+                egui::Rect::from_center_size(c, egui::vec2(15.0, 12.0)),
+                1.5,
+                stroke,
+            );
         }
         Tool::Ellipse => {
             p.circle_stroke(c, 8.0, stroke);
@@ -384,37 +426,8 @@ fn tools_panel(ui: &mut egui::Ui, app: &mut App) {
             app.tool = t;
         }
     }
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
-    if ui.button("Undo").clicked() {
-        app.state.undo();
-    }
-    if ui.button("Redo").clicked() {
-        app.state.redo();
-    }
-
-    ui.add_space(10.0);
-    ui.separator();
-    ui.add_space(6.0);
-    ui.label(RichText::new("DATEI").small().weak());
-    if ui.button("Vektor…").clicked() {
-        app.import_dialog();
-    }
-    if ui.button("Bild…").clicked() {
-        app.import_image_dialog();
-    }
-    if ui.button("Text…").clicked() {
-        app.open_text_dialog();
-    }
-    // Schnellzugriff auf die große Testdatei (Aztec) für den Fill-Stresstest.
-    let aztec = std::path::Path::new("/home/moshy/Schreibtisch/Aztec.svg");
-    if aztec.exists() && ui.button("Aztec laden").clicked() {
-        app.import_path(aztec);
-    }
-    if ui.button("Fill an/aus").clicked() {
-        app.toggle_fill();
-    }
+    // Undo/Redo + Datei-Aktionen liegen jetzt im Header; „Fill an/aus" macht der
+    // Layer-Modus. Das Werkzeug-Panel bleibt bewusst schlank.
 }
 
 fn layers_panel(ui: &mut egui::Ui, app: &mut App) {

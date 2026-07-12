@@ -110,7 +110,11 @@ pub fn show(ui: &mut egui::Ui, app: &mut App) {
                         }
                     }
                 });
-            if ui.button("Verwalten").on_hover_text("Laser verwalten").clicked() {
+            if ui
+                .button("Verwalten")
+                .on_hover_text("Laser verwalten")
+                .clicked()
+            {
                 pending = Some(PanelAction::EditProfile);
             }
         });

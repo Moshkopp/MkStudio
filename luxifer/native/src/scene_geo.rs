@@ -181,10 +181,19 @@ pub fn handle_marker(cx: f32, cy: f32, hw: f32, color: [f32; 4]) -> Vec<Vertex> 
 /// einer Werkbank statt leeren Graus.
 /// Gefülltes Rechteck (2 Dreiecke) mit side=0 (keine Verdickung) — für Flächen.
 pub fn fill_rect(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Vec<Vertex> {
-    let mk = |px: f32, py: f32| Vertex { pos: [px, py], dir: [1.0, 0.0], side: 0.0, color };
+    let mk = |px: f32, py: f32| Vertex {
+        pos: [px, py],
+        dir: [1.0, 0.0],
+        side: 0.0,
+        color,
+    };
     vec![
-        mk(x, y), mk(x + w, y), mk(x + w, y + h),
-        mk(x, y), mk(x + w, y + h), mk(x, y + h),
+        mk(x, y),
+        mk(x + w, y),
+        mk(x + w, y + h),
+        mk(x, y),
+        mk(x + w, y + h),
+        mk(x, y + h),
     ]
 }
 
@@ -200,14 +209,24 @@ pub fn bed_grid(w: f32, h: f32) -> Vec<Vertex> {
     let mut x = 0.0;
     while x <= w + 0.01 {
         let is_major = (x % major).abs() < 0.01 || ((x % major) - major).abs() < 0.01;
-        push_seg(&mut v, [x, 0.0], [x, h], if is_major { coarse } else { fine });
+        push_seg(
+            &mut v,
+            [x, 0.0],
+            [x, h],
+            if is_major { coarse } else { fine },
+        );
         x += minor;
     }
     // Horizontale Linien.
     let mut y = 0.0;
     while y <= h + 0.01 {
         let is_major = (y % major).abs() < 0.01 || ((y % major) - major).abs() < 0.01;
-        push_seg(&mut v, [0.0, y], [w, y], if is_major { coarse } else { fine });
+        push_seg(
+            &mut v,
+            [0.0, y],
+            [w, y],
+            if is_major { coarse } else { fine },
+        );
         y += minor;
     }
     // Bett-Rahmen kräftiger.
