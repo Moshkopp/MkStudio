@@ -191,9 +191,10 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
 - der Projekt-Reiter besitzt den Bereich `Von Charon`; ein Badge am
   Projekt-Einstieg zählt neue `pending_review`-Revisionen. `Später` setzt sie
   auf `deferred`, ohne sie zu löschen;
-- `Übernehmen` importiert ausschließlich Projekte, deren stabile Projekt-ID
-  lokal noch nicht existiert. Bereits vorhandene Projekte bleiben bis zum
-  Vergleichs-/Konfliktablauf unangetastet in der Inbox;
+- `Übernehmen` unterscheidet anhand der stabilen Projekt-ID: Ein unbekanntes
+  Projekt wird lokal angelegt, eine weitere Revision eines vorhandenen Projekts
+  wird als neue lokale Version übernommen. Ist genau dieses Projekt geöffnet
+  und ungespeichert, greift vorher der Dirty-Guard;
 - ein globaler, content-adressierter Asset-Katalog hält normalisierte Bilder,
   verwendete Fonts und unveränderte SVG-/DXF-Quelldateien. Gleiche Bytes werden
   anhand ihres Hashs nur einmal abgelegt;
@@ -208,6 +209,10 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   Geometrie erhalten. Im Projekt-Reiter listet `Assets` Bilder sowie diese
   Vektorquellen und fügt sie über die reguläre Import-Pipeline in neue Projekte
   ein. Katalogisierte Fonts erscheinen stattdessen in der Schrift-Auswahl;
+- Projekt- und Asset-Katalog werden beim Start einmal geladen und im nativen
+  App-Zustand gehalten. Sie werden nur nach tatsächlichen Projektänderungen,
+  Importen oder Charon-Downloads aktualisiert; der UI-Framepfad liest und parst
+  keine Katalogdateien vom Datenträger;
 - nach erfolgreichem Import erscheint das Projekt in `Meine Projekte`; der
   Canvas und ein eventuell geöffnetes, ungespeichertes Projekt werden nicht
   automatisch ersetzt;
