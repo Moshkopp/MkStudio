@@ -313,7 +313,8 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         || app.revision_comparison.is_some()
         || app.pending_project.is_some()
         || app.close_pending;
-    let has_dialog = has_dialog || app.laser_uncoordinated_confirm;
+    let has_dialog =
+        has_dialog || app.laser_uncoordinated_confirm || app.laser_lease_force_confirm.is_some();
     if has_dialog {
         let alpha = app
             .settings_dialog
@@ -420,6 +421,39 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             app.laser_uncoordinated_confirm = false;
         } else if confirm {
             app.laser_connect_uncoordinated();
+        }
+    }
+
+    if let Some(lease) = app.laser_lease_force_confirm.as_ref() {
+        let holder = lease
+            .holder_name
+            .as_deref()
+            .unwrap_or("unbekannt")
+            .to_string();
+        let usage = format!("{:?}", lease.holder_usage.unwrap_or_default());
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Ruida-Lease zwangsweise übernehmen?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    "Die letzte bekannte Lease war nicht sicher untätig.",
+                );
+                ui.label(format!("Letzter Arbeitsplatz: {holder} · Zustand: {usage}"));
+                ui.label("Nur fortfahren, wenn du direkt an der Maschine geprüft hast, dass kein Job läuft oder pausiert ist.");
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    cancel = ui.button("Abbrechen").clicked();
+                    confirm = ui.button("Maschine geprüft – übernehmen").clicked();
+                });
+            });
+        if cancel {
+            app.laser_lease_force_confirm = None;
+        } else if confirm {
+            app.force_laser_lease();
         }
     }
 
@@ -632,6 +666,7 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         slots,
         can_export,
         connected,
+        lease_pending: app.laser_lease_pending,
     }
 }
 

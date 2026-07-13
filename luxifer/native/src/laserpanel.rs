@@ -24,6 +24,7 @@ pub struct LaserView {
     pub can_export: bool,
     /// Bewusst aufgebauter Verbindungszustand des aktiven Profils.
     pub connected: bool,
+    pub lease_pending: bool,
 }
 
 /// Farb-Ton der Ampel-Kacheln.
@@ -132,7 +133,15 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
                 let clicked = if view.connected {
                     ui.button("Trennen").clicked()
                 } else {
-                    ui.button("Verbinden").clicked()
+                    ui.add_enabled(
+                        !view.lease_pending,
+                        egui::Button::new(if view.lease_pending {
+                            "Lease …"
+                        } else {
+                            "Verbinden"
+                        }),
+                    )
+                    .clicked()
                 };
                 if clicked {
                     actions.push(if view.connected {

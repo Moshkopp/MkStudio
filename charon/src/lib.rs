@@ -50,7 +50,7 @@ struct Handshake {
     server_version: &'static str,
     protocol_version: u32,
     instance_id: String,
-    capabilities: [&'static str; 7],
+    capabilities: [&'static str; 8],
 }
 
 #[derive(Serialize)]
@@ -81,6 +81,61 @@ struct WorkplaceBackupAck {
     kind: String,
     content_hash: String,
     stored: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum LeaseUsage {
+    Idle,
+    Running,
+    Paused,
+    Unknown,
+}
+
+#[derive(Debug, Deserialize)]
+struct LeaseAcquire {
+    controller_id: String,
+    controller_name: String,
+    workplace_id: String,
+    workplace_name: String,
+    force: bool,
+}
+
+#[derive(Debug, Deserialize)]
+struct LeaseHeartbeat {
+    controller_id: String,
+    workplace_id: String,
+    token: String,
+    usage: LeaseUsage,
+}
+
+#[derive(Debug, Deserialize)]
+struct LeaseRelease {
+    controller_id: String,
+    workplace_id: String,
+    token: String,
+}
+
+#[derive(Debug, Serialize)]
+struct LeaseReply {
+    controller_id: String,
+    granted: bool,
+    token: Option<String>,
+    holder_name: Option<String>,
+    holder_usage: Option<LeaseUsage>,
+    expires_at_unix: Option<u64>,
+    release_requested: bool,
+    force_required: bool,
+}
+
+#[derive(Debug, Clone)]
+struct LeaseEntry {
+    token: String,
+    workplace_id: String,
+    workplace_name: String,
+    usage: LeaseUsage,
+    expires_at_unix: u64,
+    release_requested_by: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +223,7 @@ struct ServerState {
     workplaces: BTreeMap<String, WorkplaceEntry>,
     data_dir: PathBuf,
     revision_cursor: u64,
+    leases: BTreeMap<String, LeaseEntry>,
 }
 
 impl ServerState {
@@ -176,6 +232,7 @@ impl ServerState {
             workplaces: BTreeMap::new(),
             data_dir,
             revision_cursor: 0,
+            leases: BTreeMap::new(),
         }
     }
 }
@@ -283,6 +340,7 @@ fn route(
                 "project_events",
                 "assets",
                 "workplace_backups",
+                "machine_leases",
             ],
         })?,
         ("GET", "/api/v1/workplaces") => json_body(&workplace_list(state, now_unix()))?,
@@ -354,6 +412,34 @@ fn route(
                 }
                 Err(StoreBackupError::Io(error)) => return Err(error),
             }
+        }
+        ("POST", "/api/v1/leases/acquire") => {
+            let request: LeaseAcquire = match serde_json::from_str(body) {
+                Ok(request) => request,
+                Err(_) => return Ok(("400 Bad Request", r#"{"error":"invalid_json"}"#.into())),
+            };
+            match acquire_lease(state, request, now_unix()) {
+                Some(reply) => json_body(&reply)?,
+                None => return Ok(("400 Bad Request", r#"{"error":"invalid_lease"}"#.into())),
+            }
+        }
+        ("POST", "/api/v1/leases/heartbeat") => {
+            let request: LeaseHeartbeat = match serde_json::from_str(body) {
+                Ok(request) => request,
+                Err(_) => return Ok(("400 Bad Request", r#"{"error":"invalid_json"}"#.into())),
+            };
+            match heartbeat_lease(state, request, now_unix()) {
+                Some(reply) => json_body(&reply)?,
+                None => return Ok(("409 Conflict", r#"{"error":"lease_lost"}"#.into())),
+            }
+        }
+        ("POST", "/api/v1/leases/release") => {
+            let request: LeaseRelease = match serde_json::from_str(body) {
+                Ok(request) => request,
+                Err(_) => return Ok(("400 Bad Request", r#"{"error":"invalid_json"}"#.into())),
+            };
+            let released = release_lease(state, &request);
+            json_body(&serde_json::json!({ "released": released }))?
         }
         ("POST", "/api/v1/projects/revisions") => {
             let upload: RevisionUpload = match serde_json::from_str(body) {
@@ -699,6 +785,97 @@ fn valid_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+const LEASE_TTL_SECS: u64 = 15;
+
+fn acquire_lease(state: &mut ServerState, request: LeaseAcquire, now: u64) -> Option<LeaseReply> {
+    if !valid_id(&request.controller_id)
+        || !valid_id(&request.workplace_id)
+        || request.controller_name.trim().is_empty()
+        || request.workplace_name.trim().is_empty()
+    {
+        return None;
+    }
+    if let Some(existing) = state.leases.get_mut(&request.controller_id) {
+        if existing.workplace_id == request.workplace_id {
+            existing.expires_at_unix = now + LEASE_TTL_SECS;
+            return Some(granted_reply(&request.controller_id, existing));
+        }
+        let expired = existing.expires_at_unix <= now;
+        let safely_reclaimable = expired && existing.usage == LeaseUsage::Idle;
+        if !(safely_reclaimable || expired && request.force) {
+            if existing.usage == LeaseUsage::Idle {
+                existing.release_requested_by = Some(request.workplace_name.clone());
+            }
+            return Some(LeaseReply {
+                controller_id: request.controller_id,
+                granted: false,
+                token: None,
+                holder_name: Some(existing.workplace_name.clone()),
+                holder_usage: Some(existing.usage),
+                expires_at_unix: Some(existing.expires_at_unix),
+                release_requested: existing.usage == LeaseUsage::Idle,
+                force_required: expired && existing.usage != LeaseUsage::Idle,
+            });
+        }
+    }
+    let token = format!("lease-{}-{now}", std::process::id());
+    state.leases.insert(
+        request.controller_id.clone(),
+        LeaseEntry {
+            token: token.clone(),
+            workplace_id: request.workplace_id,
+            workplace_name: request.workplace_name,
+            usage: LeaseUsage::Idle,
+            expires_at_unix: now + LEASE_TTL_SECS,
+            release_requested_by: None,
+        },
+    );
+    Some(granted_reply(
+        &request.controller_id,
+        state.leases.get(&request.controller_id).unwrap(),
+    ))
+}
+
+fn granted_reply(controller_id: &str, lease: &LeaseEntry) -> LeaseReply {
+    LeaseReply {
+        controller_id: controller_id.into(),
+        granted: true,
+        token: Some(lease.token.clone()),
+        holder_name: Some(lease.workplace_name.clone()),
+        holder_usage: Some(lease.usage),
+        expires_at_unix: Some(lease.expires_at_unix),
+        release_requested: lease.release_requested_by.is_some(),
+        force_required: false,
+    }
+}
+
+fn heartbeat_lease(
+    state: &mut ServerState,
+    request: LeaseHeartbeat,
+    now: u64,
+) -> Option<LeaseReply> {
+    let lease = state.leases.get_mut(&request.controller_id)?;
+    if lease.workplace_id != request.workplace_id || lease.token != request.token {
+        return None;
+    }
+    lease.usage = request.usage;
+    lease.expires_at_unix = now + LEASE_TTL_SECS;
+    Some(granted_reply(&request.controller_id, lease))
+}
+
+fn release_lease(state: &mut ServerState, request: &LeaseRelease) -> bool {
+    let matches = state
+        .leases
+        .get(&request.controller_id)
+        .is_some_and(|lease| {
+            lease.workplace_id == request.workplace_id && lease.token == request.token
+        });
+    if matches {
+        state.leases.remove(&request.controller_id);
+    }
+    matches
+}
+
 #[derive(Debug)]
 enum StoreBackupError {
     Invalid,
@@ -836,6 +1013,7 @@ mod tests {
                 "project_events",
                 "assets",
                 "workplace_backups",
+                "machine_leases",
             ],
         })
         .unwrap()
@@ -939,5 +1117,42 @@ mod tests {
         assert_eq!(backups[0].kind, "ui_settings");
         assert_eq!(backups[0].saved_at_unix, 42);
         let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn lease_uebergabe_schuetzt_jobs_und_gibt_idle_frei() {
+        let mut state = ServerState::new(PathBuf::new());
+        let acquire = |workplace: &str, name: &str, force| LeaseAcquire {
+            controller_id: "controller-1".into(),
+            controller_name: "Ruida".into(),
+            workplace_id: workplace.into(),
+            workplace_name: name.into(),
+            force,
+        };
+        let office = acquire_lease(&mut state, acquire("office", "Office", false), 10).unwrap();
+        assert!(office.granted);
+        let denied =
+            acquire_lease(&mut state, acquire("workshop", "Werkstatt", false), 11).unwrap();
+        assert!(!denied.granted);
+        assert!(denied.release_requested);
+
+        let token = office.token.unwrap();
+        let handover = heartbeat_lease(
+            &mut state,
+            LeaseHeartbeat {
+                controller_id: "controller-1".into(),
+                workplace_id: "office".into(),
+                token,
+                usage: LeaseUsage::Running,
+            },
+            12,
+        )
+        .unwrap();
+        assert!(handover.release_requested);
+        let busy = acquire_lease(&mut state, acquire("workshop", "Werkstatt", false), 30).unwrap();
+        assert!(!busy.granted);
+        assert!(busy.force_required);
+        let forced = acquire_lease(&mut state, acquire("workshop", "Werkstatt", true), 30).unwrap();
+        assert!(forced.granted);
     }
 }

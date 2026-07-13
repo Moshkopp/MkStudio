@@ -31,22 +31,62 @@ pub(super) enum CharonWorkerResult {
     Backups(Vec<luxifer_application::CharonWorkplaceBackup>),
 }
 
+enum LeaseCommand {
+    Configure(Option<Box<CharonConfig>>),
+    Acquire {
+        controller_id: String,
+        controller_name: String,
+        force: bool,
+    },
+    Release,
+    Usage(luxifer_application::LeaseUsage),
+}
+
+pub(super) enum LeaseWorkerResult {
+    Acquired,
+    Denied(luxifer_application::CharonLease),
+    Released,
+    ReleaseRequested,
+    Lost(String),
+}
+
+struct ActiveLease {
+    controller_id: String,
+    token: String,
+    usage: luxifer_application::LeaseUsage,
+}
+
+struct PendingLease {
+    controller_id: String,
+    controller_name: String,
+}
+
 pub(super) struct CharonRuntime {
     command_tx: Sender<WorkerCommand>,
     result_rx: Receiver<CharonWorkerResult>,
+    lease_tx: Sender<LeaseCommand>,
+    lease_rx: Receiver<LeaseWorkerResult>,
 }
 
 impl CharonRuntime {
     pub fn new(settings: &luxifer_core::UiSettings, lasers: &luxifer_core::LaserRegistry) -> Self {
         let (command_tx, command_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
+        let (lease_tx, lease_command_rx) = mpsc::channel();
+        let (lease_result_tx, lease_rx) = mpsc::channel();
         std::thread::Builder::new()
             .name("charon-heartbeat".into())
             .spawn(move || worker(command_rx, result_tx))
             .expect("Charon-Hintergrundthread konnte nicht gestartet werden");
+        std::thread::Builder::new()
+            .name("charon-lease".into())
+            .spawn(move || lease_worker(lease_command_rx, lease_result_tx))
+            .expect("Charon-Lease-Thread konnte nicht gestartet werden");
         let runtime = Self {
             command_tx,
             result_rx,
+            lease_tx,
+            lease_rx,
         };
         runtime.configure(settings, lasers);
         runtime
@@ -67,6 +107,16 @@ impl CharonRuntime {
             })
         });
         let _ = self.command_tx.send(WorkerCommand::Configure(config));
+        let lease_config = settings.charon_enabled.then(|| {
+            Box::new(CharonConfig {
+                url: settings.charon_url.clone(),
+                workplace_id: settings.workplace_id.clone(),
+                workplace_name: settings.workplace.clone(),
+                settings: settings.clone(),
+                lasers: lasers.clone(),
+            })
+        });
+        let _ = self.lease_tx.send(LeaseCommand::Configure(lease_config));
     }
 
     pub fn try_result(&self) -> Option<CharonWorkerResult> {
@@ -76,6 +126,178 @@ impl CharonRuntime {
     pub fn fetch_backups(&self) {
         let _ = self.command_tx.send(WorkerCommand::FetchBackups);
     }
+
+    pub fn acquire_lease(&self, controller_id: String, controller_name: String, force: bool) {
+        let _ = self.lease_tx.send(LeaseCommand::Acquire {
+            controller_id,
+            controller_name,
+            force,
+        });
+    }
+
+    pub fn release_lease(&self) {
+        let _ = self.lease_tx.send(LeaseCommand::Release);
+    }
+
+    pub fn set_lease_usage(&self, usage: luxifer_application::LeaseUsage) {
+        let _ = self.lease_tx.send(LeaseCommand::Usage(usage));
+    }
+
+    pub fn try_lease_result(&self) -> Option<LeaseWorkerResult> {
+        self.lease_rx.try_iter().last()
+    }
+}
+
+fn lease_worker(command_rx: Receiver<LeaseCommand>, result_tx: Sender<LeaseWorkerResult>) {
+    let mut config: Option<Box<CharonConfig>> = None;
+    let mut active: Option<ActiveLease> = None;
+    let mut pending: Option<PendingLease> = None;
+    loop {
+        match command_rx.recv_timeout(HEARTBEAT_INTERVAL) {
+            Ok(LeaseCommand::Configure(next)) => {
+                let coordination_changed = match (config.as_deref(), next.as_deref()) {
+                    (Some(previous), Some(next)) => {
+                        previous.url != next.url
+                            || previous.workplace_id != next.workplace_id
+                            || previous.workplace_name != next.workplace_name
+                    }
+                    (None, None) => false,
+                    _ => true,
+                };
+                if coordination_changed {
+                    release_active(config.as_deref(), &mut active);
+                    pending = None;
+                }
+                config = next;
+            }
+            Ok(LeaseCommand::Acquire {
+                controller_id,
+                controller_name,
+                force,
+            }) => {
+                let Some(current) = config.as_ref() else {
+                    continue;
+                };
+                match luxifer_application::acquire_lease(
+                    &current.url,
+                    &controller_id,
+                    &controller_name,
+                    &current.workplace_id,
+                    &current.workplace_name,
+                    force,
+                ) {
+                    Ok(reply) if reply.granted => {
+                        active = reply.token.clone().map(|token| ActiveLease {
+                            controller_id,
+                            token,
+                            usage: luxifer_application::LeaseUsage::Idle,
+                        });
+                        pending = None;
+                        let _ = result_tx.send(LeaseWorkerResult::Acquired);
+                    }
+                    Ok(reply) => {
+                        pending = reply.release_requested.then_some(PendingLease {
+                            controller_id,
+                            controller_name,
+                        });
+                        let _ = result_tx.send(LeaseWorkerResult::Denied(reply));
+                    }
+                    Err(error) => {
+                        let _ = result_tx.send(LeaseWorkerResult::Lost(error.message().into()));
+                    }
+                }
+            }
+            Ok(LeaseCommand::Release) => {
+                pending = None;
+                release_active(config.as_deref(), &mut active);
+                let _ = result_tx.send(LeaseWorkerResult::Released);
+            }
+            Ok(LeaseCommand::Usage(usage)) => {
+                if let Some(lease) = active.as_mut() {
+                    lease.usage = usage;
+                    if let Some(current) = config.as_ref() {
+                        let _ = luxifer_application::heartbeat_lease(
+                            &current.url,
+                            &lease.controller_id,
+                            &current.workplace_id,
+                            &lease.token,
+                            lease.usage,
+                        );
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Timeout) => {
+                let Some(current) = config.as_ref() else {
+                    continue;
+                };
+                if active.is_none() {
+                    let Some(request) = pending.as_ref() else {
+                        continue;
+                    };
+                    match luxifer_application::acquire_lease(
+                        &current.url,
+                        &request.controller_id,
+                        &request.controller_name,
+                        &current.workplace_id,
+                        &current.workplace_name,
+                        false,
+                    ) {
+                        Ok(reply) if reply.granted => {
+                            active = reply.token.map(|token| ActiveLease {
+                                controller_id: request.controller_id.clone(),
+                                token,
+                                usage: luxifer_application::LeaseUsage::Idle,
+                            });
+                            pending = None;
+                            let _ = result_tx.send(LeaseWorkerResult::Acquired);
+                        }
+                        Ok(_) => {}
+                        Err(error) => {
+                            pending = None;
+                            let _ = result_tx.send(LeaseWorkerResult::Lost(error.message().into()));
+                        }
+                    }
+                    continue;
+                }
+                let Some(lease) = active.as_ref() else {
+                    continue;
+                };
+                match luxifer_application::heartbeat_lease(
+                    &current.url,
+                    &lease.controller_id,
+                    &current.workplace_id,
+                    &lease.token,
+                    lease.usage,
+                ) {
+                    Ok(reply)
+                        if reply.release_requested
+                            && lease.usage == luxifer_application::LeaseUsage::Idle =>
+                    {
+                        release_active(config.as_deref(), &mut active);
+                        let _ = result_tx.send(LeaseWorkerResult::ReleaseRequested);
+                    }
+                    Ok(_) => {}
+                    Err(error) => {
+                        active = None;
+                        let _ = result_tx.send(LeaseWorkerResult::Lost(error.message().into()));
+                    }
+                }
+            }
+            Err(RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
+fn release_active(config: Option<&CharonConfig>, active: &mut Option<ActiveLease>) {
+    if let (Some(current), Some(lease)) = (config, active.as_ref()) {
+        let _ = luxifer_application::release_lease(
+            &current.url,
+            &lease.controller_id,
+            &current.workplace_id,
+            &lease.token,
+        );
+    }
+    *active = None;
 }
 
 fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerResult>) {

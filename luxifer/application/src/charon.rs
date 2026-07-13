@@ -53,6 +53,52 @@ pub struct CharonWorkplaceBackup {
     pub payload: String,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum LeaseUsage {
+    #[default]
+    Idle,
+    Running,
+    Paused,
+    Unknown,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+pub struct CharonLease {
+    pub controller_id: String,
+    pub granted: bool,
+    pub token: Option<String>,
+    pub holder_name: Option<String>,
+    pub holder_usage: Option<LeaseUsage>,
+    pub expires_at_unix: Option<u64>,
+    pub release_requested: bool,
+    pub force_required: bool,
+}
+
+#[derive(Serialize)]
+struct LeaseAcquire<'a> {
+    controller_id: &'a str,
+    controller_name: &'a str,
+    workplace_id: &'a str,
+    workplace_name: &'a str,
+    force: bool,
+}
+
+#[derive(Serialize)]
+struct LeaseHeartbeat<'a> {
+    controller_id: &'a str,
+    workplace_id: &'a str,
+    token: &'a str,
+    usage: LeaseUsage,
+}
+
+#[derive(Serialize)]
+struct LeaseRelease<'a> {
+    controller_id: &'a str,
+    workplace_id: &'a str,
+    token: &'a str,
+}
+
 #[derive(Debug, Deserialize)]
 struct WorkplaceBackupAck {
     workplace_id: String,
@@ -175,6 +221,79 @@ pub fn connect_charon(
         handshake,
         workplaces,
     })
+}
+
+pub fn acquire_lease(
+    base_url: &str,
+    controller_id: &str,
+    controller_name: &str,
+    workplace_id: &str,
+    workplace_name: &str,
+    force: bool,
+) -> Result<CharonLease, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let body = serde_json::to_string(&LeaseAcquire {
+        controller_id,
+        controller_name,
+        workplace_id,
+        workplace_name,
+        force,
+    })
+    .map_err(|error| AppError::new("charon_lease_json", error.to_string()))?;
+    parse_json_response(&send_request(
+        &endpoint,
+        "POST",
+        "/api/v1/leases/acquire",
+        &body,
+        TIMEOUT,
+    )?)
+}
+
+pub fn heartbeat_lease(
+    base_url: &str,
+    controller_id: &str,
+    workplace_id: &str,
+    token: &str,
+    usage: LeaseUsage,
+) -> Result<CharonLease, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let body = serde_json::to_string(&LeaseHeartbeat {
+        controller_id,
+        workplace_id,
+        token,
+        usage,
+    })
+    .map_err(|error| AppError::new("charon_lease_json", error.to_string()))?;
+    parse_json_response(&send_request(
+        &endpoint,
+        "POST",
+        "/api/v1/leases/heartbeat",
+        &body,
+        TIMEOUT,
+    )?)
+}
+
+pub fn release_lease(
+    base_url: &str,
+    controller_id: &str,
+    workplace_id: &str,
+    token: &str,
+) -> Result<bool, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let body = serde_json::to_string(&LeaseRelease {
+        controller_id,
+        workplace_id,
+        token,
+    })
+    .map_err(|error| AppError::new("charon_lease_json", error.to_string()))?;
+    let response: serde_json::Value = parse_json_response(&send_request(
+        &endpoint,
+        "POST",
+        "/api/v1/leases/release",
+        &body,
+        TIMEOUT,
+    )?)?;
+    Ok(response["released"].as_bool().unwrap_or(false))
 }
 
 pub fn upload_workplace_backups(

@@ -15,10 +15,10 @@ mod sync_outbox;
 mod test_env;
 
 pub use charon::{
-    connect_charon, list_workplace_backups, sync_assets, sync_project_revisions,
-    upload_pending_revisions, upload_workplace_backups, wait_for_project_event, CharonBackupKind,
-    CharonConnection, CharonHandshake, CharonProjectEvent, CharonSyncReport, CharonWorkplace,
-    CharonWorkplaceBackup,
+    acquire_lease, connect_charon, heartbeat_lease, list_workplace_backups, release_lease,
+    sync_assets, sync_project_revisions, upload_pending_revisions, upload_workplace_backups,
+    wait_for_project_event, CharonBackupKind, CharonConnection, CharonHandshake, CharonLease,
+    CharonProjectEvent, CharonSyncReport, CharonWorkplace, CharonWorkplaceBackup, LeaseUsage,
 };
 pub use error::AppError;
 pub use laser::LaserService;

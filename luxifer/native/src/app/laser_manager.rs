@@ -112,6 +112,8 @@ impl App {
 
     pub fn laser_manager_machine_read(&mut self) {
         self.activate_managed_laser();
+        self.charon_runtime
+            .set_lease_usage(luxifer_application::LeaseUsage::Unknown);
         match self.laser_backend.read_machine_settings() {
             Ok(values) => {
                 let count = values.len();
@@ -125,6 +127,8 @@ impl App {
             }
             Err(error) => self.app_error = Some(error),
         }
+        self.charon_runtime
+            .set_lease_usage(luxifer_application::LeaseUsage::Idle);
     }
 
     pub fn laser_manager_machine_write(&mut self) {
@@ -137,6 +141,8 @@ impl App {
         if changes.is_empty() {
             return;
         }
+        self.charon_runtime
+            .set_lease_usage(luxifer_application::LeaseUsage::Unknown);
         match self.laser_backend.write_machine_settings(&changes) {
             Ok(values) => {
                 if let Some(st) = self.laser_manager.as_mut() {
@@ -151,6 +157,8 @@ impl App {
             }
             Err(error) => self.app_error = Some(error),
         }
+        self.charon_runtime
+            .set_lease_usage(luxifer_application::LeaseUsage::Idle);
     }
 
     fn activate_managed_laser(&mut self) {

@@ -47,6 +47,17 @@ impl App {
             self.laser_uncoordinated_confirm = true;
             return;
         }
+        if self.ui_settings.charon_enabled && self.laser_backend.active_uses_network() {
+            let Some((controller_id, controller_name)) = self.laser_backend.active_lease_identity()
+            else {
+                return;
+            };
+            self.laser_lease_pending = true;
+            self.charon_runtime
+                .acquire_lease(controller_id, controller_name, false);
+            self.toasts.success("Ruida-Lease wird angefordert …");
+            return;
+        }
         self.laser_connect_now();
     }
 
@@ -58,12 +69,18 @@ impl App {
     fn laser_connect_now(&mut self) {
         match self.laser_backend.connect() {
             Ok(()) => self.toasts.success("Laser verbunden."),
-            Err(error) => self.app_error = Some(error),
+            Err(error) => {
+                self.charon_runtime.release_lease();
+                self.app_error = Some(error);
+            }
         }
     }
 
     pub fn laser_disconnect(&mut self) {
         self.laser_backend.disconnect();
+        self.charon_runtime.release_lease();
+        self.charon_runtime
+            .set_lease_usage(luxifer_application::LeaseUsage::Idle);
         self.toasts.success("Laser getrennt.");
     }
 
@@ -75,9 +92,70 @@ impl App {
             .laser_backend
             .run_action(action, &shapes, &layers, start_mode, anchor)
         {
-            Ok(message) => self.toasts.success(message),
+            Ok(message) => {
+                let usage = match action {
+                    luxifer_core::JobAction::SendJob | luxifer_core::JobAction::StreamGcode => {
+                        Some(luxifer_application::LeaseUsage::Running)
+                    }
+                    luxifer_core::JobAction::Pause => Some(luxifer_application::LeaseUsage::Paused),
+                    luxifer_core::JobAction::Stop => Some(luxifer_application::LeaseUsage::Idle),
+                    _ => None,
+                };
+                if let Some(usage) = usage {
+                    self.charon_runtime.set_lease_usage(usage);
+                }
+                self.toasts.success(message)
+            }
             Err(error) => self.app_error = Some(error),
         }
+    }
+
+    pub fn force_laser_lease(&mut self) {
+        self.laser_lease_force_confirm = None;
+        let Some((controller_id, controller_name)) = self.laser_backend.active_lease_identity()
+        else {
+            return;
+        };
+        self.laser_lease_pending = true;
+        self.charon_runtime
+            .acquire_lease(controller_id, controller_name, true);
+    }
+
+    pub fn poll_laser_lease(&mut self) -> bool {
+        let Some(result) = self.charon_runtime.try_lease_result() else {
+            return false;
+        };
+        self.laser_lease_pending = false;
+        match result {
+            super::charon::LeaseWorkerResult::Acquired => self.laser_connect_now(),
+            super::charon::LeaseWorkerResult::Denied(reply) => {
+                if reply.force_required {
+                    self.laser_lease_force_confirm = Some(reply);
+                } else {
+                    let holder = reply
+                        .holder_name
+                        .as_deref()
+                        .unwrap_or("anderer Arbeitsplatz");
+                    self.toasts.error(format!(
+                        "Ruida ist durch {holder} belegt. Eine Übergabe wurde angefordert."
+                    ));
+                }
+            }
+            super::charon::LeaseWorkerResult::Released => {}
+            super::charon::LeaseWorkerResult::ReleaseRequested => {
+                self.laser_backend.disconnect();
+                self.toasts
+                    .success("Ruida-Verbindung an anderen Arbeitsplatz übergeben.");
+            }
+            super::charon::LeaseWorkerResult::Lost(message) => {
+                self.laser_backend.disconnect();
+                self.app_error = Some(luxifer_application::AppError::new(
+                    "charon_lease_lost",
+                    format!("Ruida-Lease verloren: {message}"),
+                ));
+            }
+        }
+        true
     }
 
     pub fn laser_export(&mut self) {

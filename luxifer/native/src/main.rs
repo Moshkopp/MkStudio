@@ -94,6 +94,9 @@ impl ApplicationHandler for Runner {
         if app.poll_asset_thumbnails() {
             app.window.request_redraw();
         }
+        if app.poll_laser_lease() {
+            app.window.request_redraw();
+        }
         // Der Netzwerkthread arbeitet unabhängig. Dieses kurze Aufwachen dient
         // nur dazu, dessen Ergebnis zeitnah in die UI zu übernehmen.
         el.set_control_flow(ControlFlow::WaitUntil(

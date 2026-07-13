@@ -2,7 +2,8 @@
 
 ## Status
 
-Akzeptiert — 2026-07-13 · Projekt-, Asset- und Arbeitsplatz-Sicherung umgesetzt.
+Akzeptiert — 2026-07-13 · Lokaler Funktionsumfang einschließlich
+Ruida-Lease-Koordination umgesetzt.
 
 ## Kontext
 
@@ -43,7 +44,8 @@ sowie Projekt- und Asset-Synchronisierung:
 
 Die erste Protokollversion ist `1`. Fähigkeiten werden als stabile String-IDs
 gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
-  `project_revisions`, `project_events`, `assets` und `workplace_backups`;
+  `project_revisions`, `project_events`, `assets`, `workplace_backups` und
+  `machine_leases`;
   unbekannte Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Invarianten
@@ -78,7 +80,7 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
    als versionierte Sicherungen abgelegt. Eine Neuinstallation lädt und
    übernimmt sie nur nach ausdrücklicher Auswahl durch den Nutzer.
 10. **Ruida-Exklusivität ist Koordination, keine Maschinensteuerung.** Charon
-   vergibt später genau eine zeitlich begrenzte Lease pro Ethernet-Controller.
+   vergibt genau eine zeitlich begrenzte Lease pro Ethernet-Controller.
    Nur der Lease-Inhaber verbindet sich selbst mit dem Ruida; Charon sendet
    niemals Maschinenbefehle oder Jobdaten.
 11. **Die Verbindung bleibt manuell.** `Verbinden` im Laser-Tab fordert die
@@ -106,17 +108,15 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
 - Drei-Wege-Merge einzelner Shapes oder Layer;
 - Aufräum- und Aufbewahrungsregeln für bestätigte Sync-Revisionen;
 - Benutzerkonten, Tokens, TLS, Discovery oder Fernzugriff;
-- Ruida-Lease-Protokoll, Queueing oder Jobübertragung;
+- Maschinen-Queueing oder Jobübertragung durch Charon;
 - Proxmox-, Container- oder Systemdienst-Deployment.
 
 ## Nächste Schritte
 
-1. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
-   Meilenstein umsetzen.
-2. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
+1. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
    LAN erst zusammen mit Authentifizierung und TLS.
-3. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
-4. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
+2. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
+3. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
    vorbereiten; bis dahin bleiben Konfliktentscheidungen auf Versionsebene.
 
 ## Umsetzungsstand
@@ -268,10 +268,32 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   `laser_not_connected` ab. Reiner Dateiexport bleibt ohne Verbindung möglich.
 - Ist Charon für ein Ethernet-Profil aktiviert, aber nicht erreichbar, verlangt
   `Verbinden` vor dem direkten Zugriff eine deutliche Bestätigung. Serielle
-  Profile benötigen diese Koordinationswarnung nicht.
+  Profile benötigen diese Koordinationswarnung nicht;
+- Ethernet-Profile leiten aus der Zieladresse eine arbeitsplatzunabhängige
+  Controller-ID ab. `Verbinden` fordert über
+  `POST /api/v1/leases/acquire` eine exklusive Lease an; erst nach ihrer
+  Bestätigung verbindet LuxiFer selbst den Maschinentreiber;
+- Charon hält Leases ausschließlich als Koordinationszustand im Speicher. Ihre
+  Laufzeit beträgt 15 Sekunden, LuxiFer erneuert sie alle fünf Sekunden über
+  `POST /api/v1/leases/heartbeat`; Charon besitzt weiterhin keinen Treiber und
+  überträgt weder Maschinenbefehle noch Jobdaten;
+- fordert ein zweiter Arbeitsplatz einen untätig belegten Controller an,
+  meldet der nächste Heartbeat dies dem Halter. Dieser trennt und gibt die
+  Lease frei; der wartende Client versucht die Übernahme selbstständig erneut;
+- `Running`, `Paused` und `Unknown` verhindern eine reguläre Übergabe. Senden
+  und Pausieren aktualisieren den Lease-Zustand konservativ; kritische
+  Controller-Lese- und Schreibvorgänge melden vorübergehend `Unknown`;
+- eine abgelaufene, zuletzt untätige Lease darf Charon automatisch neu
+  vergeben. Bei einem abgelaufenen nicht sicheren Zustand verlangt LuxiFer vor
+  der Zwangsübernahme eine auffällige Bestätigung, dass Maschine und Auftrag
+  vor Ort kontrolliert wurden;
+- Trennen, Profilwechsel und Konfigurationswechsel geben eine aktive Lease
+  bestmöglich frei. Geht Heartbeat oder Lease verloren, trennt LuxiFer den
+  eigenen Treiber und meldet den Fehler sichtbar.
 
-Noch offen sind Ruida-Leases, Proxmox-/LAN-Betrieb,
-Aufbewahrungsregeln und optional ein
-späterer Objekt-Merge. Charon darf Versionen verteilen und Verbindungen
-koordinieren, aber keine Projektinhalte selbst bearbeiten oder laufende Jobs
-unterbrechen.
+Damit ist der lokale Funktionsumfang dieses ADR abgeschlossen. Noch offen sind
+die ausdrücklich nachgelagerten Betriebs- und Ausbaupunkte:
+Proxmox-/LAN-Betrieb mit Authentifizierung und TLS, Aufbewahrungsregeln und
+optional ein späterer Objekt-Merge. Charon darf Versionen verteilen und
+Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten,
+Maschinen steuern oder laufende Jobs unterbrechen.

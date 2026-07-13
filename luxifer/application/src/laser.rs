@@ -47,6 +47,12 @@ impl LaserService {
     pub fn read_machine_settings(
         &mut self,
     ) -> Result<Vec<luxifer_driver_ruida::RuidaMachineSetting>, AppError> {
+        if !self.is_connected() {
+            return Err(AppError::new(
+                "laser_not_connected",
+                "Laser ist nicht verbunden. Bitte zuerst ausdrücklich verbinden.",
+            ));
+        }
         let profile = self
             .active_profile()
             .ok_or_else(|| AppError::new("no_active_laser", "Kein Laser aktiv."))?
@@ -83,6 +89,12 @@ impl LaserService {
         &mut self,
         changes: &[(u16, i64)],
     ) -> Result<Vec<luxifer_driver_ruida::RuidaMachineSetting>, AppError> {
+        if !self.is_connected() {
+            return Err(AppError::new(
+                "laser_not_connected",
+                "Laser ist nicht verbunden. Bitte zuerst ausdrücklich verbinden.",
+            ));
+        }
         let profile = self
             .active_profile()
             .ok_or_else(|| AppError::new("no_active_laser", "Kein Laser aktiv."))?
@@ -139,6 +151,9 @@ impl LaserService {
     }
 
     pub fn set_active(&mut self, id: &str) {
+        if self.registry.active_id.as_deref() == Some(id) {
+            return;
+        }
         if self.registry.set_active(id) {
             let _ = self.registry.save();
             self.disconnect();
@@ -198,6 +213,21 @@ impl LaserService {
     pub fn active_uses_network(&self) -> bool {
         self.active_profile()
             .is_some_and(|profile| matches!(profile.connection, Connection::Netz { .. }))
+    }
+
+    pub fn active_lease_identity(&self) -> Option<(String, String)> {
+        let profile = self.active_profile()?;
+        let Connection::Netz { .. } = profile.connection else {
+            return None;
+        };
+        let target = connection_target(profile);
+        Some((
+            format!(
+                "controller-{}",
+                luxifer_core::assets::content_hash(target.as_bytes())
+            ),
+            profile.name.clone(),
+        ))
     }
 
     pub fn connect(&mut self) -> Result<(), AppError> {

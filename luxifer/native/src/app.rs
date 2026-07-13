@@ -63,6 +63,8 @@ pub struct App {
     pub charon_sync_error: Option<String>,
     /// Bestätigung vor unkoordinierter Verbindung bei ausgefallenem Charon.
     pub laser_uncoordinated_confirm: bool,
+    pub laser_lease_force_confirm: Option<luxifer_application::CharonLease>,
+    pub laser_lease_pending: bool,
     /// Laufender Start-Splash oder None (abgelaufen/übersprungen/deaktiviert).
     pub splash: Option<crate::ui::Splash>,
     /// Offener Einstellungen-Dialog (Entwurf) oder None.
@@ -176,6 +178,8 @@ impl App {
             charon_status: crate::ui::CharonTestStatus::Idle,
             charon_sync_error: None,
             laser_uncoordinated_confirm: false,
+            laser_lease_force_confirm: None,
+            laser_lease_pending: false,
             settings_dialog: None,
             laser_manager: None,
             project_browser: Default::default(),
@@ -329,6 +333,7 @@ impl App {
             || self.pending_project.is_some()
             || self.close_pending
             || self.laser_uncoordinated_confirm
+            || self.laser_lease_force_confirm.is_some()
             || self.splash.is_some()
     }
 
