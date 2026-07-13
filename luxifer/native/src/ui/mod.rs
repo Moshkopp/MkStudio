@@ -273,6 +273,26 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         );
     }
 
+    // Ein gemeinsames Backdrop für alle echten Dialoge. Beim Einstellen wird
+    // direkt der Draft gelesen, damit der Alpha-Regler live reagiert.
+    let has_dialog = app.text_dialog.is_some()
+        || app.layer_dialog.is_some()
+        || app.image_dialog.is_some()
+        || app.geo_op_dialog.is_some()
+        || app.settings_dialog.is_some()
+        || app.laser_manager.is_some()
+        || app.project_save_dialog.is_some()
+        || app.pending_project.is_some()
+        || app.close_pending;
+    if has_dialog {
+        let alpha = app
+            .settings_dialog
+            .as_ref()
+            .map(|state| state.draft.modal_backdrop_alpha)
+            .unwrap_or(app.ui_settings.modal_backdrop_alpha);
+        dialogs::modal_backdrop(ctx, alpha);
+    }
+
     // Text-Dialog: Entwurf als &mut, Font-Namen als reine Anzeigeliste.
     if app.text_dialog.is_some() {
         let font_names: Vec<String> = app.fonts.iter().map(|f| f.name.clone()).collect();

@@ -98,11 +98,18 @@ pub struct UiSettings {
     /// Geklemmt auf einen sinnvollen Bereich.
     #[serde(default = "default_splash_ms")]
     pub splash_ms: u32,
+    /// Deckkraft der dunklen Fläche hinter modalen Dialogen.
+    #[serde(default = "default_modal_backdrop_alpha")]
+    pub modal_backdrop_alpha: u8,
 }
 
 /// Default-Mindestdauer des Splash (ms).
 fn default_splash_ms() -> u32 {
     1500
+}
+
+fn default_modal_backdrop_alpha() -> u8 {
+    200
 }
 
 /// Default-Rasterweite (mm), wenn eine alte Settings-Datei das Feld nicht hat.
@@ -134,6 +141,7 @@ impl Default for UiSettings {
             grid_size_mm: default_grid_size(),
             show_splash: true,
             splash_ms: default_splash_ms(),
+            modal_backdrop_alpha: default_modal_backdrop_alpha(),
         }
     }
 }
@@ -230,6 +238,7 @@ mod tests {
         assert_eq!(back.grid_size_mm, default_grid_size());
         assert!(back.show_splash);
         assert_eq!(back.splash_ms, default_splash_ms());
+        assert_eq!(back.modal_backdrop_alpha, default_modal_backdrop_alpha());
     }
 
     #[test]

@@ -34,6 +34,8 @@ noch:
 
 - Arbeitsplatzname,
 - Theme-Farben samt Intensität,
+- Raster- und Splash-Darstellung,
+- Deckkraft der einheitlichen modalen Dialog-Abdunklung,
 - zuletzt verwendetes Projekt.
 
 Alte `gui-settings.json`-Dateien mit `layouts` bleiben ladefähig; das Feld wird

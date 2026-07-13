@@ -31,7 +31,9 @@ pub(in crate::ui) fn laser_manager_window(
     let mut open = true;
     let window_size = ctx.screen_rect().size();
     let dialog_size = egui::vec2(window_size.x * 0.5, window_size.y * 0.9);
+
     egui::Window::new("Laser verwalten")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .fixed_size(dialog_size)

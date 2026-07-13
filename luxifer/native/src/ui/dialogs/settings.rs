@@ -129,6 +129,9 @@ fn ui_section(ui: &mut egui::Ui, st: &mut SettingsDialogState) {
             ui.label("Buttonfarbe");
             theme_color_row(ui, &mut s.theme.button);
             ui.end_row();
+            ui.label("Dialog-Hintergrund");
+            ui.add(egui::Slider::new(&mut s.modal_backdrop_alpha, 0..=255).text("Abdunklung"));
+            ui.end_row();
             ui.label("Splash beim Start");
             ui.checkbox(&mut s.show_splash, "");
             ui.end_row();
