@@ -2,7 +2,7 @@
 
 ## Status
 
-Akzeptiert — 2026-07-13 · präzisiert nach Rollen-/Lease-Entscheidung.
+Akzeptiert — 2026-07-13 · Projekt-Sync umgesetzt in `v1.0`.
 
 ## Kontext
 
@@ -19,9 +19,10 @@ Deployment, Authentifizierung oder ein Proxmox-Betrieb hinzukommen.
 
 ## Entscheidung
 
-Charon beginnt als **optional aktivierter lokaler HTTP-Dienst**. Der erste
-Meilenstein enthält Erreichbarkeit, Protokollaushandlung und die kleinste
-Mehrinstanz-Basis:
+Charon beginnt als **optional aktivierter lokaler HTTP-Dienst**. Der in `v1.0`
+umgesetzte erste Meilenstein umfasst Erreichbarkeit, Protokollaushandlung,
+Mehrinstanz-Präsenz und vollständigen Projekt-Sync für Projekte ohne externe
+Bild-Assets:
 
 - Standardbindung: `127.0.0.1:3737`; keine Freigabe ins LAN;
 - `GET /health` bestätigt nur die Prozessbereitschaft;
@@ -34,13 +35,17 @@ Mehrinstanz-Basis:
   Basis-URL, Verbindungstest und verständlichem Status;
 - die Application-Schicht besitzt Netzwerkzugriff und Fehlerübersetzung; egui
   stellt nur Draft und Ergebnis dar;
+- lokale Outbox und Inbox sichern den Projekttransfer gegen Prozess- und
+  Netzwerkausfälle; ein cursorbasierter Long-Poll verkürzt die Zustellung;
+- bestehende Projekte werden read-only verglichen und anschließend bewusst als
+  lokale oder empfangene Gesamtversion aufgelöst;
 - ein nicht gestarteter oder nicht erreichbarer Charon beeinträchtigt weder
   Editor, Projekte noch Laserbetrieb.
 
 Die erste Protokollversion ist `1`. Fähigkeiten werden als stabile String-IDs
-gemeldet. Der erste Server meldet `health`, `handshake` und `workplaces`;
-unbekannte
-Fähigkeiten müssen von Clients ignoriert werden.
+gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
+`project_revisions` und `project_events`; unbekannte Fähigkeiten müssen von
+Clients ignoriert werden.
 
 ## Invarianten
 
@@ -92,31 +97,33 @@ Fähigkeiten müssen von Clients ignoriert werden.
    LuxiFer vor einer unkoordinierten Ethernet-Verbindung und verlangt eine
    manuelle Bestätigung. USB-Verbindungen benötigen keine Charon-Lease.
 
-## Nicht Teil dieses Meilensteins
+## Nicht Teil von v1.0
 
-- Übernahme aus der Projekt-Inbox und Push-Kanal;
 - Settings-/Laserprofil-Sicherung;
 - Assetübertragung und Deduplizierung;
+- Drei-Wege-Merge einzelner Shapes oder Layer;
+- Aufräum- und Aufbewahrungsregeln für bestätigte Sync-Revisionen;
 - Benutzerkonten, Tokens, TLS, Discovery oder Fernzugriff;
 - Ruida-Lease-Protokoll, Queueing oder Jobübertragung;
 - Proxmox-, Container- oder Systemdienst-Deployment.
 
 ## Nächste Schritte
 
-1. Optionalen Drei-Wege-Objektvergleich auf Basis stabiler Shape-/Layer-IDs
-   vorbereiten; bis dahin bleiben Entscheidungen auf Versionsebene.
-2. Empfangsbestätigungen später für Aufräum- und Aufbewahrungsregeln nutzen.
-3. Push-Kanal und Konfliktbenachrichtigung ergänzen; zunächst ganze Version
-   übernehmen oder zurückstellen. Stabil identifizierbare Shapes/Layer sind
-   Voraussetzung für späteren Vergleich und Drei-Wege-Objekt-Merge.
-4. Arbeitsplatzbezogene Settings- und Laserprofil-Sicherungen ergänzen.
-5. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
-6. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
+1. Assetübertragung und hashbasierte Deduplizierung ergänzen, damit auch
+   Bildprojekte vollständig synchronisiert werden können.
+2. Arbeitsplatzbezogene Settings- und Laserprofil-Sicherungen ergänzen.
+3. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
+4. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
    Meilenstein umsetzen.
+5. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
+   LAN erst zusammen mit Authentifizierung und TLS.
+6. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
+7. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
+   vorbereiten; bis dahin bleiben Konfliktentscheidungen auf Versionsebene.
 
 ## Umsetzungsstand
 
-Der erste Meilenstein ist umgesetzt:
+Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
 
 - Charon bindet standardmäßig und erzwungen an `127.0.0.1:3737`;
 - Health und Handshake antworten mit JSON und wurden gegen einen real
@@ -124,7 +131,7 @@ Der erste Meilenstein ist umgesetzt:
 - der Client liegt in `luxifer-application`, validiert URL, HTTP-Status,
   Serverkennung und Protokollversion und übersetzt Fehler in `AppError`;
 - Aktivierung, URL und Verbindungstest liegen in der globalen
-  Charon-Einstellungssektion; alte Settings erhalten sichere Defaults.
+  Charon-Einstellungssektion; alte Settings erhalten sichere Defaults;
 - jeder Datenbereich erhält beim ersten Start eine persistierte
   `workplace_id`; der sichtbare Arbeitsplatzname bleibt frei änderbar;
 - der Verbindungstest registriert den Arbeitsplatz und zeigt Charons bekannten
@@ -147,7 +154,7 @@ Der erste Meilenstein ist umgesetzt:
   leert die Anwesenheitsliste, die laufenden Clients melden sich selbstständig
   wieder an;
 - `scripts/run-local-charon-demo.sh` startet Charon, Office und Workshop mit
-  voneinander isolierten Datenverzeichnissen in drei Terminals.
+  voneinander isolierten Datenverzeichnissen in drei Terminals;
 - nach jedem erfolgreichen lokalen Speichern legt LuxiFer bei aktiviertem
   Charon einen atomar geschriebenen Outbox-Eintrag unter
   `sync/outbox/<revision_id>/` an. Manifest und eigene `payload.luxi`-Kopie
@@ -157,7 +164,7 @@ Der erste Meilenstein ist umgesetzt:
   und Status. Dadurch bildet auch mehrfaches Speichern innerhalb etwa V1 eine
   eindeutige, konfliktfähige Kette;
 - ein Outbox-Fehler macht das zuvor erfolgreiche lokale Speichern nicht
-  rückgängig und wird als separate Warnung angezeigt.
+  rückgängig und wird als separate Warnung angezeigt;
 - der Hintergrunddienst überträgt offene und fehlgeschlagene Outbox-Einträge
   nach einem erfolgreichen Heartbeat in Reihenfolge ihrer Revisionskette;
 - Charon prüft den Inhaltshash und speichert Manifest und Payload atomar unter
@@ -169,7 +176,7 @@ Der erste Meilenstein ist umgesetzt:
 - wiederholte identische Uploads sind idempotent. Dieselbe Revisions-ID mit
   anderem Inhalt wird als Konflikt abgelehnt;
 - der lokale HTTP-Server liest vollständige Requests bis 64 MiB statt nur den
-  ersten Netzwerkblock. Assets sind weiterhin nicht Bestandteil des Transfers.
+  ersten Netzwerkblock. Assets sind weiterhin nicht Bestandteil des Transfers;
 - Charon liefert einem Arbeitsplatz ausschließlich Revisionen anderer
   Arbeitsplätze. LuxiFer prüft deren Hash und legt sie idempotent und atomar
   unter `sync/inbox/<revision_id>/` ab;
@@ -183,7 +190,7 @@ Der erste Meilenstein ist umgesetzt:
   diesen Arbeitsplatz nicht erneut aus;
 - geht die Bestätigung unterwegs verloren, wird die Revision noch einmal
   geliefert, lokal als bereits vorhanden erkannt und erneut bestätigt. Damit
-  bleibt der Ablauf auch über Prozess- und Netzwerkausfälle hinweg sicher.
+  bleibt der Ablauf auch über Prozess- und Netzwerkausfälle hinweg sicher;
 - der Projekt-Reiter besitzt den Bereich `Von Charon`; ein Badge am
   Projekt-Einstieg zählt neue `pending_review`-Revisionen. `Später` setzt sie
   auf `deferred`, ohne sie zu löschen;
@@ -194,12 +201,12 @@ Der erste Meilenstein ist umgesetzt:
   `asset_refs` verständlich abgelehnt;
 - nach erfolgreichem Import erscheint das Projekt in `Meine Projekte`; der
   Canvas und ein eventuell geöffnetes, ungespeichertes Projekt werden nicht
-  automatisch ersetzt.
+  automatisch ersetzt;
 - `Änderungen anzeigen` öffnet einen strikt read-only Vergleich. Lokales Projekt
   und Charon-Revision werden über die stabile Projekt-ID zugeordnet und mit
   getrennten Miniaturen, Größen sowie Änderungsmarkern für Arbeitsbereich,
   Ebenen, Objekte und Metadaten angezeigt. Der Dialog verändert weder Inbox-
-  Status noch Projektdateien.
+  Status noch Projektdateien;
 - `Lokale Version behalten` quittiert ausschließlich die konkrete Inbox-
   Revision als ignoriert. `Charon-Version übernehmen` hängt den empfangenen
   Stand als neue lokale Version mit eigener Versions-ID und Herkunftsnotiz an;
@@ -207,8 +214,8 @@ Der erste Meilenstein ist umgesetzt:
   ungespeichert, greift vorher der Dirty-Guard. Projekte mit noch nicht
   übertragenen Bild-Assets bleiben gesperrt.
 
-Noch offen sind späterer Objekt-Merge, Asset- und Settings-Transfer sowie
-Ruida-Leases.
-Charon darf Versionen verteilen und
-Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten oder
-laufende Jobs unterbrechen.
+Noch offen sind Asset- und Settings-Transfer, manuelle Laser-Verbindung samt
+Ruida-Leases, Proxmox-/LAN-Betrieb, Aufbewahrungsregeln und optional ein
+späterer Objekt-Merge. Charon darf Versionen verteilen und Verbindungen
+koordinieren, aber keine Projektinhalte selbst bearbeiten oder laufende Jobs
+unterbrechen.
