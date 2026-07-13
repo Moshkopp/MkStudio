@@ -22,6 +22,8 @@ pub struct LaserView {
     pub slots: [Option<JobAction>; 6],
     /// Ob der aktive Treiber Datei-Export unterstützt.
     pub can_export: bool,
+    /// Bewusst aufgebauter Verbindungszustand des aktiven Profils.
+    pub connected: bool,
 }
 
 /// Farb-Ton der Ampel-Kacheln.
@@ -118,6 +120,30 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
             });
         });
     }
+    if !view.profiles.is_empty() {
+        ui.horizontal(|ui| {
+            let (color, label) = if view.connected {
+                (Color32::from_rgb(0x34, 0xd3, 0x99), "● Verbunden")
+            } else {
+                (ui.visuals().weak_text_color(), "● Getrennt")
+            };
+            ui.colored_label(color, label);
+            ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let clicked = if view.connected {
+                    ui.button("Trennen").clicked()
+                } else {
+                    ui.button("Verbinden").clicked()
+                };
+                if clicked {
+                    actions.push(if view.connected {
+                        UiAction::LaserDisconnect
+                    } else {
+                        UiAction::LaserConnect
+                    });
+                }
+            });
+        });
+    }
     ui.add_space(10.0);
 
     // Ampel-Grid aus den ECHTEN Aktionen des aktiven Treibers (feste Slots).
@@ -134,7 +160,7 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
                 match slot {
                     Some(a) => {
                         let (label, tone) = action_meta(*a);
-                        if ampel_cell(ui, label, &tone, cell_w, cell_h) {
+                        if ampel_cell(ui, label, &tone, cell_w, cell_h, view.connected) {
                             actions.push(UiAction::LaserRun(*a));
                         }
                     }
@@ -196,7 +222,7 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
     // Jog-Kreuz.
     ui.label(RichText::new("KOPF").small().weak());
     ui.add_space(4.0);
-    if let Some(jog) = jog_cross(ui, ui_state.jog_step) {
+    if let Some(jog) = jog_cross(ui, ui_state.jog_step, view.connected) {
         actions.push(jog);
     }
     ui.add_space(8.0);
@@ -207,9 +233,19 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
 }
 
 /// Zeichnet eine Ampel-Kachel; gibt `true` bei Klick zurück.
-fn ampel_cell(ui: &mut egui::Ui, label: &str, tone: &Tone, w: f32, h: f32) -> bool {
+fn ampel_cell(ui: &mut egui::Ui, label: &str, tone: &Tone, w: f32, h: f32, enabled: bool) -> bool {
     let (fill, text) = tone_colors(tone);
-    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, h), Sense::click());
+    let sense = if enabled {
+        Sense::click()
+    } else {
+        Sense::hover()
+    };
+    let (rect, resp) = ui.allocate_exact_size(Vec2::new(w, h), sense);
+    let fill = if enabled {
+        fill
+    } else {
+        fill.gamma_multiply(0.45)
+    };
     let bg = if resp.hovered() {
         fill.gamma_multiply(1.15)
     } else {
@@ -260,7 +296,7 @@ fn anchor_grid(ui: &mut egui::Ui, anchor: &mut usize) {
 
 /// Zeichnet das Jog-Kreuz. Gibt die ausgelöste Bewegung als `UiAction` zurück
 /// (Jog um `step` mm bzw. Home).
-fn jog_cross(ui: &mut egui::Ui, step: f64) -> Option<UiAction> {
+fn jog_cross(ui: &mut egui::Ui, step: f64, enabled: bool) -> Option<UiAction> {
     let b = 46.0;
     let gap = 5.0;
     let total = 3.0 * b + 2.0 * gap;
@@ -280,7 +316,12 @@ fn jog_cross(ui: &mut egui::Ui, step: f64) -> Option<UiAction> {
         // Richtung als selbstgezeichnetes Dreieck/Symbol — schriftunabhängig
         // (egui-Default-Font hat die Unicode-Pfeile nicht).
         let mut btn = |ui: &mut egui::Ui, r: egui::Rect, dir: JogDir| {
-            let resp = ui.allocate_rect(r, Sense::click());
+            let sense = if enabled {
+                Sense::click()
+            } else {
+                Sense::hover()
+            };
+            let resp = ui.allocate_rect(r, sense);
             let bg = if resp.hovered() {
                 Color32::from_rgb(0x30, 0x36, 0x40)
             } else {

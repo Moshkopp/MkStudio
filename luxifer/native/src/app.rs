@@ -53,6 +53,8 @@ pub struct App {
     charon_runtime: charon::CharonRuntime,
     pub charon_status: crate::ui::CharonTestStatus,
     pub charon_sync_error: Option<String>,
+    /// Bestätigung vor unkoordinierter Verbindung bei ausgefallenem Charon.
+    pub laser_uncoordinated_confirm: bool,
     /// Laufender Start-Splash oder None (abgelaufen/übersprungen/deaktiviert).
     pub splash: Option<crate::ui::Splash>,
     /// Offener Einstellungen-Dialog (Entwurf) oder None.
@@ -157,6 +159,7 @@ impl App {
             charon_runtime,
             charon_status: crate::ui::CharonTestStatus::Idle,
             charon_sync_error: None,
+            laser_uncoordinated_confirm: false,
             settings_dialog: None,
             laser_manager: None,
             project_browser: Default::default(),
@@ -309,6 +312,7 @@ impl App {
             || self.revision_comparison.is_some()
             || self.pending_project.is_some()
             || self.close_pending
+            || self.laser_uncoordinated_confirm
             || self.splash.is_some()
     }
 
@@ -425,6 +429,8 @@ impl App {
             A::ImportCatalogAsset(id) => self.import_catalog_asset(&id),
             A::DismissError => self.app_error = None,
             A::LaserSelect(id) => self.laser_select(&id),
+            A::LaserConnect => self.laser_connect(),
+            A::LaserDisconnect => self.laser_disconnect(),
             A::LaserRun(action) => self.laser_run(action),
             A::LaserExport => self.laser_export(),
             A::LaserJog(dx, dy) => self.laser_jog(dx, dy),

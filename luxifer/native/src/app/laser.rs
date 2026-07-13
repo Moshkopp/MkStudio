@@ -36,6 +36,37 @@ impl App {
         self.apply_active_laser_workspace();
     }
 
+    pub fn laser_connect(&mut self) {
+        if self.ui_settings.charon_enabled
+            && self.laser_backend.active_uses_network()
+            && !matches!(
+                self.charon_status,
+                crate::ui::CharonTestStatus::Connected(_)
+            )
+        {
+            self.laser_uncoordinated_confirm = true;
+            return;
+        }
+        self.laser_connect_now();
+    }
+
+    pub fn laser_connect_uncoordinated(&mut self) {
+        self.laser_uncoordinated_confirm = false;
+        self.laser_connect_now();
+    }
+
+    fn laser_connect_now(&mut self) {
+        match self.laser_backend.connect() {
+            Ok(()) => self.toasts.success("Laser verbunden."),
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn laser_disconnect(&mut self) {
+        self.laser_backend.disconnect();
+        self.toasts.success("Laser getrennt.");
+    }
+
     pub fn laser_run(&mut self, action: luxifer_core::JobAction) {
         let (shapes, layers) = self.laser_shapes();
         let start_mode = self.laser.start_mode;

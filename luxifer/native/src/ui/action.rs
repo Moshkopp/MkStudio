@@ -49,7 +49,10 @@ pub enum UiAction {
     /// Layer-Parameter-Dialog für diesen Index öffnen.
     OpenLayerDialog(usize),
     /// Einen Layer in der Brenn-Reihenfolge verschieben.
-    MoveLayer { from: usize, to: usize },
+    MoveLayer {
+        from: usize,
+        to: usize,
+    },
     /// „Neues Projekt"-Maske (Name + Beschreibung) öffnen.
     OpenProjectSaveDialog,
     /// Aktuelles Projekt schließen und eine leere Arbeitsfläche beginnen.
@@ -65,7 +68,10 @@ pub enum UiAction {
     /// Projekt mit diesem Namen exportieren (Zieldialog im Root).
     ExportProject(String),
     /// Projekt umbenennen (`from` → `to`).
-    RenameProject { from: String, to: String },
+    RenameProject {
+        from: String,
+        to: String,
+    },
     /// Eine Version des offenen Projekts in den Canvas laden (Versions-ID).
     OpenProjectVersion(String),
     /// Eine Version des offenen Projekts löschen (Versions-ID).
@@ -98,6 +104,9 @@ pub enum UiAction {
     DismissError,
     /// Laser-Profil aktivieren.
     LaserSelect(String),
+    /// Verbindung zum aktiven Laser ausdrücklich aufbauen oder trennen.
+    LaserConnect,
+    LaserDisconnect,
     /// Laser-Job-Aktion ausführen (Start/Pause/Stop/…).
     LaserRun(JobAction),
     /// Aktuellen Job als Datei exportieren.
@@ -107,5 +116,7 @@ pub enum UiAction {
     /// Laserkopf homen.
     LaserHome,
     /// Eigenständige Laserprofil-Verwaltung öffnen.
-    OpenLaserManager { create_new: bool },
+    OpenLaserManager {
+        create_new: bool,
+    },
 }

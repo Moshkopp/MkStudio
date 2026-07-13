@@ -125,17 +125,21 @@ fn verbindungspflicht_ist_korrekt_klassifiziert() {
 }
 
 #[test]
-fn run_action_ohne_erreichbares_geraet_meldet_verbindungsfehler() {
-    // Regression: Der Dienst rief nie connect() auf — jede Aktion scheiterte
-    // mit einem nackten „NotConnected". Jetzt wird vor der Aktion verbunden;
-    // ohne erreichbares Gerät (127.0.0.1 antwortet nicht auf den Ruida-Ping)
-    // kommt ein verständlicher Fehler mit Ziel und technischer Ursache.
+fn run_action_verlangt_explizite_verbindung() {
     let mut svc = service_with_ruida_at("127.0.0.1");
     let (shapes, layers) = one_rect();
     let err = svc
         .run_action(JobAction::Frame, &shapes, &layers, StartMode::Absolut, 4)
         .unwrap_err();
+    assert_eq!(err.code(), "laser_not_connected");
+}
+
+#[test]
+fn explizites_verbinden_meldet_ziel_und_ursache() {
+    let mut svc = service_with_ruida_at("127.0.0.1");
+    let err = svc.connect().unwrap_err();
     assert_eq!(err.code(), "laser_connect");
     assert!(err.message().contains("127.0.0.1"), "Ziel in der Meldung");
     assert!(err.details().is_some(), "technische Ursache vorhanden");
+    assert!(!svc.is_connected());
 }

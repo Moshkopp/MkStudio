@@ -312,6 +312,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         || app.revision_comparison.is_some()
         || app.pending_project.is_some()
         || app.close_pending;
+    let has_dialog = has_dialog || app.laser_uncoordinated_confirm;
     if has_dialog {
         let alpha = app
             .settings_dialog
@@ -395,6 +396,29 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             dialogs::SettingsOutcome::CharonTest => app.test_charon_connection(),
             dialogs::SettingsOutcome::CharonBackups => app.load_charon_backups(),
             dialogs::SettingsOutcome::RestoreBackup(index) => app.restore_charon_backup(index),
+        }
+    }
+
+    if app.laser_uncoordinated_confirm {
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Unkoordiniert verbinden?")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(egui::Align2::CENTER_CENTER, egui::Vec2::ZERO)
+            .show(ctx, |ui| {
+                ui.label("Charon ist aktiviert, aber derzeit nicht erreichbar.");
+                ui.label("Eine direkte Ethernet-Verbindung kann mit einem anderen Arbeitsplatz kollidieren.");
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    cancel = ui.button("Abbrechen").clicked();
+                    confirm = ui.button("Trotzdem verbinden").clicked();
+                });
+            });
+        if cancel {
+            app.laser_uncoordinated_confirm = false;
+        } else if confirm {
+            app.laser_connect_uncoordinated();
         }
     }
 
@@ -600,11 +624,13 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         Some(JobAction::RubberFrame).filter(|a| has(*a)),
     ];
     let can_export = has(JobAction::ExportFile);
+    let connected = app.laser_backend.is_connected();
     laserpanel::LaserView {
         profiles,
         active_id,
         slots,
         can_export,
+        connected,
     }
 }
 

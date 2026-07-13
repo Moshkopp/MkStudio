@@ -39,6 +39,7 @@ pub struct LaserService {
     pub registry: LaserRegistry,
     driver: Option<Box<dyn MachineDriver + Send>>,
     driver_id: Option<String>,
+    connected_id: Option<String>,
 }
 
 impl LaserService {
@@ -118,6 +119,7 @@ impl LaserService {
             registry: LaserRegistry::load(),
             driver: None,
             driver_id: None,
+            connected_id: None,
         }
     }
 
@@ -128,6 +130,7 @@ impl LaserService {
             registry,
             driver: None,
             driver_id: None,
+            connected_id: None,
         }
     }
 
@@ -138,7 +141,9 @@ impl LaserService {
     pub fn set_active(&mut self, id: &str) {
         if self.registry.set_active(id) {
             let _ = self.registry.save();
+            self.disconnect();
             self.driver = None; // beim nächsten Zugriff neu bauen
+            self.driver_id = None;
         }
     }
 
@@ -156,12 +161,16 @@ impl LaserService {
         }
         let _ = self.registry.save();
         self.driver = None;
+        self.driver_id = None;
+        self.connected_id = None;
     }
 
     pub fn delete_profile(&mut self, id: &str) {
         self.registry.remove(id);
         let _ = self.registry.save();
         self.driver = None;
+        self.driver_id = None;
+        self.connected_id = None;
     }
 
     /// Ersetzt die lokale Registry nach einer ausdrücklich gewählten
@@ -177,7 +186,44 @@ impl LaserService {
         self.registry = registry;
         self.driver = None;
         self.driver_id = None;
+        self.connected_id = None;
         Ok(())
+    }
+
+    pub fn is_connected(&self) -> bool {
+        self.connected_id.is_some()
+            && self.connected_id.as_deref() == self.registry.active_id.as_deref()
+    }
+
+    pub fn active_uses_network(&self) -> bool {
+        self.active_profile()
+            .is_some_and(|profile| matches!(profile.connection, Connection::Netz { .. }))
+    }
+
+    pub fn connect(&mut self) -> Result<(), AppError> {
+        let profile = self
+            .active_profile()
+            .cloned()
+            .ok_or_else(|| AppError::new("no_active_laser", "Kein Laser aktiv."))?;
+        self.with_driver(false, |driver| {
+            let target = connection_target(&profile);
+            driver.connect(&target).map_err(|error| {
+                AppError::wrap(
+                    "laser_connect",
+                    format!("Keine Verbindung zum Laser ({target})."),
+                    error.to_string(),
+                )
+            })
+        })?;
+        self.connected_id = Some(profile.id);
+        Ok(())
+    }
+
+    pub fn disconnect(&mut self) {
+        if let Some(driver) = self.driver.as_mut() {
+            driver.disconnect();
+        }
+        self.connected_id = None;
     }
 
     /// Verfügbare Job-Aktionen des aktiven Treibers (fürs Panel-Grid). Ohne
@@ -188,12 +234,11 @@ impl LaserService {
     }
 
     /// Stellt sicher, dass der Treiber zum aktiven Profil gebaut ist, und ruft f.
-    /// `connect` = vorher die Geräteverbindung herstellen (idempotent im
-    /// Treiber); ohne erreichbares Gerät kommt ein verständlicher Fehler mit
-    /// Ziel und technischer Ursache statt eines nackten „NotConnected".
+    /// `requires_connection` weist maschinenwirksame Aufrufe ab, solange der
+    /// Nutzer nicht ausdrücklich verbunden hat.
     fn with_driver<T>(
         &mut self,
-        connect: bool,
+        requires_connection: bool,
         f: impl FnOnce(&mut Box<dyn MachineDriver + Send>) -> Result<T, AppError>,
     ) -> Result<T, AppError> {
         let profile = self
@@ -211,15 +256,11 @@ impl LaserService {
             self.driver_id = Some(profile.id.clone());
         }
         let driver = self.driver.as_mut().unwrap();
-        if connect {
-            let target = connection_target(&profile);
-            driver.connect(&target).map_err(|e| {
-                AppError::wrap(
-                    "laser_connect",
-                    format!("Keine Verbindung zum Laser ({target})."),
-                    e.to_string(),
-                )
-            })?;
+        if requires_connection && self.connected_id.as_deref() != Some(profile.id.as_str()) {
+            return Err(AppError::new(
+                "laser_not_connected",
+                "Laser ist nicht verbunden. Bitte zuerst ausdrücklich verbinden.",
+            ));
         }
         f(driver)
     }
@@ -293,7 +334,7 @@ impl LaserService {
         })
     }
 
-    /// Jog: Kopf relativ bewegen (verbindet vorher zum Gerät).
+    /// Jog: Kopf relativ bewegen; eine explizite Verbindung ist Voraussetzung.
     pub fn jog(&mut self, dx: f64, dy: f64, speed: f64) -> Result<(), AppError> {
         self.with_driver(true, |d| {
             d.jog(dx, dy, speed)

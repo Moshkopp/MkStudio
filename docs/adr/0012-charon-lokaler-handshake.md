@@ -107,13 +107,12 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
 
 ## Nächste Schritte
 
-1. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
-2. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
+1. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
    Meilenstein umsetzen.
-3. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
+2. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
    LAN erst zusammen mit Authentifizierung und TLS.
-4. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
-5. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
+3. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
+4. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
    vorbereiten; bis dahin bleiben Konfliktentscheidungen auf Versionsebene.
 
 ## Umsetzungsstand
@@ -237,9 +236,20 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   Nutzerwunsch. Settings und Laserprofile werden getrennt aufgeführt und erst
   durch `Wiederherstellen` lokal geschrieben; beim Start erfolgt keine
   automatische Übernahme.
+- der Laser-Tab zeigt für das aktive Profil ausdrücklich `Verbinden` oder
+  `Trennen` samt sichtbarem Zustand. Erst `Verbinden` baut den Treibertransport
+  zum konfigurierten Ziel auf; Profilwechsel, Profiländerung, Löschen und
+  Wiederherstellen verwerfen eine bestehende Verbindung;
+- Job-Aktionen, Jog und Home verbinden nicht mehr implizit. Im getrennten
+  Zustand bleiben ihre Bedienelemente deaktiviert und die Application-Schicht
+  weist dennoch jeden maschinenwirksamen Direktaufruf mit
+  `laser_not_connected` ab. Reiner Dateiexport bleibt ohne Verbindung möglich.
+- Ist Charon für ein Ethernet-Profil aktiviert, aber nicht erreichbar, verlangt
+  `Verbinden` vor dem direkten Zugriff eine deutliche Bestätigung. Serielle
+  Profile benötigen diese Koordinationswarnung nicht.
 
-Noch offen sind manuelle Laser-Verbindung samt Ruida-Leases,
-Proxmox-/LAN-Betrieb, Aufbewahrungsregeln und optional ein
+Noch offen sind Ruida-Leases, Proxmox-/LAN-Betrieb,
+Aufbewahrungsregeln und optional ein
 späterer Objekt-Merge. Charon darf Versionen verteilen und Verbindungen
 koordinieren, aber keine Projektinhalte selbst bearbeiten oder laufende Jobs
 unterbrechen.
