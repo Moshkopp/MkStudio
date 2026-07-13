@@ -74,6 +74,12 @@ impl App {
                                 report.uploaded
                             ));
                         }
+                        if report.received > 0 {
+                            self.toasts.success(format!(
+                                "{} neue Projektrevision(en) von Charon empfangen.",
+                                report.received
+                            ));
+                        }
                     }
                     Err(message) => self.charon_sync_error = Some(message),
                 }

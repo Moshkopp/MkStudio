@@ -94,7 +94,7 @@ Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Nicht Teil dieses Meilensteins
 
-- Projekt-Inbox, eingehender Versionstransfer und Push-Kanal;
+- Übernahme aus der Projekt-Inbox, Empfangsbestätigung und Push-Kanal;
 - Settings-/Laserprofil-Sicherung;
 - Assetübertragung und Deduplizierung;
 - Benutzerkonten, Tokens, TLS, Discovery oder Fernzugriff;
@@ -103,9 +103,9 @@ Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Nächste Schritte
 
-1. Persistente lokale Projekt-Inbox modellieren und Revisionen von Charon
-   abrufen.
-2. Empfangene Revisionen bestätigen und wiederholbar zustellen.
+1. Empfangene Revisionen bei Charon bestätigen und nur unbestätigte Stände
+   wiederholt zustellen.
+2. Inbox-Übersicht und sicheren Übernehmen-/Später-Ablauf ergänzen.
 3. Push-Kanal und Konfliktbenachrichtigung ergänzen; zunächst ganze Version
    übernehmen oder zurückstellen. Stabil identifizierbare Shapes/Layer sind
    Voraussetzung für späteren Vergleich und Drei-Wege-Objekt-Merge.
@@ -160,8 +160,16 @@ Der erste Meilenstein ist umgesetzt:
   anderem Inhalt wird als Konflikt abgelehnt;
 - der lokale HTTP-Server liest vollständige Requests bis 64 MiB statt nur den
   ersten Netzwerkblock. Assets sind weiterhin nicht Bestandteil des Transfers.
+- Charon liefert einem Arbeitsplatz ausschließlich Revisionen anderer
+  Arbeitsplätze. LuxiFer prüft deren Hash und legt sie idempotent und atomar
+  unter `sync/inbox/<revision_id>/` ab;
+- Inbox-Einträge starten mit `pending_review`. Empfangene Payloads verändern
+  weder den Canvas noch lokale Projektdateien automatisch;
+- neue Inbox-Einträge werden per Toast gemeldet. Bis zur serverseitigen
+  Empfangsbestätigung liefert Charon bekannte Revisionen erneut; die lokale
+  idempotente Ablage verhindert dabei Duplikate.
 
-Noch offen sind Inbox, eingehender Projekt- und Settings-Transfer, Push-Kanal,
+Noch offen sind Inbox-Bestätigung/-Übernahme, Settings-Transfer, Push-Kanal,
 Konfliktvergleich sowie Ruida-Leases. Charon darf Versionen verteilen und
 Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten oder
 laufende Jobs unterbrechen.

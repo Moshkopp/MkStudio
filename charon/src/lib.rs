@@ -104,6 +104,19 @@ struct RevisionAck {
     stored: bool,
 }
 
+#[derive(Debug, Serialize)]
+struct RevisionDownload {
+    revision_id: String,
+    project_id: String,
+    project_name: String,
+    project_version_id: String,
+    parent_revision_id: Option<String>,
+    workplace_id: String,
+    queued_at: String,
+    content_hash: String,
+    payload: String,
+}
+
 struct ServerState {
     workplaces: BTreeMap<String, WorkplaceEntry>,
     data_dir: PathBuf,
@@ -157,6 +170,7 @@ fn route(
     body: &str,
     state: &mut ServerState,
 ) -> std::io::Result<(&'static str, String)> {
+    let (path, query) = path.split_once('?').map_or((path, ""), |parts| parts);
     Ok(match (method, path) {
         ("GET", "/health") => json_body(&Health { status: "ok" })?,
         ("GET", "/api/v1/handshake") => json_body(&Handshake {
@@ -209,12 +223,74 @@ fn route(
                 Err(StoreRevisionError::Io(error)) => return Err(error),
             }
         }
+        ("GET", "/api/v1/projects/revisions") => {
+            let workplace_id = query_value(query, "workplace_id").unwrap_or_default();
+            if !valid_id(workplace_id) {
+                return Ok(("400 Bad Request", r#"{"error":"invalid_workplace"}"#.into()));
+            }
+            json_body(&list_remote_revisions(&state.data_dir, workplace_id)?)?
+        }
         ("GET", _) => ("404 Not Found", r#"{"error":"not_found"}"#.into()),
         _ => (
             "405 Method Not Allowed",
             r#"{"error":"method_not_allowed"}"#.into(),
         ),
     })
+}
+
+fn query_value<'a>(query: &'a str, key: &str) -> Option<&'a str> {
+    query.split('&').find_map(|pair| {
+        let (name, value) = pair.split_once('=')?;
+        (name == key).then_some(value)
+    })
+}
+
+fn list_remote_revisions(
+    data_dir: &Path,
+    workplace_id: &str,
+) -> std::io::Result<Vec<RevisionDownload>> {
+    let projects_dir = data_dir.join("projects");
+    let projects = match std::fs::read_dir(projects_dir) {
+        Ok(projects) => projects,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(error) => return Err(error),
+    };
+    let mut revisions = Vec::new();
+    for project in projects {
+        let revision_dirs = match std::fs::read_dir(project?.path().join("revisions")) {
+            Ok(dirs) => dirs,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for revision_dir in revision_dirs {
+            let revision_dir = revision_dir?;
+            if !revision_dir.file_type()?.is_dir()
+                || revision_dir.file_name().to_string_lossy().starts_with('.')
+            {
+                continue;
+            }
+            let manifest = std::fs::read(revision_dir.path().join("manifest.json"))?;
+            let stored: StoredRevision = serde_json::from_slice(&manifest)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            if stored.workplace_id == workplace_id {
+                continue;
+            }
+            let payload = std::fs::read_to_string(revision_dir.path().join("payload.luxi"))?;
+            revisions.push(RevisionDownload {
+                revision_id: stored.revision_id,
+                project_id: stored.project_id,
+                project_name: stored.project_name,
+                project_version_id: stored.project_version_id,
+                parent_revision_id: stored.parent_revision_id,
+                workplace_id: stored.workplace_id,
+                queued_at: stored.queued_at,
+                content_hash: stored.content_hash,
+                payload,
+            });
+        }
+    }
+    revisions.sort_by(|a, b| a.revision_id.cmp(&b.revision_id));
+    Ok(revisions)
 }
 
 fn read_http_request(stream: &mut TcpStream) -> std::io::Result<String> {
@@ -451,6 +527,10 @@ mod tests {
         assert!(!second.stored);
         let stored_payload = dir.join("projects/project-1/revisions/revision-1/payload.luxi");
         assert_eq!(std::fs::read_to_string(stored_payload).unwrap(), payload);
+        let remote = list_remote_revisions(&dir, "workshop-1").unwrap();
+        assert_eq!(remote.len(), 1);
+        assert_eq!(remote[0].payload, payload);
+        assert!(list_remote_revisions(&dir, "office-1").unwrap().is_empty());
         let _ = std::fs::remove_dir_all(dir);
     }
 }

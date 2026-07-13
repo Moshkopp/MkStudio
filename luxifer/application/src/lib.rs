@@ -9,17 +9,19 @@ mod error;
 mod laser;
 mod project;
 mod session;
+mod sync_inbox;
 mod sync_outbox;
 #[cfg(test)]
 mod test_env;
 
 pub use charon::{
-    connect_charon, upload_pending_revisions, CharonConnection, CharonHandshake, CharonSyncReport,
-    CharonWorkplace,
+    connect_charon, sync_project_revisions, upload_pending_revisions, CharonConnection,
+    CharonHandshake, CharonSyncReport, CharonWorkplace,
 };
 pub use error::AppError;
 pub use laser::LaserService;
 pub use luxifer_driver_ruida::{RuidaMachineSetting, RuidaSettingUnit};
 pub use project::{ProjectDetail, ProjectService};
 pub use session::{BoxShape, EditorSession, LayerParams, LayerToggle, PointPath};
+pub use sync_inbox::{list_inbox, InboxEntry, InboxStatus};
 pub use sync_outbox::{list_outbox, OutboxEntry, OutboxStatus};

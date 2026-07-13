@@ -73,8 +73,11 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                     &current.workplace_name,
                 )
                 .map(|connection| {
-                    let sync = luxifer_application::upload_pending_revisions(&current.url)
-                        .map_err(|error| error.message().to_owned());
+                    let sync = luxifer_application::sync_project_revisions(
+                        &current.url,
+                        &current.workplace_id,
+                    )
+                    .map_err(|error| error.message().to_owned());
                     CharonWorkerResult::Connected(connection, sync)
                 })
                 .unwrap_or_else(|error| CharonWorkerResult::Failed(error.message().to_owned()));

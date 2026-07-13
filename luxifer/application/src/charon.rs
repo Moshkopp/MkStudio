@@ -66,6 +66,20 @@ struct RevisionAck {
 pub struct CharonSyncReport {
     pub uploaded: usize,
     pub pending: usize,
+    pub received: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub(crate) struct CharonRevision {
+    pub revision_id: String,
+    pub project_id: String,
+    pub project_name: String,
+    pub project_version_id: String,
+    pub parent_revision_id: Option<String>,
+    pub workplace_id: String,
+    pub queued_at: String,
+    pub content_hash: String,
+    pub payload: String,
 }
 
 pub fn connect_charon(
@@ -134,6 +148,23 @@ pub fn upload_pending_revisions(base_url: &str) -> Result<CharonSyncReport, AppE
                 )?;
                 return Err(error);
             }
+        }
+    }
+    Ok(report)
+}
+
+pub fn sync_project_revisions(
+    base_url: &str,
+    workplace_id: &str,
+) -> Result<CharonSyncReport, AppError> {
+    let mut report = upload_pending_revisions(base_url)?;
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let path = format!("/api/v1/projects/revisions?workplace_id={workplace_id}");
+    let revisions: Vec<CharonRevision> =
+        parse_json_response(&send_request(&endpoint, "GET", &path, "", UPLOAD_TIMEOUT)?)?;
+    for revision in revisions {
+        if crate::sync_inbox::store_remote_revision(revision)? {
+            report.received += 1;
         }
     }
     Ok(report)
