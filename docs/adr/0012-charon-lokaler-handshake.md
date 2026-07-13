@@ -14,9 +14,10 @@ einen Ethernet-Ruida koordinieren. Gleichzeitig gilt unverändert:
 **LuxiFer first, Charon optional.** Editor, lokales Speichern und Laserbetrieb
 müssen ohne Charon möglich bleiben.
 
-Der erste Entwicklungsschritt soll auf demselben Rechner wie LuxiFer laufen.
-Damit können Protokoll, Fehlergrenzen und Bedienung stabilisiert werden, bevor
-Deployment, Authentifizierung oder ein Proxmox-Betrieb hinzukommen.
+Der sichere Standard läuft weiterhin auf demselben Rechner wie LuxiFer. Für
+den Proxmox-Test darf der inzwischen stabilisierte Dienst zusätzlich bewusst
+in einem vertrauenswürdigen internen Netz gebunden werden. Authentifizierung
+und TLS sind noch nicht umgesetzt; eine öffentliche Freigabe bleibt verboten.
 
 ## Entscheidung
 
@@ -24,7 +25,9 @@ Charon beginnt als **optional aktivierter lokaler HTTP-Dienst**. Der aktuelle
 Ausbaustand umfasst Erreichbarkeit, Protokollaushandlung, Mehrinstanz-Präsenz
 sowie Projekt- und Asset-Synchronisierung:
 
-- Standardbindung: `127.0.0.1:3737`; keine Freigabe ins LAN;
+- Standardbindung: `127.0.0.1:3737`; eine Nicht-Loopback-Bindung verlangt
+  sowohl `CHARON_BIND` als auch die ausdrückliche Freigabe
+  `CHARON_ALLOW_NETWORK=1`;
 - `GET /health` bestätigt nur die Prozessbereitschaft;
 - `GET /api/v1/handshake` liefert JSON mit Serverversion, Protokollversion,
   Instanzkennung und expliziten Fähigkeiten;
@@ -56,8 +59,10 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
    der Core bleiben ohne Server vollständig nutzbar.
 3. Netzwerk- und JSON-Details gelangen nicht in egui-Callbacks und nicht in
    `luxifer-core`.
-4. Eine Bindung außerhalb des Loopback-Interfaces ist später eine bewusste
-   Betriebsentscheidung mit eigener Authentifizierungs- und TLS-Grenze.
+4. Eine Bindung außerhalb des Loopback-Interfaces ist eine bewusste
+   Betriebsentscheidung und benötigt `CHARON_ALLOW_NETWORK=1`. Solange
+   Authentifizierung und TLS fehlen, ist sie ausschließlich in einem
+   vertrauenswürdigen, per Firewall begrenzten internen Netz zulässig.
 5. Handshake-Kompatibilität wird über die Protokollversion entschieden, nicht
    über die Charon-Binaryversion.
 6. **Lokales Speichern kommt zuerst.** Ein Speichervorgang schreibt immer zuerst
@@ -109,12 +114,14 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
 - Aufräum- und Aufbewahrungsregeln für bestätigte Sync-Revisionen;
 - Benutzerkonten, Tokens, TLS, Discovery oder Fernzugriff;
 - Maschinen-Queueing oder Jobübertragung durch Charon;
-- Proxmox-, Container- oder Systemdienst-Deployment.
+- produktionsreifes Proxmox-/Container-Deployment einschließlich automatischer
+  Installation, Authentifizierung und TLS. Ein dokumentierter interner
+  systemd-Testbetrieb ist vorhanden.
 
 ## Nächste Schritte
 
-1. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
-   LAN erst zusammen mit Authentifizierung und TLS.
+1. Den dokumentierten Proxmox-Testbetrieb erproben; anschließend
+   Authentifizierung und TLS ergänzen, bevor andere Netze zugelassen werden.
 2. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
 3. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
    vorbereiten; bis dahin bleiben Konfliktentscheidungen auf Versionsebene.
@@ -123,7 +130,13 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
 
 Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
 
-- Charon bindet standardmäßig und erzwungen an `127.0.0.1:3737`;
+- Charon bindet standardmäßig an `127.0.0.1:3737`. Eine interne
+  Netzwerkbindung ist nur mit `CHARON_BIND=<adresse>:3737` und zusätzlichem
+  `CHARON_ALLOW_NETWORK=1` möglich; ohne Opt-in verweigert der Start die
+  Freigabe. `charon/README.md` dokumentiert den eingeschränkten
+  Proxmox-/systemd-Testbetrieb; `scripts/install-charon.sh` installiert und
+  aktualisiert Binary, Dienstbenutzer, persistente Ablage, Konfiguration und
+  gehärtete systemd-Unit idempotent, verändert aber keine Firewallregeln;
 - Health und Handshake antworten mit JSON und wurden gegen einen real
   gestarteten lokalen Prozess geprüft;
 - der Client liegt in `luxifer-application`, validiert URL, HTTP-Status,

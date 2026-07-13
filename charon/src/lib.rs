@@ -11,6 +11,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:3737";
+pub const NETWORK_OPT_IN_ENV: &str = "CHARON_ALLOW_NETWORK";
 pub const PROTOCOL_VERSION: u32 = 1;
 const ONLINE_TIMEOUT_SECS: u64 = 15;
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
@@ -23,16 +24,29 @@ pub struct ServerConfig {
 impl ServerConfig {
     pub fn from_env() -> std::io::Result<Self> {
         let raw = std::env::var("CHARON_BIND").unwrap_or_else(|_| DEFAULT_BIND.into());
+        let allow_network = std::env::var(NETWORK_OPT_IN_ENV).ok().is_some_and(|value| {
+            matches!(
+                value.to_ascii_lowercase().as_str(),
+                "1" | "true" | "yes" | "on"
+            )
+        });
+        Self::from_values(&raw, allow_network)
+    }
+
+    fn from_values(raw: &str, allow_network: bool) -> std::io::Result<Self> {
         let bind: SocketAddr = raw.parse().map_err(|error| {
             std::io::Error::new(
                 std::io::ErrorKind::InvalidInput,
                 format!("Ungültiges CHARON_BIND '{raw}': {error}"),
             )
         })?;
-        if !bind.ip().is_loopback() {
+        if !bind.ip().is_loopback() && !allow_network {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "Charon darf in diesem Meilenstein nur an Loopback binden.",
+                format!(
+                    "CHARON_BIND '{raw}' gibt Charon im Netzwerk frei. \
+                     Setze {NETWORK_OPT_IN_ENV}=1 nur in einem vertrauenswürdigen internen Netz."
+                ),
             ));
         }
         Ok(Self { bind })
@@ -996,6 +1010,23 @@ mod tests {
         let bind: SocketAddr = DEFAULT_BIND.parse().unwrap();
         assert!(bind.ip().is_loopback());
         assert_eq!(bind.port(), 3737);
+    }
+
+    #[test]
+    fn netzwerkbindung_braucht_explizite_freigabe() {
+        let error = ServerConfig::from_values("0.0.0.0:3737", false).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::PermissionDenied);
+        assert!(error.to_string().contains(NETWORK_OPT_IN_ENV));
+
+        let config = ServerConfig::from_values("0.0.0.0:3737", true).unwrap();
+        assert!(config.bind.ip().is_unspecified());
+        assert_eq!(config.bind.port(), 3737);
+    }
+
+    #[test]
+    fn loopback_braucht_keine_netzwerkfreigabe() {
+        let config = ServerConfig::from_values(DEFAULT_BIND, false).unwrap();
+        assert!(config.bind.ip().is_loopback());
     }
 
     #[test]

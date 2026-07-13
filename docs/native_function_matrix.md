@@ -36,8 +36,10 @@ Sammelmodul werden; Projekt-, Asset- und Laserabläufe erhalten eigene Services.
 | `redo` | Core/Application | über `EditorSession` | Strg+Shift+Z und Strg+Y; Modal-/Fokus-Gate wirksam |
 | `frontend_ready` | entfällt | entfällt | reiner Tauri/WebView-Lebenszyklus |
 
-Charon (ADR 0012): lokaler Server auf `127.0.0.1:3737`, versionierter
-Handshake, Projekt-Outbox/Inbox, Push-Verteilung, Asset-Abgleich,
+Charon (ADR 0012): standardmäßig lokaler Server auf `127.0.0.1:3737`; eine
+interne Netzwerkbindung verlangt `CHARON_BIND` plus
+`CHARON_ALLOW_NETWORK=1`. Versionierter Handshake, Projekt-Outbox/Inbox,
+Push-Verteilung, Asset-Abgleich,
 arbeitsplatzbezogene Settings-Sicherung und exklusive Ethernet-Ruida-Leases.
 LuxiFer hält die Lease per Heartbeat und verbindet den Treiber selbst; Charon
 steuert keine Maschine. Lokales Speichern und die Asset-Bibliothek bleiben

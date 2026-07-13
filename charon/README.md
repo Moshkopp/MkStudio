@@ -1,0 +1,70 @@
+# Charon betreiben
+
+Charon bleibt standardmäßig ausschließlich lokal erreichbar:
+
+```bash
+cargo run -p charon
+```
+
+## Internes Netzwerk / Proxmox
+
+Eine Netzwerkbindung ist eine ausdrückliche Betriebsentscheidung. Charon hat
+aktuell keine Benutzeranmeldung und kein TLS. Port `3737/tcp` darf deshalb nur
+aus einem vertrauenswürdigen internen Netz erreichbar sein und darf nicht ins
+Internet weitergeleitet werden.
+
+Zum Test in einer Proxmox-VM oder einem LXC-Container:
+
+```bash
+CHARON_BIND=0.0.0.0:3737 \
+CHARON_ALLOW_NETWORK=1 \
+CHARON_DATA_DIR=/var/lib/charon \
+./charon
+```
+
+`0.0.0.0` lauscht auf allen IPv4-Interfaces. LuxiFer verwendet als Charon-URL
+die konkrete interne Adresse des Gasts, beispielsweise
+`http://192.168.10.25:3737`.
+
+Vor dem Einrichten des Dienstes kann die Erreichbarkeit von einem anderen
+Rechner geprüft werden:
+
+```bash
+curl http://192.168.10.25:3737/health
+curl http://192.168.10.25:3737/api/v1/handshake
+```
+
+## Installation als systemd-Dienst
+
+Im Repository wird zuerst das Release-Binary gebaut und anschließend das
+Installscript als root ausgeführt:
+
+```bash
+cargo build -p charon --release
+sudo ./scripts/install-charon.sh
+```
+
+Das Script ist wiederholt ausführbar und aktualisiert eine bestehende
+Installation. Es richtet Folgendes ein:
+
+- Systembenutzer und -gruppe `charon`;
+- Binary unter `/usr/local/bin/charon`;
+- persistente Daten unter `/var/lib/charon`;
+- Konfiguration unter `/etc/charon/charon.env`;
+- gehärtete systemd-Unit `charon.service`.
+
+Abweichende Adressen, Datenpfade oder ein separat übertragenes Binary können
+explizit angegeben werden:
+
+```bash
+sudo ./scripts/install-charon.sh \
+  --binary ./charon \
+  --bind 192.168.10.25:3737 \
+  --data-dir /srv/charon
+```
+
+Mit `--no-start` wird der Dienst installiert und aktiviert, aber noch nicht
+gestartet. Das Script verändert absichtlich keine Firewallregeln.
+
+Die Proxmox- oder Gast-Firewall sollte `3737/tcp` auf das tatsächlich genutzte
+interne Subnetz beziehungsweise die LuxiFer-Arbeitsplätze begrenzen.
