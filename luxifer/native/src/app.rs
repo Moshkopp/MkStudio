@@ -129,7 +129,8 @@ impl App {
         cam.fit_bbox([0.0, 0.0, state.bed_w_mm, state.bed_h_mm], 0.85);
 
         let ui_settings = luxifer_core::UiSettings::load();
-        let charon_runtime = charon::CharonRuntime::new(&ui_settings);
+        let laser_backend = luxifer_application::LaserService::load();
+        let charon_runtime = charon::CharonRuntime::new(&ui_settings, &laser_backend.registry);
         let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
         let project = luxifer_application::ProjectService::new();
         let project_catalog = project.list();
@@ -164,7 +165,7 @@ impl App {
             preview_material: Default::default(),
             preview_show_travel: false,
             laser: LaserUi::default(),
-            laser_backend: luxifer_application::LaserService::load(),
+            laser_backend,
             app_error: None,
             accent,
             egui_ctx,

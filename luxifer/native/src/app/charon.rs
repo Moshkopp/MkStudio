@@ -12,10 +12,13 @@ struct CharonConfig {
     url: String,
     workplace_id: String,
     workplace_name: String,
+    settings: luxifer_core::UiSettings,
+    lasers: luxifer_core::LaserRegistry,
 }
 
 enum WorkerCommand {
-    Configure(Option<CharonConfig>),
+    Configure(Option<Box<CharonConfig>>),
+    FetchBackups,
 }
 
 pub(super) enum CharonWorkerResult {
@@ -25,6 +28,7 @@ pub(super) enum CharonWorkerResult {
     ),
     Failed(String),
     Disabled,
+    Backups(Vec<luxifer_application::CharonWorkplaceBackup>),
 }
 
 pub(super) struct CharonRuntime {
@@ -33,7 +37,7 @@ pub(super) struct CharonRuntime {
 }
 
 impl CharonRuntime {
-    pub fn new(settings: &luxifer_core::UiSettings) -> Self {
+    pub fn new(settings: &luxifer_core::UiSettings, lasers: &luxifer_core::LaserRegistry) -> Self {
         let (command_tx, command_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         std::thread::Builder::new()
@@ -44,15 +48,23 @@ impl CharonRuntime {
             command_tx,
             result_rx,
         };
-        runtime.configure(settings);
+        runtime.configure(settings, lasers);
         runtime
     }
 
-    pub fn configure(&self, settings: &luxifer_core::UiSettings) {
-        let config = settings.charon_enabled.then(|| CharonConfig {
-            url: settings.charon_url.clone(),
-            workplace_id: settings.workplace_id.clone(),
-            workplace_name: settings.workplace.clone(),
+    pub fn configure(
+        &self,
+        settings: &luxifer_core::UiSettings,
+        lasers: &luxifer_core::LaserRegistry,
+    ) {
+        let config = settings.charon_enabled.then(|| {
+            Box::new(CharonConfig {
+                url: settings.charon_url.clone(),
+                workplace_id: settings.workplace_id.clone(),
+                workplace_name: settings.workplace.clone(),
+                settings: settings.clone(),
+                lasers: lasers.clone(),
+            })
         });
         let _ = self.command_tx.send(WorkerCommand::Configure(config));
     }
@@ -60,15 +72,20 @@ impl CharonRuntime {
     pub fn try_result(&self) -> Option<CharonWorkerResult> {
         self.result_rx.try_iter().last()
     }
+
+    pub fn fetch_backups(&self) {
+        let _ = self.command_tx.send(WorkerCommand::FetchBackups);
+    }
 }
 
 fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerResult>) {
-    let mut config: Option<CharonConfig> = None;
+    let mut config: Option<Box<CharonConfig>> = None;
     let mut event_cursor = 0_u64;
     let mut server_instance: Option<String> = None;
     loop {
         match config.as_ref() {
             Some(current) => {
+                let current = current.clone();
                 let connection = luxifer_application::connect_charon(
                     &current.url,
                     &current.workplace_id,
@@ -85,6 +102,12 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                         }
                         let sync = luxifer_application::sync_assets(&current.url)
                             .and_then(|mut report| {
+                                report.backups_uploaded =
+                                    luxifer_application::upload_workplace_backups(
+                                        &current.url,
+                                        &current.settings,
+                                        &current.lasers,
+                                    )?;
                                 let projects = luxifer_application::sync_project_revisions(
                                     &current.url,
                                     &current.workplace_id,
@@ -114,6 +137,9 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                                 event_cursor = 0;
                                 server_instance = None;
                             }
+                            Ok(WorkerCommand::FetchBackups) => {
+                                send_backups(&current, &result_tx);
+                            }
                             Err(RecvTimeoutError::Timeout) => {}
                             Err(RecvTimeoutError::Disconnected) => return,
                         },
@@ -125,6 +151,9 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                             event_cursor = 0;
                             server_instance = None;
                         }
+                        Ok(WorkerCommand::FetchBackups) => {
+                            send_backups(&current, &result_tx);
+                        }
                         Err(RecvTimeoutError::Timeout) => {}
                         Err(RecvTimeoutError::Disconnected) => return,
                     }
@@ -134,6 +163,9 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                         config = next;
                         event_cursor = 0;
                         server_instance = None;
+                    }
+                    Ok(WorkerCommand::FetchBackups) => {
+                        send_backups(&current, &result_tx);
                     }
                     Err(TryRecvError::Empty) => {}
                     Err(TryRecvError::Disconnected) => return,
@@ -148,8 +180,17 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                         return;
                     }
                 }
+                Ok(WorkerCommand::FetchBackups) => {}
                 Err(_) => return,
             },
         }
     }
+}
+
+fn send_backups(config: &CharonConfig, result_tx: &Sender<CharonWorkerResult>) {
+    let result = match luxifer_application::list_workplace_backups(&config.url) {
+        Ok(backups) => CharonWorkerResult::Backups(backups),
+        Err(error) => CharonWorkerResult::Failed(error.message().to_owned()),
+    };
+    let _ = result_tx.send(result);
 }

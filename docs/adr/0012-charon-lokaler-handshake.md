@@ -2,7 +2,7 @@
 
 ## Status
 
-Akzeptiert — 2026-07-13 · Projekt-Sync in `v1.0`, Asset-Sync danach ergänzt.
+Akzeptiert — 2026-07-13 · Projekt-, Asset- und Arbeitsplatz-Sicherung umgesetzt.
 
 ## Kontext
 
@@ -43,8 +43,8 @@ sowie Projekt- und Asset-Synchronisierung:
 
 Die erste Protokollversion ist `1`. Fähigkeiten werden als stabile String-IDs
 gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
-`project_revisions`, `project_events` und `assets`; unbekannte Fähigkeiten müssen von
-Clients ignoriert werden.
+  `project_revisions`, `project_events`, `assets` und `workplace_backups`;
+  unbekannte Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Invarianten
 
@@ -98,7 +98,6 @@ Clients ignoriert werden.
 
 ## Nicht Teil von v1.0
 
-- Settings-/Laserprofil-Sicherung;
 - Assetübertragung und Deduplizierung (direkt nach `v1.0` ergänzt);
 - Drei-Wege-Merge einzelner Shapes oder Layer;
 - Aufräum- und Aufbewahrungsregeln für bestätigte Sync-Revisionen;
@@ -108,14 +107,13 @@ Clients ignoriert werden.
 
 ## Nächste Schritte
 
-1. Arbeitsplatzbezogene Settings- und Laserprofil-Sicherungen ergänzen.
-2. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
-3. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
+1. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
+2. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
    Meilenstein umsetzen.
-4. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
+3. Charon auf Proxmox als gesicherten Systemdienst bereitstellen; Freigabe ins
    LAN erst zusammen mit Authentifizierung und TLS.
-5. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
-6. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
+4. Empfangsbestätigungen für definierte Aufräum- und Aufbewahrungsregeln nutzen.
+5. Optional stabile Shape-/Layer-IDs und einen Drei-Wege-Objekt-Merge
    vorbereiten; bis dahin bleiben Konfliktentscheidungen auf Versionsebene.
 
 ## Umsetzungsstand
@@ -227,8 +225,20 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   die lokale Historie bleibt erhalten. Ist genau dieses Projekt geöffnet und
   ungespeichert, greift vorher der Dirty-Guard. Fehlt eine referenzierte
   Asset-Datei trotz Synchronisierung, bleibt die Übernahme sicher gesperrt.
+- Charon hält je Arbeitsplatz den jüngsten Snapshot von `ui_settings` und
+  `laser_profiles` getrennt und atomar unter `workplaces/<workplace_id>/`.
+  Inhaltshashes sichern die Übertragung ab; identische Snapshots werden
+  idempotent bestätigt und nicht neu geschrieben;
+- LuxiFer übergibt lokale Änderungen an Settings und Laserprofilen nur dem
+  vorhandenen Hintergrundthread. Netzwerkzugriff findet weder beim Speichern
+  noch im egui-Callback statt und ein Charon-Fehler macht die lokale Änderung
+  nicht rückgängig;
+- der Charon-Dialog lädt vorhandene Arbeitsplatzsicherungen ausdrücklich auf
+  Nutzerwunsch. Settings und Laserprofile werden getrennt aufgeführt und erst
+  durch `Wiederherstellen` lokal geschrieben; beim Start erfolgt keine
+  automatische Übernahme.
 
-Noch offen sind Settings-Transfer, manuelle Laser-Verbindung samt Ruida-Leases,
+Noch offen sind manuelle Laser-Verbindung samt Ruida-Leases,
 Proxmox-/LAN-Betrieb, Aufbewahrungsregeln und optional ein
 späterer Objekt-Merge. Charon darf Versionen verteilen und Verbindungen
 koordinieren, aber keine Projektinhalte selbst bearbeiten oder laufende Jobs

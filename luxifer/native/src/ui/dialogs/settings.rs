@@ -14,6 +14,8 @@ pub(in crate::ui) enum SettingsOutcome {
     Commit,
     Cancel,
     CharonTest,
+    CharonBackups,
+    RestoreBackup(usize),
 }
 
 pub(in crate::ui) fn settings_dialog_window(
@@ -227,5 +229,27 @@ fn charon_section(
             ui.visuals().error_fg_color,
             format!("Projekt-Synchronisierung: {message}"),
         );
+    }
+    ui.add_space(10.0);
+    if ui
+        .add_enabled(
+            state.draft.charon_enabled,
+            egui::Button::new("Sicherungen laden"),
+        )
+        .clicked()
+    {
+        *outcome = SettingsOutcome::CharonBackups;
+    }
+    for (index, backup) in state.charon_backups.iter().enumerate() {
+        ui.horizontal(|ui| {
+            let kind = match backup.kind {
+                luxifer_application::CharonBackupKind::UiSettings => "Einstellungen",
+                luxifer_application::CharonBackupKind::LaserProfiles => "Laserprofile",
+            };
+            ui.label(format!("{} · {}", backup.workplace_name, kind));
+            if ui.button("Wiederherstellen").clicked() {
+                *outcome = SettingsOutcome::RestoreBackup(index);
+            }
+        });
     }
 }

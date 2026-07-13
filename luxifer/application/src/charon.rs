@@ -36,6 +36,31 @@ pub struct CharonConnection {
     pub workplaces: Vec<CharonWorkplace>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CharonBackupKind {
+    UiSettings,
+    LaserProfiles,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CharonWorkplaceBackup {
+    pub workplace_id: String,
+    pub workplace_name: String,
+    pub kind: CharonBackupKind,
+    pub saved_at_unix: u64,
+    pub content_hash: String,
+    pub payload: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct WorkplaceBackupAck {
+    workplace_id: String,
+    kind: CharonBackupKind,
+    content_hash: String,
+    stored: bool,
+}
+
 #[derive(Serialize)]
 struct WorkplaceHeartbeat<'a> {
     workplace_id: &'a str,
@@ -70,6 +95,7 @@ pub struct CharonSyncReport {
     pub received: usize,
     pub assets_uploaded: usize,
     pub assets_downloaded: usize,
+    pub backups_uploaded: usize,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -149,6 +175,113 @@ pub fn connect_charon(
         handshake,
         workplaces,
     })
+}
+
+pub fn upload_workplace_backups(
+    base_url: &str,
+    settings: &luxifer_core::UiSettings,
+    lasers: &luxifer_core::LaserRegistry,
+) -> Result<usize, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let settings_payload = settings.to_json().map_err(|error| {
+        AppError::new(
+            "charon_backup_json",
+            format!("Einstellungen sind ungültig: {error}"),
+        )
+    })?;
+    let laser_payload = serde_json::to_string_pretty(lasers).map_err(|error| {
+        AppError::wrap(
+            "charon_backup_json",
+            "Laserprofile sind ungültig.",
+            error.to_string(),
+        )
+    })?;
+    let mut stored = 0;
+    for (kind, payload) in [
+        (CharonBackupKind::UiSettings, settings_payload),
+        (CharonBackupKind::LaserProfiles, laser_payload),
+    ] {
+        let backup = CharonWorkplaceBackup {
+            workplace_id: settings.workplace_id.clone(),
+            workplace_name: settings.workplace.clone(),
+            kind,
+            saved_at_unix: unix_now(),
+            content_hash: luxifer_core::assets::content_hash(payload.as_bytes()),
+            payload,
+        };
+        let body = serde_json::to_string(&backup).map_err(|error| {
+            AppError::wrap(
+                "charon_backup_json",
+                "Arbeitsplatzsicherung konnte nicht serialisiert werden.",
+                error.to_string(),
+            )
+        })?;
+        let ack: WorkplaceBackupAck = parse_json_response(&send_request(
+            &endpoint,
+            "POST",
+            "/api/v1/workplaces/backups",
+            &body,
+            UPLOAD_TIMEOUT,
+        )?)?;
+        if ack.workplace_id != settings.workplace_id
+            || ack.kind != kind
+            || ack.content_hash != backup.content_hash
+        {
+            return Err(AppError::new(
+                "charon_backup_ack",
+                "Charon hat eine unpassende Sicherungsbestätigung geliefert.",
+            ));
+        }
+        stored += usize::from(ack.stored);
+    }
+    Ok(stored)
+}
+
+pub fn list_workplace_backups(base_url: &str) -> Result<Vec<CharonWorkplaceBackup>, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let backups: Vec<CharonWorkplaceBackup> = parse_json_response(&send_request(
+        &endpoint,
+        "GET",
+        "/api/v1/workplaces/backups",
+        "",
+        UPLOAD_TIMEOUT,
+    )?)?;
+    for backup in &backups {
+        if luxifer_core::assets::content_hash(backup.payload.as_bytes()) != backup.content_hash {
+            return Err(AppError::new(
+                "charon_backup_hash",
+                "Eine Arbeitsplatzsicherung hat einen ungültigen Inhaltshash.",
+            ));
+        }
+        match backup.kind {
+            CharonBackupKind::UiSettings => {
+                luxifer_core::UiSettings::from_json(&backup.payload).map_err(|error| {
+                    AppError::new(
+                        "charon_backup_payload",
+                        format!("Gesicherte Einstellungen sind ungültig: {error}"),
+                    )
+                })?;
+            }
+            CharonBackupKind::LaserProfiles => {
+                serde_json::from_str::<luxifer_core::LaserRegistry>(&backup.payload).map_err(
+                    |error| {
+                        AppError::wrap(
+                            "charon_backup_payload",
+                            "Gesicherte Laserprofile sind ungültig.",
+                            error.to_string(),
+                        )
+                    },
+                )?;
+            }
+        }
+    }
+    Ok(backups)
+}
+
+fn unix_now() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_secs())
 }
 
 /// Wartet serverseitig auf eine neue Projektrevision und kehrt spätestens nach

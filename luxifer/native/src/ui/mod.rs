@@ -393,6 +393,8 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             }
             dialogs::SettingsOutcome::Cancel => app.settings_dialog = None,
             dialogs::SettingsOutcome::CharonTest => app.test_charon_connection(),
+            dialogs::SettingsOutcome::CharonBackups => app.load_charon_backups(),
+            dialogs::SettingsOutcome::RestoreBackup(index) => app.restore_charon_backup(index),
         }
     }
 

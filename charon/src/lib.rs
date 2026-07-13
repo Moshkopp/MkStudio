@@ -50,7 +50,7 @@ struct Handshake {
     server_version: &'static str,
     protocol_version: u32,
     instance_id: String,
-    capabilities: [&'static str; 6],
+    capabilities: [&'static str; 7],
 }
 
 #[derive(Serialize)]
@@ -63,6 +63,24 @@ struct ProjectEvent {
 struct AssetTransfer {
     meta: luxifer_core::AssetMeta,
     content_hex: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WorkplaceBackup {
+    workplace_id: String,
+    workplace_name: String,
+    kind: String,
+    saved_at_unix: u64,
+    content_hash: String,
+    payload: String,
+}
+
+#[derive(Debug, Serialize)]
+struct WorkplaceBackupAck {
+    workplace_id: String,
+    kind: String,
+    content_hash: String,
+    stored: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -264,6 +282,7 @@ fn route(
                 "project_revisions",
                 "project_events",
                 "assets",
+                "workplace_backups",
             ],
         })?,
         ("GET", "/api/v1/workplaces") => json_body(&workplace_list(state, now_unix()))?,
@@ -310,6 +329,28 @@ fn route(
                 },
             );
             json_body(&workplace_list(state, now))?
+        }
+        ("GET", "/api/v1/workplaces/backups") => {
+            json_body(&list_workplace_backups(&state.data_dir)?)?
+        }
+        ("POST", "/api/v1/workplaces/backups") => {
+            let backup: WorkplaceBackup = match serde_json::from_str(body) {
+                Ok(backup) => backup,
+                Err(_) => return Ok(("400 Bad Request", r#"{"error":"invalid_json"}"#.into())),
+            };
+            match store_workplace_backup(&state.data_dir, backup) {
+                Ok(ack) => json_body(&ack)?,
+                Err(StoreBackupError::Invalid) => {
+                    return Ok(("400 Bad Request", r#"{"error":"invalid_backup"}"#.into()));
+                }
+                Err(StoreBackupError::HashMismatch) => {
+                    return Ok((
+                        "422 Unprocessable Entity",
+                        r#"{"error":"hash_mismatch"}"#.into(),
+                    ));
+                }
+                Err(StoreBackupError::Io(error)) => return Err(error),
+            }
         }
         ("POST", "/api/v1/projects/revisions") => {
             let upload: RevisionUpload = match serde_json::from_str(body) {
@@ -655,6 +696,86 @@ fn valid_id(value: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
 }
 
+#[derive(Debug)]
+enum StoreBackupError {
+    Invalid,
+    HashMismatch,
+    Io(std::io::Error),
+}
+
+fn store_workplace_backup(
+    data_dir: &Path,
+    backup: WorkplaceBackup,
+) -> Result<WorkplaceBackupAck, StoreBackupError> {
+    if !valid_id(&backup.workplace_id)
+        || backup.workplace_name.trim().is_empty()
+        || !matches!(backup.kind.as_str(), "ui_settings" | "laser_profiles")
+    {
+        return Err(StoreBackupError::Invalid);
+    }
+    let actual_hash = luxifer_core::assets::content_hash(backup.payload.as_bytes());
+    if actual_hash != backup.content_hash {
+        return Err(StoreBackupError::HashMismatch);
+    }
+    let dir = data_dir.join("workplaces").join(&backup.workplace_id);
+    let path = dir.join(format!("{}.json", backup.kind));
+    if let Ok(bytes) = std::fs::read(&path) {
+        let existing: WorkplaceBackup = serde_json::from_slice(&bytes)
+            .map_err(|error| StoreBackupError::Io(std::io::Error::other(error)))?;
+        if existing.content_hash == backup.content_hash {
+            return Ok(WorkplaceBackupAck {
+                workplace_id: backup.workplace_id,
+                kind: backup.kind,
+                content_hash: backup.content_hash,
+                stored: false,
+            });
+        }
+    }
+    std::fs::create_dir_all(&dir).map_err(StoreBackupError::Io)?;
+    let temp = dir.join(format!(".{}.tmp", backup.kind));
+    let bytes = serde_json::to_vec_pretty(&backup)
+        .map_err(|error| StoreBackupError::Io(std::io::Error::other(error)))?;
+    std::fs::write(&temp, bytes).map_err(StoreBackupError::Io)?;
+    std::fs::rename(&temp, &path).map_err(StoreBackupError::Io)?;
+    Ok(WorkplaceBackupAck {
+        workplace_id: backup.workplace_id,
+        kind: backup.kind,
+        content_hash: backup.content_hash,
+        stored: true,
+    })
+}
+
+fn list_workplace_backups(data_dir: &Path) -> std::io::Result<Vec<WorkplaceBackup>> {
+    let root = data_dir.join("workplaces");
+    let mut backups = Vec::new();
+    let entries = match std::fs::read_dir(root) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(backups),
+        Err(error) => return Err(error),
+    };
+    for workplace in entries.flatten() {
+        if !workplace.path().is_dir() {
+            continue;
+        }
+        for kind in ["ui_settings", "laser_profiles"] {
+            let path = workplace.path().join(format!("{kind}.json"));
+            if !path.exists() {
+                continue;
+            }
+            let bytes = std::fs::read(path)?;
+            let backup: WorkplaceBackup = serde_json::from_slice(&bytes)
+                .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;
+            backups.push(backup);
+        }
+    }
+    backups.sort_by(|left, right| {
+        left.workplace_name
+            .cmp(&right.workplace_name)
+            .then_with(|| left.kind.cmp(&right.kind))
+    });
+    Ok(backups)
+}
+
 fn charon_data_dir() -> PathBuf {
     std::env::var_os("CHARON_DATA_DIR")
         .map(PathBuf::from)
@@ -711,6 +832,7 @@ mod tests {
                 "project_revisions",
                 "project_events",
                 "assets",
+                "workplace_backups",
             ],
         })
         .unwrap()
@@ -786,6 +908,33 @@ mod tests {
             .unwrap()
             .is_empty());
         assert!(receipt_path(&dir, "workshop-1", "revision-1").exists());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn arbeitsplatz_sicherungen_bleiben_getrennt_und_idempotent() {
+        let dir = std::env::temp_dir().join(format!(
+            "charon_backup_test_{}_{}",
+            std::process::id(),
+            now_unix()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        let payload = r#"{"version":1,"workplace":"Office"}"#;
+        let backup = WorkplaceBackup {
+            workplace_id: "office-1".into(),
+            workplace_name: "Office".into(),
+            kind: "ui_settings".into(),
+            saved_at_unix: 42,
+            content_hash: luxifer_core::assets::content_hash(payload.as_bytes()),
+            payload: payload.into(),
+        };
+
+        assert!(store_workplace_backup(&dir, backup.clone()).unwrap().stored);
+        assert!(!store_workplace_backup(&dir, backup).unwrap().stored);
+        let backups = list_workplace_backups(&dir).unwrap();
+        assert_eq!(backups.len(), 1);
+        assert_eq!(backups[0].kind, "ui_settings");
+        assert_eq!(backups[0].saved_at_unix, 42);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -164,6 +164,22 @@ impl LaserService {
         self.driver = None;
     }
 
+    /// Ersetzt die lokale Registry nach einer ausdrücklich gewählten
+    /// Sicherungs-Wiederherstellung und verwirft den dazu nicht mehr passenden
+    /// lazy Treiber.
+    pub fn restore_registry(&mut self, registry: LaserRegistry) -> Result<(), AppError> {
+        registry.save().map_err(|error| {
+            AppError::new(
+                "laser_registry_write",
+                format!("Laserprofile speichern fehlgeschlagen: {error}"),
+            )
+        })?;
+        self.registry = registry;
+        self.driver = None;
+        self.driver_id = None;
+        Ok(())
+    }
+
     /// Verfügbare Job-Aktionen des aktiven Treibers (fürs Panel-Grid). Ohne
     /// aktiven Treiber leer.
     pub fn actions(&mut self) -> Vec<JobAction> {

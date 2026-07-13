@@ -14,7 +14,61 @@ impl App {
             section: SettingsSection::Oberflaeche,
             charon_status: self.charon_status.clone(),
             charon_sync_error: self.charon_sync_error.clone(),
+            charon_backups: Vec::new(),
         });
+    }
+
+    pub fn load_charon_backups(&self) {
+        self.charon_runtime.fetch_backups();
+    }
+
+    pub fn restore_charon_backup(&mut self, index: usize) {
+        let Some(backup) = self
+            .settings_dialog
+            .as_ref()
+            .and_then(|dialog| dialog.charon_backups.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let result = match backup.kind {
+            luxifer_application::CharonBackupKind::UiSettings => {
+                luxifer_core::UiSettings::from_json(&backup.payload).and_then(|settings| {
+                    if settings.grid_size_mm != self.ui_settings.grid_size_mm {
+                        self.renderer.invalidate_scene();
+                    }
+                    settings.save()?;
+                    self.ui_settings = settings.clone();
+                    if let Some(dialog) = self.settings_dialog.as_mut() {
+                        dialog.draft = settings;
+                    }
+                    Ok(())
+                })
+            }
+            luxifer_application::CharonBackupKind::LaserProfiles => {
+                serde_json::from_str::<luxifer_core::LaserRegistry>(&backup.payload)
+                    .map_err(|error| error.to_string())
+                    .and_then(|registry| {
+                        self.laser_backend
+                            .restore_registry(registry)
+                            .map_err(|error| error.message().to_owned())
+                    })
+            }
+        };
+        match result {
+            Ok(()) => {
+                self.apply_active_laser_workspace();
+                self.charon_runtime
+                    .configure(&self.ui_settings, &self.laser_backend.registry);
+                self.toasts.success(format!(
+                    "Sicherung von {} wiederhergestellt.",
+                    backup.workplace_name
+                ));
+            }
+            Err(message) => {
+                self.app_error = Some(AppError::new("charon_backup_restore", message));
+            }
+        }
     }
 
     pub fn test_charon_connection(&mut self) {
@@ -52,7 +106,8 @@ impl App {
             self.renderer.invalidate_scene();
         }
         self.ui_settings = draft;
-        self.charon_runtime.configure(&self.ui_settings);
+        self.charon_runtime
+            .configure(&self.ui_settings, &self.laser_backend.registry);
         self.toasts.success("Einstellungen gespeichert.");
         true
     }
@@ -103,6 +158,12 @@ impl App {
             super::charon::CharonWorkerResult::Disabled => {
                 self.charon_sync_error = None;
                 CharonTestStatus::Idle
+            }
+            super::charon::CharonWorkerResult::Backups(backups) => {
+                if let Some(dialog) = self.settings_dialog.as_mut() {
+                    dialog.charon_backups = backups;
+                }
+                return true;
             }
         };
         if let Some(dialog) = self.settings_dialog.as_mut() {

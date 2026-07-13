@@ -157,6 +157,7 @@ pub struct SettingsDialogState {
     pub section: SettingsSection,
     pub charon_status: CharonTestStatus,
     pub charon_sync_error: Option<String>,
+    pub charon_backups: Vec<luxifer_application::CharonWorkplaceBackup>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
