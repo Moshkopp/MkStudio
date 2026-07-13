@@ -94,6 +94,12 @@ impl ApplicationHandler for Runner {
         if app.poll_asset_thumbnails() {
             app.window.request_redraw();
         }
+        if app.poll_asset_import() {
+            app.window.request_redraw();
+        }
+        if app.poll_project_integration() {
+            app.window.request_redraw();
+        }
         if app.poll_laser_lease() {
             app.window.request_redraw();
         }

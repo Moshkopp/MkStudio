@@ -47,6 +47,8 @@ pub struct App {
     thumbnail_runtime: image::ThumbnailRuntime,
     thumbnail_pending: std::collections::BTreeSet<String>,
     thumbnail_failed: std::collections::BTreeSet<String>,
+    asset_import_runtime: image::AssetImportRuntime,
+    pub asset_import_pending: bool,
     /// Seit dem letzten Projektwechsel importierte Quellen, damit auch
     /// vektorisierte Assets nach dem später vergebenen Projektnamen taggbar sind.
     pub session_asset_context: std::collections::BTreeSet<String>,
@@ -75,6 +77,8 @@ pub struct App {
     pub project_browser: crate::ui::ProjectBrowserState,
     /// Persistente, noch nicht automatisch angewandte Charon-Revisionen.
     pub project_inbox: Vec<luxifer_application::InboxEntry>,
+    project_integration: project::ProjectIntegrationRuntime,
+    pub project_integration_pending: bool,
     /// Geöffneter read-only Vergleich einer Charon-Revision.
     pub revision_comparison: Option<crate::ui::RevisionComparisonState>,
     /// Material-Vorlage der Laser-Vorschau (Präsentationszustand).
@@ -144,6 +148,7 @@ impl App {
         let laser_backend = luxifer_application::LaserService::load();
         let charon_runtime = charon::CharonRuntime::new(&ui_settings, &laser_backend.registry);
         let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
+        let project_integration = project::ProjectIntegrationRuntime::new();
         let project = luxifer_application::ProjectService::new();
         let project_catalog = project.list();
         image::enrich_asset_tags_from_projects();
@@ -151,6 +156,7 @@ impl App {
             luxifer_core::list_assets(&luxifer_core::assets_dir()).unwrap_or_default();
         let asset_thumbnails = Default::default();
         let thumbnail_runtime = image::ThumbnailRuntime::new();
+        let asset_import_runtime = image::AssetImportRuntime::new();
         let mut app = Self {
             splash: ui_settings.show_splash.then(crate::ui::Splash::new),
             window,
@@ -170,6 +176,8 @@ impl App {
             thumbnail_runtime,
             thumbnail_pending: Default::default(),
             thumbnail_failed: Default::default(),
+            asset_import_runtime,
+            asset_import_pending: false,
             session_asset_context: Default::default(),
             toasts: Default::default(),
             project_save_dialog: None,
@@ -184,6 +192,8 @@ impl App {
             laser_manager: None,
             project_browser: Default::default(),
             project_inbox,
+            project_integration,
+            project_integration_pending: false,
             revision_comparison: None,
             preview_material: Default::default(),
             preview_show_travel: false,

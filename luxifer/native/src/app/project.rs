@@ -3,6 +3,68 @@ use luxifer_core::state::AppState;
 use super::App;
 use crate::ui::PendingProjectAction;
 
+pub(super) struct ProjectIntegrationRuntime {
+    request_tx: std::sync::mpsc::Sender<Vec<String>>,
+    result_rx: std::sync::mpsc::Receiver<ProjectIntegrationResult>,
+}
+
+struct ProjectIntegrationResult {
+    accepted: usize,
+    project_names: Vec<String>,
+    error: Option<luxifer_application::AppError>,
+}
+
+impl ProjectIntegrationRuntime {
+    pub fn new() -> Self {
+        let (request_tx, request_rx) = std::sync::mpsc::channel::<Vec<String>>();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("project-integration".into())
+            .spawn(move || {
+                while let Ok(revision_ids) = request_rx.recv() {
+                    let mut result = ProjectIntegrationResult {
+                        accepted: 0,
+                        project_names: Vec::new(),
+                        error: None,
+                    };
+                    for revision_id in revision_ids {
+                        let comparison =
+                            match luxifer_application::compare_inbox_revision(&revision_id) {
+                                Ok(comparison) => comparison,
+                                Err(error) => {
+                                    result.error = Some(error);
+                                    break;
+                                }
+                            };
+                        let accepted = if comparison.local_project_name.is_some() {
+                            luxifer_application::accept_inbox_revision(&revision_id)
+                        } else {
+                            luxifer_application::apply_inbox_revision(&revision_id)
+                        };
+                        match accepted {
+                            Ok(name) => {
+                                result.accepted += 1;
+                                result.project_names.push(name);
+                            }
+                            Err(error) => {
+                                result.error = Some(error);
+                                break;
+                            }
+                        }
+                    }
+                    if result_tx.send(result).is_err() {
+                        return;
+                    }
+                }
+            })
+            .expect("Projekt-Integrationsworker konnte nicht gestartet werden");
+        Self {
+            request_tx,
+            result_rx,
+        }
+    }
+}
+
 impl App {
     fn refresh_project_catalog(&mut self) {
         self.project_catalog = self.project.list();
@@ -45,17 +107,7 @@ impl App {
                 return;
             }
         }
-        match luxifer_application::apply_inbox_revision(revision_id) {
-            Ok(name) => {
-                self.refresh_project_catalog();
-                self.refresh_project_inbox();
-                self.project_browser.show_inbox = false;
-                self.project_browser.selected = Some(name.clone());
-                self.project_browser.cached = None;
-                self.toasts.success(format!("Projekt übernommen: {name}"));
-            }
-            Err(error) => self.app_error = Some(error),
-        }
+        self.start_project_integration(vec![revision_id.to_owned()]);
     }
 
     pub fn apply_all_inbox_revisions(&mut self) {
@@ -84,65 +136,59 @@ impl App {
         if touches_open_project && self.session.is_dirty() {
             self.pending_project = Some(PendingProjectAction::AcceptAllInbox(revision_ids));
         } else {
-            self.do_apply_all_inbox_revisions(&revision_ids);
+            self.start_project_integration(revision_ids);
         }
     }
 
-    fn do_apply_all_inbox_revisions(&mut self, revision_ids: &[String]) {
-        let mut accepted = 0_usize;
-        let mut last_name = None;
-        let open_name = self.project.open_name().map(str::to_owned);
-        let mut updated_open_project = false;
-        for revision_id in revision_ids {
-            let comparison = match luxifer_application::compare_inbox_revision(revision_id) {
-                Ok(comparison) => comparison,
-                Err(error) => {
-                    self.app_error = Some(error);
-                    break;
-                }
-            };
-            updated_open_project |= comparison
-                .local_project_name
-                .as_ref()
-                .is_some_and(|name| Some(name) == open_name.as_ref());
-            let result = if comparison.local_project_name.is_some() {
-                luxifer_application::accept_inbox_revision(revision_id)
-            } else {
-                luxifer_application::apply_inbox_revision(revision_id)
-            };
-            match result {
-                Ok(name) => {
-                    accepted += 1;
-                    last_name = Some(name);
-                }
-                Err(error) => {
-                    self.app_error = Some(error);
-                    break;
-                }
-            }
+    fn start_project_integration(&mut self, revision_ids: Vec<String>) {
+        if self.project_integration_pending {
+            return;
         }
+        if self
+            .project_integration
+            .request_tx
+            .send(revision_ids)
+            .is_ok()
+        {
+            self.project_integration_pending = true;
+            self.toasts
+                .success("Charon-Projekte werden im Hintergrund übernommen …");
+        }
+    }
+
+    pub fn poll_project_integration(&mut self) -> bool {
+        let Ok(result) = self.project_integration.result_rx.try_recv() else {
+            return false;
+        };
+        self.project_integration_pending = false;
         self.refresh_project_catalog();
         self.refresh_project_inbox();
         self.project_browser.cached = None;
-        if let Some(name) = last_name {
-            self.project_browser.selected = Some(name);
+        if let Some(name) = result.project_names.last() {
+            self.project_browser.selected = Some(name.clone());
         }
-        if updated_open_project {
-            let Some(open_name) = open_name else {
-                return;
-            };
-            match self.project.open(&open_name) {
-                Ok(state) => self.replace_editor_state(state),
-                Err(error) => {
-                    self.app_error = Some(error);
-                    return;
+        if let Some(open_name) = self.project.open_name().map(str::to_owned) {
+            let updated_open_project = result.project_names.contains(&open_name);
+            if updated_open_project {
+                match self.project.open(&open_name) {
+                    Ok(state) => self.replace_editor_state(state),
+                    Err(error) => {
+                        self.app_error = Some(error);
+                        return true;
+                    }
                 }
             }
         }
-        if accepted > 0 {
-            self.toasts
-                .success(format!("{accepted} Charon-Revision(en) übernommen."));
+        if result.accepted > 0 {
+            self.toasts.success(format!(
+                "{} Charon-Revision(en) übernommen.",
+                result.accepted
+            ));
         }
+        if let Some(error) = result.error {
+            self.app_error = Some(error);
+        }
+        true
     }
 
     pub fn show_inbox_comparison(&mut self, revision_id: &str) {
@@ -192,26 +238,7 @@ impl App {
     }
 
     fn do_accept_inbox_revision(&mut self, revision_id: &str) {
-        match luxifer_application::accept_inbox_revision(revision_id) {
-            Ok(name) => {
-                let was_open = self.project.open_name() == Some(name.as_str());
-                if was_open {
-                    match self.project.open(&name) {
-                        Ok(state) => self.replace_editor_state(state),
-                        Err(error) => {
-                            self.app_error = Some(error);
-                            return;
-                        }
-                    }
-                }
-                self.project_browser.cached = None;
-                self.refresh_project_catalog();
-                self.refresh_project_inbox();
-                self.toasts
-                    .success(format!("Charon-Version übernommen: {name}"));
-            }
-            Err(error) => self.app_error = Some(error),
-        }
+        self.start_project_integration(vec![revision_id.to_owned()]);
     }
 
     pub fn refresh_project_inbox(&mut self) {
@@ -259,7 +286,7 @@ impl App {
                 self.do_accept_inbox_revision(&revision_id);
             }
             Some(PendingProjectAction::AcceptAllInbox(revision_ids)) => {
-                self.do_apply_all_inbox_revisions(&revision_ids);
+                self.start_project_integration(revision_ids);
             }
             Some(PendingProjectAction::New { name, description }) => {
                 self.do_project_new(&name, &description);

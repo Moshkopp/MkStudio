@@ -122,6 +122,8 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             let assets = &app.asset_catalog;
             let asset_thumbnails = &app.asset_thumbnails;
             let inbox = &app.project_inbox;
+            let integration_pending = app.project_integration_pending;
+            let asset_import_pending = app.asset_import_pending;
             let browser = &mut app.project_browser;
             let actions = egui::CentralPanel::default()
                 .show(ctx, |ui| {
@@ -131,8 +133,8 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                         projects,
                         inbox,
                         (assets, asset_thumbnails),
-                        open_name.as_deref(),
-                        dirty,
+                        (open_name.as_deref(), dirty),
+                        (integration_pending, asset_import_pending),
                     )
                 })
                 .inner;
@@ -479,7 +481,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
 
     if let Some(state) = app.revision_comparison.as_ref() {
         let revision_id = state.comparison.entry.revision_id.clone();
-        match dialogs::revision_comparison_window(ctx, state) {
+        match dialogs::revision_comparison_window(ctx, state, &app.asset_thumbnails) {
             dialogs::RevisionComparisonOutcome::None => {}
             dialogs::RevisionComparisonOutcome::Close => app.revision_comparison = None,
             dialogs::RevisionComparisonOutcome::KeepLocal => {

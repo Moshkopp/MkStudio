@@ -10,6 +10,53 @@ pub(super) struct ThumbnailRuntime {
     result_rx: std::sync::mpsc::Receiver<(String, Result<Vec<u8>, String>)>,
 }
 
+type ImportedContours = Vec<(Vec<(f64, f64)>, bool)>;
+type AssetImportResult = Result<(luxifer_core::AssetMeta, Option<ImportedContours>), String>;
+
+pub(super) struct AssetImportRuntime {
+    request_tx: std::sync::mpsc::Sender<String>,
+    result_rx: std::sync::mpsc::Receiver<AssetImportResult>,
+}
+
+impl AssetImportRuntime {
+    pub fn new() -> Self {
+        let (request_tx, request_rx) = std::sync::mpsc::channel::<String>();
+        let (result_tx, result_rx) = std::sync::mpsc::channel();
+        std::thread::Builder::new()
+            .name("asset-import".into())
+            .spawn(move || {
+                let store = luxifer_core::assets_dir();
+                while let Ok(id) = request_rx.recv() {
+                    let result = (|| {
+                        let meta = luxifer_core::asset_meta(&store, &id)
+                            .map_err(|error| error.to_string())?;
+                        let contours = match meta.kind {
+                            luxifer_core::AssetKind::SvgSource
+                            | luxifer_core::AssetKind::DxfSource => {
+                                let bytes = luxifer_core::load_asset(&store, &id)
+                                    .map_err(|error| error.to_string())?;
+                                Some(
+                                    luxifer_core::import::import_vector(&bytes, &meta.ext)
+                                        .map_err(|error| error.to_string())?,
+                                )
+                            }
+                            _ => None,
+                        };
+                        Ok((meta, contours))
+                    })();
+                    if result_tx.send(result).is_err() {
+                        return;
+                    }
+                }
+            })
+            .expect("Asset-Importworker konnte nicht gestartet werden");
+        Self {
+            request_tx,
+            result_rx,
+        }
+    }
+}
+
 impl ThumbnailRuntime {
     pub fn new() -> Self {
         let (request_tx, request_rx) = std::sync::mpsc::channel::<String>();
@@ -123,17 +170,38 @@ impl App {
 
     /// Fügt ein bereits im globalen Katalog vorhandenes Asset erneut ein.
     pub fn import_catalog_asset(&mut self, id: &str) {
-        let store = luxifer_core::assets_dir();
-        let id = id.to_string();
-        let Ok(meta) = luxifer_core::asset_meta(&store, &id) else {
-            self.toasts
-                .error("Asset-Metadaten sind lokal nicht verfügbar.");
+        if self.asset_import_pending {
             return;
+        }
+        if self
+            .asset_import_runtime
+            .request_tx
+            .send(id.to_owned())
+            .is_ok()
+        {
+            self.asset_import_pending = true;
+            self.toasts
+                .success("Asset wird im Hintergrund vorbereitet …");
+        }
+    }
+
+    pub fn poll_asset_import(&mut self) -> bool {
+        let Ok(result) = self.asset_import_runtime.result_rx.try_recv() else {
+            return false;
+        };
+        self.asset_import_pending = false;
+        let (meta, contours) = match result {
+            Ok(result) => result,
+            Err(error) => {
+                self.toasts
+                    .error(format!("Asset-Import fehlgeschlagen: {error}"));
+                return true;
+            }
         };
         match meta.kind {
             luxifer_core::AssetKind::Image => {
                 let index = self.session.add_image(
-                    id,
+                    meta.id.clone(),
                     20.0,
                     20.0,
                     meta.width as f64 / 10.0,
@@ -144,26 +212,18 @@ impl App {
                 self.fit_all();
             }
             luxifer_core::AssetKind::SvgSource | luxifer_core::AssetKind::DxfSource => {
-                let Ok(bytes) = luxifer_core::load_asset(&store, &id) else {
-                    self.toasts.error("Asset-Datei ist lokal nicht verfügbar.");
-                    return;
-                };
-                match luxifer_core::import::import_vector(&bytes, &meta.ext) {
-                    Ok(contours) => {
-                        self.session.add_polylines(contours);
-                        self.refresh_accent();
-                        self.fit_all();
-                    }
-                    Err(error) => self
-                        .toasts
-                        .error(format!("Asset-Import fehlgeschlagen: {error}")),
+                if let Some(contours) = contours {
+                    self.session.add_polylines(contours);
+                    self.refresh_accent();
+                    self.fit_all();
                 }
             }
-            luxifer_core::AssetKind::Font => return,
+            luxifer_core::AssetKind::Font => return true,
         }
         self.session_asset_context.insert(meta.id.clone());
         self.tag_asset_for_current_project(&meta.id);
         self.refresh_asset_catalog();
+        true
     }
 
     /// Öffnet den Bildparameter-Dialog mit den aktuellen Werten des Bild-Shapes.

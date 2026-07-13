@@ -14,6 +14,7 @@ pub(in crate::ui) enum RevisionComparisonOutcome {
 pub(in crate::ui) fn revision_comparison_window(
     ctx: &egui::Context,
     state: &RevisionComparisonState,
+    asset_thumbnails: &std::collections::BTreeMap<String, egui::TextureHandle>,
 ) -> RevisionComparisonOutcome {
     let mut open = true;
     let mut outcome = RevisionComparisonOutcome::None;
@@ -69,7 +70,7 @@ pub(in crate::ui) fn revision_comparison_window(
                         preview.bed.0,
                         preview.bed.1
                     ));
-                    crate::ui::project::draw_preview(&mut columns[0], preview);
+                    crate::ui::project::draw_preview(&mut columns[0], preview, asset_thumbnails);
                 } else {
                     columns[0].weak("Dieses Projekt ist lokal noch nicht vorhanden.");
                 }
@@ -83,7 +84,11 @@ pub(in crate::ui) fn revision_comparison_window(
                     state.remote_preview.bed.0,
                     state.remote_preview.bed.1
                 ));
-                crate::ui::project::draw_preview(&mut columns[1], &state.remote_preview);
+                crate::ui::project::draw_preview(
+                    &mut columns[1],
+                    &state.remote_preview,
+                    asset_thumbnails,
+                );
             });
 
             ui.separator();

@@ -15,13 +15,14 @@ use luxifer_core::project::ProjectInfo;
 use luxifer_core::state::AppState;
 
 use super::action::UiAction;
-use super::state::{PreviewOutline, ProjectBrowserState, ProjectPreview};
+use super::state::{PreviewImage, PreviewOutline, ProjectBrowserState, ProjectPreview};
 
 /// Baut die Vektor-Miniatur aus einem Projektzustand: sichtbare Konturen in
 /// Layer-Farbe, Weltkoordinaten in mm. Reine Präsentationsaufbereitung — die
 /// Outline-Ableitung ist dieselbe wie im Canvas (`scene_geo::world_outline`).
 pub(crate) fn preview_from_state(state: &AppState) -> ProjectPreview {
     let mut outlines = Vec::new();
+    let mut images = Vec::new();
     for shape in &state.shapes {
         let layer = state.layers.get(shape.layer_id);
         if !layer.map(|l| l.visible).unwrap_or(true) {
@@ -29,6 +30,20 @@ pub(crate) fn preview_from_state(state: &AppState) -> ProjectPreview {
         }
         let color = layer.map(|l| l.color).unwrap_or([200, 200, 200]);
         let (pts, closed) = crate::scene_geo::world_outline(shape);
+        if let luxifer_core::Geo::Image { asset, .. } = &shape.geo {
+            if let Ok(corners) = pts
+                .iter()
+                .take(4)
+                .map(|&(x, y)| (x as f32, y as f32))
+                .collect::<Vec<_>>()
+                .try_into()
+            {
+                images.push(PreviewImage {
+                    asset_id: asset.clone(),
+                    corners,
+                });
+            }
+        }
         if pts.len() < 2 {
             continue;
         }
@@ -41,12 +56,17 @@ pub(crate) fn preview_from_state(state: &AppState) -> ProjectPreview {
     ProjectPreview {
         bed: (state.bed_w_mm as f32, state.bed_h_mm as f32),
         outlines,
+        images,
     }
 }
 
 /// Zeichnet die Miniatur in einen festen Rahmen (Bett eingepasst, Y wie im
 /// Design-Canvas nach unten).
-pub(super) fn draw_preview(ui: &mut egui::Ui, preview: &ProjectPreview) {
+pub(super) fn draw_preview(
+    ui: &mut egui::Ui,
+    preview: &ProjectPreview,
+    textures: &std::collections::BTreeMap<String, egui::TextureHandle>,
+) {
     let height = 180.0_f32.min(ui.available_width() * 0.6);
     let (rect, _) = ui.allocate_exact_size(
         egui::vec2(ui.available_width(), height),
@@ -74,6 +94,30 @@ pub(super) fn draw_preview(ui: &mut egui::Ui, preview: &ProjectPreview) {
         egui::Stroke::new(1.0, ui.visuals().weak_text_color()),
     );
 
+    for image in &preview.images {
+        let Some(texture) = textures.get(&image.asset_id) else {
+            continue;
+        };
+        let mut mesh = egui::Mesh::with_texture(texture.id());
+        let base = mesh.vertices.len() as u32;
+        let uvs = [
+            egui::pos2(0.0, 0.0),
+            egui::pos2(1.0, 0.0),
+            egui::pos2(1.0, 1.0),
+            egui::pos2(0.0, 1.0),
+        ];
+        for (corner, uv) in image.corners.iter().zip(uvs) {
+            mesh.vertices.push(egui::epaint::Vertex {
+                pos: to_screen(corner.0, corner.1),
+                uv,
+                color: egui::Color32::WHITE,
+            });
+        }
+        mesh.indices
+            .extend_from_slice(&[base, base + 1, base + 2, base, base + 2, base + 3]);
+        painter.add(egui::Shape::mesh(mesh));
+    }
+
     for o in &preview.outlines {
         let mut pts: Vec<egui::Pos2> = o.points.iter().map(|&(x, y)| to_screen(x, y)).collect();
         if o.closed {
@@ -98,11 +142,13 @@ pub(super) fn project_browser(
         &[luxifer_core::AssetMeta],
         &std::collections::BTreeMap<String, egui::TextureHandle>,
     ),
-    open_name: Option<&str>,
-    dirty: bool,
+    open_project: (Option<&str>, bool),
+    pending: (bool, bool),
 ) -> Vec<UiAction> {
     let mut actions = Vec::new();
     let (assets, asset_thumbnails) = asset_library;
+    let (open_name, dirty) = open_project;
+    let (integration_pending, asset_import_pending) = pending;
 
     // Kopfzeile: „Neues Projekt…" öffnet die Maske (Name + Beschreibung);
     // ein „Speichern"-Button ist bewusst weggelassen — Speichern läuft über
@@ -160,11 +206,18 @@ pub(super) fn project_browser(
     ui.separator();
 
     if browser.show_inbox {
-        inbox_pane(ui, inbox, &mut actions);
+        inbox_pane(ui, inbox, integration_pending, &mut actions);
         return actions;
     }
     if browser.show_assets {
-        assets_pane(ui, browser, assets, asset_thumbnails, &mut actions);
+        assets_pane(
+            ui,
+            browser,
+            assets,
+            asset_thumbnails,
+            asset_import_pending,
+            &mut actions,
+        );
         return actions;
     }
 
@@ -177,7 +230,7 @@ pub(super) fn project_browser(
             project_list(ui, browser, projects, open_name, &mut actions);
         });
     egui::CentralPanel::default().show_inside(ui, |ui| {
-        detail_pane(ui, browser, open_name, &mut actions);
+        detail_pane(ui, browser, asset_thumbnails, open_name, &mut actions);
     });
 
     actions
@@ -188,6 +241,7 @@ fn assets_pane(
     browser: &mut ProjectBrowserState,
     assets: &[luxifer_core::AssetMeta],
     thumbnails: &std::collections::BTreeMap<String, egui::TextureHandle>,
+    import_pending: bool,
     actions: &mut Vec<UiAction>,
 ) {
     ui.add_space(10.0);
@@ -269,7 +323,17 @@ fn assets_pane(
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if ui.button("Einfügen").clicked() {
+                                    if ui
+                                        .add_enabled(
+                                            !import_pending,
+                                            egui::Button::new(if import_pending {
+                                                "Importiere …"
+                                            } else {
+                                                "Einfügen"
+                                            }),
+                                        )
+                                        .clicked()
+                                    {
                                         actions
                                             .push(UiAction::ImportCatalogAsset(asset.id.clone()));
                                     }
@@ -279,7 +343,7 @@ fn assets_pane(
                     })
                     .response
                     .interact(egui::Sense::click());
-                if response.double_clicked() {
+                if response.double_clicked() && !import_pending {
                     actions.push(UiAction::ImportCatalogAsset(asset.id.clone()));
                 }
                 ui.add_space(6.0);
@@ -287,7 +351,12 @@ fn assets_pane(
         });
 }
 
-fn inbox_pane(ui: &mut egui::Ui, inbox: &[InboxEntry], actions: &mut Vec<UiAction>) {
+fn inbox_pane(
+    ui: &mut egui::Ui,
+    inbox: &[InboxEntry],
+    integration_pending: bool,
+    actions: &mut Vec<UiAction>,
+) {
     ui.add_space(10.0);
     ui.heading("Von Charon");
     ui.weak("Empfangene Revisionen werden erst nach deiner Entscheidung lokal übernommen.");
@@ -309,7 +378,17 @@ fn inbox_pane(ui: &mut egui::Ui, inbox: &[InboxEntry], actions: &mut Vec<UiActio
 
     ui.horizontal(|ui| {
         ui.weak(format!("{} offene Revision(en)", visible.len()));
-        if ui.button("Alle übernehmen").clicked() {
+        if ui
+            .add_enabled(
+                !integration_pending,
+                egui::Button::new(if integration_pending {
+                    "Übernehme …"
+                } else {
+                    "Alle übernehmen"
+                }),
+            )
+            .clicked()
+        {
             actions.push(UiAction::ApplyAllInboxRevisions);
         }
     });
@@ -340,7 +419,10 @@ fn inbox_pane(ui: &mut egui::Ui, inbox: &[InboxEntry], actions: &mut Vec<UiActio
                     ));
                     ui.add_space(6.0);
                     ui.horizontal(|ui| {
-                        if ui.button("Übernehmen").clicked() {
+                        if ui
+                            .add_enabled(!integration_pending, egui::Button::new("Übernehmen"))
+                            .clicked()
+                        {
                             actions.push(UiAction::ApplyInboxRevision(entry.revision_id.clone()));
                         }
                         if ui.button("Änderungen anzeigen").clicked() {
@@ -411,6 +493,7 @@ fn project_list(
 fn detail_pane(
     ui: &mut egui::Ui,
     browser: &mut ProjectBrowserState,
+    asset_thumbnails: &std::collections::BTreeMap<String, egui::TextureHandle>,
     open_name: Option<&str>,
     actions: &mut Vec<UiAction>,
 ) {
@@ -452,7 +535,12 @@ fn detail_pane(
     });
 
     ui.add_space(8.0);
-    draw_preview(ui, &cached.preview);
+    for image in &cached.preview.images {
+        if !asset_thumbnails.contains_key(&image.asset_id) {
+            actions.push(UiAction::RequestAssetThumbnail(image.asset_id.clone()));
+        }
+    }
+    draw_preview(ui, &cached.preview, asset_thumbnails);
     ui.add_space(8.0);
 
     // Aktionszeile.
@@ -569,5 +657,23 @@ fn detail_pane(
     // Projekts hebt sie auf; dann verfällt der Cache bewusst).
     if browser.selected.as_deref() == Some(selected.as_str()) {
         browser.cached = Some(cached);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn projektvorschau_behaelt_bild_asset_und_platzierung() {
+        let mut state = AppState::default();
+        state.add_image("asset-1".into(), 12.0, 18.0, 40.0, 30.0);
+
+        let preview = preview_from_state(&state);
+
+        assert_eq!(preview.images.len(), 1);
+        assert_eq!(preview.images[0].asset_id, "asset-1");
+        assert_eq!(preview.images[0].corners[0], (12.0, 18.0));
+        assert_eq!(preview.images[0].corners[2], (52.0, 48.0));
     }
 }

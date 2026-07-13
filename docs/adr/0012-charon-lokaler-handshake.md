@@ -294,11 +294,20 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   Insbesondere dürfen spätere Heartbeats keinen früheren Bericht über neu
   empfangene Projekte oder Assets verdrängen, weil sonst die Daten bereits auf
   dem Datenträger liegen, aber Inbox und Asset-Katalog sichtbar veraltet
-  bleiben.
+  bleiben;
 - Der Bereich `Von Charon` kann alle offenen und zurückgestellten Revisionen
   gesammelt in Empfangsreihenfolge übernehmen. Die Sammelaktion verwendet
   dieselben Asset-Prüfungen und denselben Dirty-Guard wie die Einzelübernahme;
-  beim ersten Fehler stoppt sie, ohne bereits übernommene Stände zurückzurollen.
+  beim ersten Fehler stoppt sie, ohne bereits übernommene Stände zurückzurollen;
+- Einzel- und Sammelübernahmen prüfen, lesen und schreiben Projekte in einem
+  eigenen Integrationsworker. Der UI-Thread startet nur den Auftrag und
+  übernimmt anschließend das Ergebnis; währenddessen verhindert ein sichtbarer
+  Pending-Zustand doppelte Aktionen. Auch das Parsen wiederverwendeter
+  SVG-/DXF-Assets läuft außerhalb des UI-Threads;
+- Projektminiaturen enthalten neben Vektorkonturen die platzierten Bild-Assets.
+  Ihre Pixel kommen aus demselben asynchronen Thumbnail-Cache wie die
+  Asset-Bibliothek und werden anhand der tatsächlichen, gegebenenfalls
+  rotierten Shape-Ecken in die Bettvorschau gezeichnet.
 
 Damit ist der lokale Funktionsumfang dieses ADR abgeschlossen. Noch offen sind
 die ausdrücklich nachgelagerten Betriebs- und Ausbaupunkte:

@@ -209,6 +209,12 @@ pub struct ProjectPreview {
     /// Bettgröße (Breite, Höhe) in mm.
     pub bed: (f32, f32),
     pub outlines: Vec<PreviewOutline>,
+    pub images: Vec<PreviewImage>,
+}
+
+pub struct PreviewImage {
+    pub asset_id: String,
+    pub corners: [(f32, f32); 4],
 }
 
 /// Read-only Präsentationszustand des Vergleichsdialogs.
