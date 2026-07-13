@@ -1,4 +1,5 @@
 use super::EditorSession;
+use crate::AppError;
 
 impl EditorSession {
     pub fn select_at(&mut self, x: f64, y: f64, tolerance: f64, additive: bool) -> Option<usize> {
@@ -29,6 +30,29 @@ impl EditorSession {
 
     pub fn clear_selection(&mut self) {
         self.state.selected.clear();
+    }
+
+    /// Skaliert die aktuelle Auswahl numerisch auf die gewünschte gemeinsame
+    /// Breite/Höhe. Die linke obere Ecke der Auswahlbox bleibt stehen und die
+    /// gesamte Änderung bildet genau einen Undo-Schritt.
+    pub fn resize_selection(&mut self, width: f64, height: f64) -> Result<(), AppError> {
+        let Some(start) = self.state.selection_bbox() else {
+            return Err(AppError::new(
+                "selection_required",
+                "Zum Skalieren muss mindestens ein Objekt ausgewählt sein.",
+            ));
+        };
+        if !width.is_finite() || !height.is_finite() || width < 0.1 || height < 0.1 {
+            return Err(AppError::new(
+                "invalid_selection_size",
+                "Breite und Höhe müssen mindestens 0,1 mm betragen.",
+            ));
+        }
+        let target = luxifer_core::BBox::new(start.x, start.y, width, height);
+        self.begin_edit();
+        self.scale_edit(start, target);
+        self.commit_edit();
+        Ok(())
     }
 
     /// Wählt alle Objekte auf dem Canvas aus (Strg+A).

@@ -105,6 +105,56 @@ fn select_all_waehlt_jedes_objekt_genau_einmal() {
 }
 
 #[test]
+fn numerische_auswahlgroesse_skaliert_und_ist_ein_undo_schritt() {
+    let mut session = session_with_rect();
+    session.resize_selection(25.0, 15.0).unwrap();
+    let resized = session.selection_bbox().unwrap();
+    assert!((resized.w - 25.0).abs() < 1e-9);
+    assert!((resized.h - 15.0).abs() < 1e-9);
+
+    assert!(session.undo());
+    let original = session.selection_bbox().unwrap();
+    assert!((original.w - 10.0).abs() < 1e-9);
+    assert!((original.h - 10.0).abs() < 1e-9);
+}
+
+#[test]
+fn numerische_mehrfachauswahl_skaliert_gemeinsame_box() {
+    let mut state = AppState::new();
+    state.add_shape(Geo::Rect {
+        x: 0.0,
+        y: 0.0,
+        w: 10.0,
+        h: 10.0,
+    });
+    state.add_shape(Geo::Rect {
+        x: 20.0,
+        y: 0.0,
+        w: 10.0,
+        h: 10.0,
+    });
+    state.selected = vec![0, 1];
+    let mut session = EditorSession::new(state);
+
+    session.resize_selection(60.0, 20.0).unwrap();
+    let bbox = session.selection_bbox().unwrap();
+    assert!((bbox.w - 60.0).abs() < 1e-9);
+    assert!((bbox.h - 20.0).abs() < 1e-9);
+    assert!((session.shapes[1].bbox().x - 40.0).abs() < 1e-9);
+}
+
+#[test]
+fn numerische_auswahlgroesse_weist_ungueltige_werte_ohne_mutation_ab() {
+    let mut session = session_with_rect();
+    let before = session.selection_bbox().unwrap();
+    let before_dirty = session.dirty;
+    let error = session.resize_selection(0.0, f64::NAN).unwrap_err();
+    assert_eq!(error.code(), "invalid_selection_size");
+    assert_eq!(session.selection_bbox(), Some(before));
+    assert_eq!(session.dirty, before_dirty);
+}
+
+#[test]
 fn mehrere_drag_updates_erzeugen_genau_einen_undo_schritt() {
     let mut session = session_with_rect();
     let original = session.shapes[0].bbox();

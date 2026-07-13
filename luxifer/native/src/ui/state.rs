@@ -5,6 +5,29 @@
 
 use luxifer_application::LayerParams;
 
+/// Kurzlebiger Entwurf für Breite/Höhe der aktuellen Auswahlbox.
+pub struct SelectionSizeState {
+    pub width: String,
+    pub height: String,
+    pub proportional: bool,
+    pub source: Option<luxifer_core::BBox>,
+    pub width_dirty: bool,
+    pub height_dirty: bool,
+}
+
+impl Default for SelectionSizeState {
+    fn default() -> Self {
+        Self {
+            width: String::new(),
+            height: String::new(),
+            proportional: true,
+            source: None,
+            width_dirty: false,
+            height_dirty: false,
+        }
+    }
+}
+
 /// Entwurf des Layer-Parameter-Dialogs (Doppelklick auf eine Ebene).
 pub struct LayerDialogState {
     pub index: usize,

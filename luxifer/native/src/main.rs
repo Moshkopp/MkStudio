@@ -38,7 +38,7 @@ impl ApplicationHandler for Runner {
         let window = Arc::new(
             el.create_window(
                 Window::default_attributes()
-                    .with_title("LuxiFer — nativ (wgpu)")
+                    .with_title("LuxiFer")
                     .with_inner_size(winit::dpi::LogicalSize::new(1400, 880))
                     .with_active(true),
             )
@@ -88,6 +88,13 @@ impl ApplicationHandler for Runner {
 
     fn about_to_wait(&mut self, el: &ActiveEventLoop) {
         let Some(app) = self.app.as_mut() else { return };
+        let now = std::time::Instant::now();
+        if app
+            .egui_next_repaint()
+            .is_some_and(|deadline| deadline <= now)
+        {
+            app.window.request_redraw();
+        }
         if app.poll_charon() {
             app.window.request_redraw();
         }
@@ -105,9 +112,11 @@ impl ApplicationHandler for Runner {
         }
         // Der Netzwerkthread arbeitet unabhängig. Dieses kurze Aufwachen dient
         // nur dazu, dessen Ergebnis zeitnah in die UI zu übernehmen.
-        el.set_control_flow(ControlFlow::WaitUntil(
-            std::time::Instant::now() + std::time::Duration::from_millis(500),
-        ));
+        let regular_wake = now + std::time::Duration::from_millis(500);
+        let next_wake = app
+            .egui_next_repaint()
+            .map_or(regular_wake, |deadline| deadline.min(regular_wake));
+        el.set_control_flow(ControlFlow::WaitUntil(next_wake));
     }
 }
 

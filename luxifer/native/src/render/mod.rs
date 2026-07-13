@@ -69,6 +69,8 @@ pub struct Renderer {
     fps: f32,
     /// Ob egui im letzten Frame sofort weiter zeichnen wollte.
     wants_repaint: bool,
+    /// Frühester von egui angeforderter verzögerter Repaint (z. B. Tooltip).
+    next_repaint: Option<Instant>,
     /// Kamera-/Rasterstand des letzten Grid-Aufbaus (Center, Scale, Viewport,
     /// grid_mm) — das viewportfüllende Gitter wird nur bei Änderung neu gebaut.
     grid_key: Option<([f32; 2], f32, [f32; 2], f32)>,
@@ -107,6 +109,7 @@ impl Renderer {
             last_frame: Instant::now(),
             fps: 0.0,
             wants_repaint: false,
+            next_repaint: None,
             grid_key: None,
         }
     }
@@ -117,6 +120,10 @@ impl Renderer {
 
     pub fn wants_repaint(&self) -> bool {
         self.wants_repaint
+    }
+
+    pub fn next_repaint(&self) -> Option<Instant> {
+        self.next_repaint
     }
 
     /// Erzwingt den Vertex-Neuaufbau im nächsten Frame (z. B. nach Projektwechsel,
@@ -172,10 +179,15 @@ impl Renderer {
 
         self.egui_state
             .handle_platform_output(window, full.platform_output);
-        self.wants_repaint = full
+        let repaint_delay = full
             .viewport_output
             .values()
-            .any(|v| v.repaint_delay.is_zero());
+            .map(|output| output.repaint_delay)
+            .min();
+        self.wants_repaint = repaint_delay.is_some_and(|delay| delay.is_zero());
+        self.next_repaint = repaint_delay
+            .filter(|delay| !delay.is_zero())
+            .and_then(|delay| Instant::now().checked_add(delay));
 
         // Canvas-Vertices nur neu bauen+hochladen, wenn sich die Szene änderte.
         let rev = scene.session.render_rev();

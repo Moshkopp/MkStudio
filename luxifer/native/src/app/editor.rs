@@ -84,6 +84,10 @@ impl App {
         let result = self.session.ungroup();
         self.report(result);
     }
+    pub fn resize_selection(&mut self, width: f64, height: f64) {
+        let result = self.session.resize_selection(width, height);
+        self.report(result);
+    }
     pub fn nest(&mut self, gap: f64) {
         let result = self.session.nest(gap);
         self.report(result);

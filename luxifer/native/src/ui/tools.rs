@@ -68,7 +68,7 @@ fn tool_grid(ui: &mut egui::Ui, side: f32, gap: f32, cur: Tool, tools: &[Tool]) 
 
 /// 2-spaltige Werkzeugleiste, 5 Gruppen wie die Tauri-ToolsPanel — nur Icons.
 /// `cur` = aktives Werkzeug (nur für die Markierung). Gibt die Absichten zurück.
-pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool) -> Vec<UiAction> {
+pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec<UiAction> {
     use crate::tools::ToolAction as A;
     let mut actions = Vec::new();
     ui.add_space(4.0);
@@ -198,7 +198,36 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool) -> Vec<UiAction> {
             ui.end_row();
         });
     divider(ui);
-    // Gruppe 5: Untersetzer.
+    // Gruppe 5: Nesting. Geometrische Platzierungsaktionen gehören zu den
+    // Werkzeugen; der zweite Header bleibt für die aktuelle Auswahlgröße frei.
+    egui::Grid::new("tg_nesting")
+        .spacing([gap, gap])
+        .show(ui, |ui| {
+            if selection >= 2
+                && icon_button(ui, side, "nest", "Auswahl packen (2 mm)", false, false)
+            {
+                actions.push(UiAction::Nest(2.0));
+            } else if selection < 2 {
+                icon_button(
+                    ui,
+                    side,
+                    "nest",
+                    "Mindestens zwei Objekte auswählen",
+                    false,
+                    true,
+                );
+            }
+            if selection >= 1
+                && icon_button(ui, side, "nest-fill", "Bett füllen (2 mm)", false, false)
+            {
+                actions.push(UiAction::NestFill(2.0));
+            } else if selection < 1 {
+                icon_button(ui, side, "nest-fill", "Objekt auswählen", false, true);
+            }
+            ui.end_row();
+        });
+    divider(ui);
+    // Gruppe 6: Untersetzer.
     egui::Grid::new("tg_coaster")
         .spacing([gap, gap])
         .show(ui, |ui| {

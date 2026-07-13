@@ -45,7 +45,11 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
                     let (rect, resp) =
                         ui.allocate_exact_size(egui::vec2(22.0, 22.0), egui::Sense::click());
                     ui.painter().rect_filled(rect, 6.0, c32(row.color));
-                    if resp.on_hover_text("Layerfarbe aktivieren").clicked() {
+                    if resp
+                        .on_hover_cursor(egui::CursorIcon::PointingHand)
+                        .on_hover_text("Layerfarbe aktivieren")
+                        .clicked()
+                    {
                         actions.push(UiAction::PickColor(row.color));
                     }
                     ui.vertical(|ui| {
@@ -54,6 +58,7 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
                                 egui::Label::new(RichText::new(&row.name).strong())
                                     .sense(egui::Sense::click()),
                             )
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .on_hover_text("Parameter bearbeiten")
                             .clicked()
                         {
@@ -83,7 +88,11 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
                         ("Luft", row.air_assist, LayerToggle::AirAssist),
                     ];
                     for (label, active, toggle) in toggles {
-                        if ui.selectable_label(active, label).clicked() {
+                        if ui
+                            .selectable_label(active, label)
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .clicked()
+                        {
                             actions.push(UiAction::ToggleLayer(i, toggle));
                         }
                     }
@@ -114,6 +123,7 @@ pub(super) fn laser_edit_layers(
             ui.painter().rect_filled(rect, 4.0, c32(row.color));
             if ui
                 .selectable_label(editable.contains(&i), &row.name)
+                .on_hover_cursor(egui::CursorIcon::PointingHand)
                 .clicked()
             {
                 actions.push(UiAction::ToggleLaserEditLayer(i));

@@ -362,7 +362,9 @@ fn assets_pane(
                                 });
                             })
                             .response
-                            .interact(egui::Sense::click());
+                            .interact(egui::Sense::click())
+                            .on_hover_cursor(egui::CursorIcon::PointingHand)
+                            .on_hover_text("Doppelklick zum Einfügen");
                         if response.double_clicked() && !import_pending {
                             actions.push(UiAction::ImportCatalogAsset(asset.id.clone()));
                         }

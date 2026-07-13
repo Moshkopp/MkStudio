@@ -24,6 +24,11 @@ pub enum UiAction {
     Group,
     /// Gruppierung der Auswahl lösen.
     Ungroup,
+    /// Gemeinsame Auswahlbox numerisch auf Breite/Höhe in mm skalieren.
+    ResizeSelection {
+        width: f64,
+        height: f64,
+    },
     /// Auswahl mit festem Abstand packen (mm).
     Nest(f64),
     /// Bett mit der Auswahl füllen (Abstand mm).

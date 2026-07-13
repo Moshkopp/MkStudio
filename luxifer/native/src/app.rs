@@ -75,6 +75,8 @@ pub struct App {
     pub laser_manager: Option<crate::ui::LaserManagerState>,
     /// Präsentationszustand des Projektbrowsers (Auswahl, Drafts, Detail-Cache).
     pub project_browser: crate::ui::ProjectBrowserState,
+    /// Kurzlebiger Entwurf der numerischen Auswahlgröße im zweiten Header.
+    pub selection_size: crate::ui::SelectionSizeState,
     /// Persistente, noch nicht automatisch angewandte Charon-Revisionen.
     pub project_inbox: Vec<luxifer_application::InboxEntry>,
     project_integration: project::ProjectIntegrationRuntime,
@@ -195,6 +197,7 @@ impl App {
             settings_dialog: None,
             laser_manager: None,
             project_browser: Default::default(),
+            selection_size: Default::default(),
             project_inbox,
             project_integration,
             project_integration_pending: false,
@@ -403,6 +406,7 @@ impl App {
             A::Distribute(kind) => self.distribute(kind),
             A::Group => self.group(),
             A::Ungroup => self.ungroup(),
+            A::ResizeSelection { width, height } => self.resize_selection(width, height),
             A::Nest(gap) => self.nest(gap),
             A::NestFill(gap) => self.nest_fill(gap),
             A::PickColor(color) => self.pick_color(color),
@@ -527,6 +531,10 @@ impl App {
     /// (egui-Animation/Interaktion läuft). Steuert die Render-Schleife.
     pub fn egui_wants_repaint(&self) -> bool {
         self.renderer.wants_repaint()
+    }
+
+    pub fn egui_next_repaint(&self) -> Option<std::time::Instant> {
+        self.renderer.next_repaint()
     }
 
     /// Laufende Bildrate (für die Statuszeile).

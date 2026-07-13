@@ -30,8 +30,8 @@ pub use splash::Splash;
 pub use state::{
     CachedProjectDetail, CharonTestStatus, GeoOpDialogState, GeoOpKind, ImageDialogState,
     LaserManagerState, LaserManagerTab, LayerDialogState, PendingProjectAction,
-    ProjectBrowserState, ProjectSaveDialogState, RevisionComparisonState, SettingsDialogState,
-    SettingsSection, TextDialogState,
+    ProjectBrowserState, ProjectSaveDialogState, RevisionComparisonState, SelectionSizeState,
+    SettingsDialogState, SettingsSection, TextDialogState,
 };
 pub use toast::Toasts;
 
@@ -92,10 +92,12 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
     // UiAction-Grenze: Das Panel liefert Absichten, der Root führt sie aus.
     if app.view == View::Design {
         let selection = app.selection_count();
+        let selection_bbox = app.session.selection_bbox();
         let actions = egui::Panel::top("arrange")
             .show(ui, |ui| {
                 ui.add_space(3.0);
-                let a = arrange::arrange_bar(ui, selection);
+                let a =
+                    arrange::arrange_bar(ui, selection, selection_bbox, &mut app.selection_size);
                 ui.add_space(3.0);
                 a
             })
@@ -206,7 +208,9 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
                     .min_size(100.0)
                     .max_size(100.0)
                     .resizable(false)
-                    .show(ui, |ui| tools::tools_panel(ui, cur_tool));
+                    .show(ui, |ui| {
+                        tools::tools_panel(ui, cur_tool, app.selection_count())
+                    });
                 app.left_w = left.response.rect.width();
                 for action in left.inner {
                     app.dispatch(action);
@@ -290,6 +294,14 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
     // Lineale am Canvas-Rand — nach den Panels, damit `available_rect` genau
     // den freien Canvas-Bereich meint. Vorschau/Projekt bleiben linealfrei.
     if matches!(app.view, View::Design | View::Laser) {
+        let canvas_rect = ui.available_rect_before_wrap();
+        if ui
+            .input(|input| input.pointer.hover_pos())
+            .is_some_and(|pointer| canvas_rect.contains(pointer))
+        {
+            ui.ctx()
+                .set_cursor_icon(app.canvas.hover_cursor(&app.session));
+        }
         let profile = app.laser_backend.active_profile();
         let origin = profile.map(|p| p.origin).unwrap_or_default();
         let bed = profile

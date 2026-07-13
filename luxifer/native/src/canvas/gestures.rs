@@ -21,6 +21,57 @@ pub struct PointerOutcome {
 }
 
 impl CanvasState {
+    /// Cursor für die aktuelle Canvas-Position. Nutzt dieselben Fangzonen wie
+    /// `begin_select`, damit sichtbares Signal und folgende Aktion nicht
+    /// auseinanderlaufen.
+    pub fn hover_cursor(&self, session: &EditorSession) -> egui::CursorIcon {
+        match self.drag {
+            Drag::Pan | Drag::MoveShapes { .. } => return egui::CursorIcon::Grabbing,
+            Drag::Resize { handle, .. } => return resize_cursor(handle),
+            Drag::Rotate { .. } => return egui::CursorIcon::Crosshair,
+            _ => {}
+        }
+        if self.space_down {
+            return egui::CursorIcon::Grab;
+        }
+        if self.tool != Tool::Select {
+            return egui::CursorIcon::Crosshair;
+        }
+
+        let world = self.world();
+        if let Some(bbox) = self.editable_selection_bbox(session) {
+            let pick = super::overlay::handle_hw(self.cam.scale) as f64 * 1.8;
+            let rotate = super::overlay::rotate_handle_pos(&bbox, self.cam.scale);
+            if (world[0] - rotate[0]).hypot(world[1] - rotate[1]) <= pick {
+                return egui::CursorIcon::Crosshair;
+            }
+            for (handle, (x, y)) in luxifer_core::Handle::positions(&bbox) {
+                if (world[0] - x).abs() <= pick && (world[1] - y).abs() <= pick {
+                    return resize_cursor(handle);
+                }
+            }
+        }
+
+        let tolerance = 4.0 / self.cam.scale as f64;
+        if session.hit_test(world[0], world[1], tolerance).is_some() {
+            egui::CursorIcon::Grab
+        } else {
+            egui::CursorIcon::Default
+        }
+    }
+
+    fn editable_selection_bbox(&self, session: &EditorSession) -> Option<luxifer_core::BBox> {
+        let editable = self.laser_editable_layers.as_ref().is_none_or(|allowed| {
+            session.selected.iter().all(|&index| {
+                session
+                    .shapes
+                    .get(index)
+                    .is_some_and(|shape| allowed.contains(&shape.layer_id))
+            })
+        });
+        editable.then(|| session.selection_bbox()).flatten()
+    }
+
     /// Maustaste gedrückt/losgelassen. Liefert, ob ein Shape entstand und ob ein
     /// Doppelklick einen Shape traf.
     pub fn on_mouse(
@@ -302,6 +353,16 @@ impl CanvasState {
             _ => return false,
         };
         session.add_point_path(path, pts, closed).is_some()
+    }
+}
+
+fn resize_cursor(handle: luxifer_core::Handle) -> egui::CursorIcon {
+    use luxifer_core::Handle;
+    match handle {
+        Handle::N | Handle::S => egui::CursorIcon::ResizeVertical,
+        Handle::E | Handle::W => egui::CursorIcon::ResizeHorizontal,
+        Handle::Nw | Handle::Se => egui::CursorIcon::ResizeNwSe,
+        Handle::Ne | Handle::Sw => egui::CursorIcon::ResizeNeSw,
     }
 }
 
