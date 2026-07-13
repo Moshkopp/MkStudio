@@ -1,9 +1,9 @@
-//! Charon — optionaler Koordinations-Server für LuxiFer.
-//!
-//! Noch leer. Charon koordiniert später (Sync, Bibliotheken, Machine-Sessions),
-//! steuert aber NIE selbst eine Maschine und ist nie Voraussetzung für lokale
-//! Arbeit. Teilt sich den `luxifer-core`.
-
-fn main() {
-    println!("Charon — noch nicht implementiert.");
+fn main() -> std::io::Result<()> {
+    let config = charon::ServerConfig::from_env()?;
+    println!(
+        "Charon {} lauscht auf http://{}",
+        env!("CARGO_PKG_VERSION"),
+        config.bind
+    );
+    charon::serve(config)
 }
