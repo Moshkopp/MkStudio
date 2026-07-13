@@ -12,7 +12,7 @@ impl App {
         self.settings_dialog = Some(SettingsDialogState {
             draft: self.ui_settings.clone(),
             section: SettingsSection::Oberflaeche,
-            charon_status: CharonTestStatus::Idle,
+            charon_status: self.charon_status.clone(),
         });
     }
 
@@ -51,7 +51,27 @@ impl App {
             self.renderer.invalidate_scene();
         }
         self.ui_settings = draft;
+        self.charon_runtime.configure(&self.ui_settings);
         self.toasts.success("Einstellungen gespeichert.");
+        true
+    }
+
+    /// Übernimmt das jüngste Ergebnis des Hintergrund-Heartbeats in den
+    /// sichtbaren Anwendungszustand. Netzwerkzugriff findet nie hier statt.
+    pub fn poll_charon(&mut self) -> bool {
+        let Some(result) = self.charon_runtime.try_result() else {
+            return false;
+        };
+        self.charon_status = match result {
+            super::charon::CharonWorkerResult::Connected(connection) => {
+                CharonTestStatus::Connected(connection)
+            }
+            super::charon::CharonWorkerResult::Failed(message) => CharonTestStatus::Failed(message),
+            super::charon::CharonWorkerResult::Disabled => CharonTestStatus::Idle,
+        };
+        if let Some(dialog) = self.settings_dialog.as_mut() {
+            dialog.charon_status = self.charon_status.clone();
+        }
         true
     }
 }

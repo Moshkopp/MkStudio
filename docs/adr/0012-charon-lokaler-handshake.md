@@ -127,9 +127,14 @@ Der erste Meilenstein ist umgesetzt:
 - jeder Datenbereich erhält beim ersten Start eine persistierte
   `workplace_id`; der sichtbare Arbeitsplatzname bleibt frei änderbar;
 - der Verbindungstest registriert den Arbeitsplatz und zeigt Charons bekannten
-  Anwesenheits-Snapshot. Der Server hält diese Registrierung vorerst nur im
-  Arbeitsspeicher; ein automatischer periodischer Heartbeat folgt zusammen mit
-  dem dauerhaften Verbindungszustand;
+  Anwesenheits-Snapshot;
+- bei aktivierter Charon-Koordination meldet sich LuxiFer alle fünf Sekunden
+  aus einem Hintergrundthread. Netzwerkfehler blockieren den UI-Thread nicht
+  und werden als getrennter Zustand sichtbar; nach 15 Sekunden ohne Meldung
+  gilt ein Arbeitsplatz als offline;
+- Charon hält die Registrierung vorerst nur im Arbeitsspeicher. Ein Neustart
+  leert die Anwesenheitsliste, die laufenden Clients melden sich selbstständig
+  wieder an;
 - `scripts/run-local-charon-demo.sh` startet Charon, Office und Workshop mit
   voneinander isolierten Datenverzeichnissen in drei Terminals.
 

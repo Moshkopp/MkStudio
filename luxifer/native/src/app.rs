@@ -19,6 +19,7 @@ use crate::ui::{
     TextDialogState,
 };
 
+mod charon;
 mod editor;
 mod image;
 mod laser;
@@ -44,6 +45,9 @@ pub struct App {
     pub project_save_dialog: Option<crate::ui::ProjectSaveDialogState>,
     /// Persistente GUI-Einstellungen (Arbeitsplatz, Theme, Raster) — ADR 0002.
     pub ui_settings: luxifer_core::UiSettings,
+    /// Periodischer Charon-Heartbeat läuft außerhalb des UI-Threads.
+    charon_runtime: charon::CharonRuntime,
+    pub charon_status: crate::ui::CharonTestStatus,
     /// Laufender Start-Splash oder None (abgelaufen/übersprungen/deaktiviert).
     pub splash: Option<crate::ui::Splash>,
     /// Offener Einstellungen-Dialog (Entwurf) oder None.
@@ -116,6 +120,7 @@ impl App {
         cam.fit_bbox([0.0, 0.0, state.bed_w_mm, state.bed_h_mm], 0.85);
 
         let ui_settings = luxifer_core::UiSettings::load();
+        let charon_runtime = charon::CharonRuntime::new(&ui_settings);
         let mut app = Self {
             splash: ui_settings.show_splash.then(crate::ui::Splash::new),
             window,
@@ -132,6 +137,8 @@ impl App {
             toasts: Default::default(),
             project_save_dialog: None,
             ui_settings,
+            charon_runtime,
+            charon_status: crate::ui::CharonTestStatus::Idle,
             settings_dialog: None,
             laser_manager: None,
             project_browser: Default::default(),

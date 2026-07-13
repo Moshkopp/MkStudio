@@ -19,7 +19,7 @@ use std::sync::Arc;
 
 use winit::application::ApplicationHandler;
 use winit::event::WindowEvent;
-use winit::event_loop::{ActiveEventLoop, EventLoop};
+use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
 use winit::window::{Window, WindowId};
 
 use crate::app::App;
@@ -84,6 +84,18 @@ impl ApplicationHandler for Runner {
         if app.should_exit() {
             el.exit();
         }
+    }
+
+    fn about_to_wait(&mut self, el: &ActiveEventLoop) {
+        let Some(app) = self.app.as_mut() else { return };
+        if app.poll_charon() {
+            app.window.request_redraw();
+        }
+        // Der Netzwerkthread arbeitet unabhängig. Dieses kurze Aufwachen dient
+        // nur dazu, dessen Ergebnis zeitnah in die UI zu übernehmen.
+        el.set_control_flow(ControlFlow::WaitUntil(
+            std::time::Instant::now() + std::time::Duration::from_millis(500),
+        ));
     }
 }
 
