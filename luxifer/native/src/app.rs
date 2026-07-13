@@ -5,7 +5,6 @@
 use std::sync::Arc;
 
 use luxifer_application::{AppError, EditorSession};
-use luxifer_core::geometry::Geo;
 use luxifer_core::state::AppState;
 use winit::event::{ElementState, WindowEvent};
 use winit::keyboard::PhysicalKey;
@@ -101,22 +100,7 @@ impl App {
         let viewport = [gpu.config.width as f32, gpu.config.height as f32];
         let renderer = Renderer::new(gpu, egui_state);
 
-        let mut state = AppState::new();
-        // Ein paar Start-Shapes, damit sofort etwas zu sehen ist.
-        state.add_shape(Geo::Rect {
-            x: 40.0,
-            y: 40.0,
-            w: 120.0,
-            h: 80.0,
-        });
-        state.selected.clear();
-        state.add_shape(Geo::Ellipse {
-            cx: 260.0,
-            cy: 120.0,
-            rx: 60.0,
-            ry: 40.0,
-        });
-        state.selected.clear();
+        let state = AppState::new();
         let accent = state.active_color().unwrap_or([0x3B, 0x82, 0xF6]);
         // Ein erstes CLI-Argument wird als zu importierende Datei geladen
         // (praktisch fürs Testen: `luxifer-native datei.svg`).
@@ -175,7 +159,7 @@ impl App {
                 app.toggle_fill();
             }
         }
-        // Startinhalt (Demo-Shapes / Auto-Import) ist kein bearbeiteter
+        // Startinhalt (Auto-Import) ist kein bearbeiteter
         // Nutzerstand: als sauber markieren, sonst schlägt der Dirty-Guard schon
         // beim ersten „Neu"/„Öffnen" an, obwohl es nichts zu verwerfen gibt.
         app.session.mark_saved();
@@ -393,9 +377,7 @@ impl App {
             }
             A::Undo => self.undo(),
             A::Redo => self.redo(),
-            A::ImportVector => self.import_dialog(),
-            A::ImportImage => self.import_image_dialog(),
-            A::ImportPath(path) => self.import_path(&path),
+            A::Import => self.import_dialog(),
             A::DismissError => self.app_error = None,
             A::LaserSelect(id) => self.laser_select(&id),
             A::LaserRun(action) => self.laser_run(action),

@@ -322,6 +322,41 @@ pub fn draw(p: &Painter, rect: Rect, name: &str, color: Color32) {
             true,
         ),
 
+        // ── Kopfzeile ──────────────────────────────────────────────────────
+        "undo" => {
+            // Pfeil nach links + Bogen (Lucide undo-2), Bogen als Polylinie.
+            poly(&[[9.0, 14.0], [4.0, 9.0], [9.0, 4.0]], false);
+            let mut pts = vec![pt(4.0, 9.0), pt(14.5, 9.0)];
+            let n = 12;
+            for i in 1..=n {
+                let a = -std::f32::consts::FRAC_PI_2 + i as f32 / n as f32 * std::f32::consts::PI;
+                pts.push(pt(14.5 + 5.5 * a.cos(), 14.5 + 5.5 * a.sin()));
+            }
+            pts.push(pt(11.0, 20.0));
+            p.add(Shape::line(pts, st));
+        }
+        "redo" => {
+            // Gespiegeltes undo: Pfeil nach rechts, Bogen links herum.
+            poly(&[[15.0, 14.0], [20.0, 9.0], [15.0, 4.0]], false);
+            let mut pts = vec![pt(20.0, 9.0), pt(9.5, 9.0)];
+            let n = 12;
+            for i in 1..=n {
+                let a = -std::f32::consts::FRAC_PI_2 - i as f32 / n as f32 * std::f32::consts::PI;
+                pts.push(pt(9.5 + 5.5 * a.cos(), 14.5 + 5.5 * a.sin()));
+            }
+            pts.push(pt(13.0, 20.0));
+            p.add(Shape::line(pts, st));
+        }
+        "import" => {
+            // Pfeil nach unten in eine Ablage (Lucide download).
+            line([12.0, 3.0], [12.0, 14.0]);
+            poly(&[[7.0, 9.0], [12.0, 14.0], [17.0, 9.0]], false);
+            poly(
+                &[[3.0, 15.0], [3.0, 20.0], [21.0, 20.0], [21.0, 15.0]],
+                false,
+            );
+        }
+
         // Fallback: kleiner Punkt.
         _ => dot(12.0, 12.0, 2.0),
     }

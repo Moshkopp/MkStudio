@@ -22,28 +22,26 @@ pub(super) fn topbar(ui: &mut egui::Ui, view: View, project_name: &str) -> Vec<U
                 actions.push(UiAction::SelectView(v));
             }
         }
-        // Datei-/Verlaufs-Aktionen nur im Design-Reiter.
+        // Verlaufs-/Import-Aktionen nur im Design-Reiter, als Icon-Buttons.
         if view == View::Design {
+            let side = 26.0;
             ui.separator();
-            if ui.button("Undo").clicked() {
+            if super::tools::icon_button(ui, side, "undo", "Rückgängig (Strg+Z)", false, false) {
                 actions.push(UiAction::Undo);
             }
-            if ui.button("Redo").clicked() {
+            if super::tools::icon_button(ui, side, "redo", "Wiederholen (Strg+Y)", false, false) {
                 actions.push(UiAction::Redo);
             }
             ui.separator();
-            if ui.button("Vektor…").clicked() {
-                actions.push(UiAction::ImportVector);
-            }
-            if ui.button("Bild…").clicked() {
-                actions.push(UiAction::ImportImage);
-            }
-            if ui.button("Text…").clicked() {
-                actions.push(UiAction::OpenTextDialog);
-            }
-            let aztec = std::path::Path::new("/home/moshy/Schreibtisch/Aztec.svg");
-            if aztec.exists() && ui.button("Aztec laden").clicked() {
-                actions.push(UiAction::ImportPath(aztec.to_path_buf()));
+            if super::tools::icon_button(
+                ui,
+                side,
+                "import",
+                "Importieren (SVG, DXF, Bild)",
+                false,
+                false,
+            ) {
+                actions.push(UiAction::Import);
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {

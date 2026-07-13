@@ -7,8 +7,6 @@
 //! migrierten Panels ab. Panels, die noch `&mut App` erhalten, tragen hier noch
 //! nichts bei.
 
-use std::path::PathBuf;
-
 use luxifer_application::LayerToggle;
 use luxifer_core::{Align, Distribute, JobAction, PolyShape};
 
@@ -82,12 +80,8 @@ pub enum UiAction {
     Undo,
     /// Wiederholen.
     Redo,
-    /// Vektor-Import-Dialog (SVG/DXF) öffnen.
-    ImportVector,
-    /// Bild-Import-Dialog öffnen.
-    ImportImage,
-    /// Datei von einem bekannten Pfad importieren (Entwickler-Shortcut).
-    ImportPath(PathBuf),
+    /// Import-Dialog öffnen (Vektor SVG/DXF oder Bild, nach Endung verzweigt).
+    Import,
     /// Die aktuelle Fehleranzeige schließen.
     DismissError,
     /// Laser-Profil aktivieren.

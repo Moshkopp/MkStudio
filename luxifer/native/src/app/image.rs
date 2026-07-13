@@ -51,29 +51,24 @@ impl App {
         }
     }
 
-    /// Öffnet einen nativen Datei-Dialog und importiert SVG/DXF über den Core.
+    /// Öffnet einen nativen Datei-Dialog für Vektor (SVG/DXF) und Bild;
+    /// `import_path` verzweigt nach Endung.
     pub fn import_dialog(&mut self) {
         if let Some(path) = rfd::FileDialog::new()
+            .add_filter(
+                "Importierbar (Vektor + Bild)",
+                &["svg", "dxf", "png", "jpg", "jpeg", "bmp", "gif", "webp"],
+            )
             .add_filter("Vektor", &["svg", "dxf"])
+            .add_filter("Bild", &["png", "jpg", "jpeg", "bmp", "gif", "webp"])
             .pick_file()
         {
             self.import_path(&path);
         }
     }
 
-    /// Bild importieren (Asset-Store) und als Image-Shape platzieren.
-    pub fn import_image_dialog(&mut self) {
-        let Some(path) = rfd::FileDialog::new()
-            .add_filter("Bild", &["png", "jpg", "jpeg", "bmp", "gif", "webp"])
-            .pick_file()
-        else {
-            return;
-        };
-        self.import_image_path(&path);
-    }
-
     /// Importiert eine Datei direkt nach Endung — Vektor (SVG/DXF) oder Bild.
-    /// Nutzt der „Aztec laden"-Schnellknopf und das CLI-Argument.
+    /// Nutzen der Import-Dialog und das CLI-Argument.
     pub fn import_path(&mut self, path: &Path) {
         let ext = path
             .extension()
