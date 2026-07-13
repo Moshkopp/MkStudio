@@ -592,6 +592,7 @@ mod tests {
             width: 1,
             height: 1,
             import_at: String::new(),
+            tags: Vec::new(),
         };
         luxifer_core::store_asset(&luxifer_core::assets_dir(), &meta, bytes).unwrap();
 

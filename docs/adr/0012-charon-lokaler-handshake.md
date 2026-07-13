@@ -94,7 +94,11 @@ gemeldet. Der Server meldet `health`, `handshake`, `workplaces`,
 13. **Charon-Ausfall bleibt beherrschbar.** Ist Charon nicht konfiguriert, darf
    LuxiFer direkt verbinden. Ist er konfiguriert, aber nicht erreichbar, warnt
    LuxiFer vor einer unkoordinierten Ethernet-Verbindung und verlangt eine
-   manuelle Bestätigung. USB-Verbindungen benötigen keine Charon-Lease.
+    manuelle Bestätigung. USB-Verbindungen benötigen keine Charon-Lease.
+14. **Die Asset-Bibliothek ist lokal vollständig.** Name, automatisch
+    abgeleitete Tags, Suche, Thumbnails und Wiederverwendung funktionieren ohne
+    Charon. Charon synchronisiert nur Asset-Bytes und zusammenführbare
+    Metadaten; es erzeugt weder die lokale Bibliothek noch ihre Vorschaubilder.
 
 ## Nicht Teil von v1.0
 
@@ -195,6 +199,19 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
 - ein globaler, content-adressierter Asset-Katalog hält normalisierte Bilder,
   verwendete Fonts und unveränderte SVG-/DXF-Quelldateien. Gleiche Bytes werden
   anhand ihres Hashs nur einmal abgelegt;
+- Asset-Metadaten tragen Such-Tags aus dem ursprünglichen Dateinamen sowie aus
+  Namen und Beschreibung der Projekte, in denen das Asset importiert oder als
+  Bildreferenz gespeichert wurde. Neue Zusammenhänge ergänzen die Tags
+  idempotent, ohne Content-ID oder Asset-Bytes zu verändern. Beim Start werden
+  vorhandene Projektreferenzen einmal gegen den Katalog zurückgespielt, sodass
+  auch ältere Bild-/Font-Assets nach ihrem bisherigen Projekt auffindbar sind;
+- der lokale Asset-Katalog zeigt gecachte Thumbnails für Bilder, SVG und DXF.
+  Die Suche filtert unmittelbar über Dateiname und Tags; ein Doppelklick oder
+  `Einfügen` verwendet das Asset über die bestehende Import-Pipeline erneut;
+- Thumbnail-PNGs sind jederzeit neu erzeugbare lokale Cache-Dateien. Sie werden
+  nicht über Charon übertragen. Tag-Metadaten werden beim Asset-Sync als
+  Mengenvereinigung zusammengeführt, damit Projektkontext verschiedener
+  Arbeitsplätze erhalten bleibt;
 - Charon bietet den Katalog über `GET /api/v1/assets`,
   `GET /api/v1/assets/<id>` und `POST /api/v1/assets` an. Der Hintergrunddienst
   gleicht Assets vor den Projektrevisionen bidirektional ab und überprüft beim

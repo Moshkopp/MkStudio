@@ -42,6 +42,11 @@ pub struct App {
     pub project_catalog: Vec<luxifer_core::ProjectInfo>,
     /// Gecachter Asset-Katalog; Metadaten werden nicht pro UI-Frame gelesen.
     pub asset_catalog: Vec<luxifer_core::AssetMeta>,
+    /// Einmal geladene, abgeleitete Thumbnail-PNGs; kein Datei-I/O im Framepfad.
+    pub asset_thumbnails: std::collections::BTreeMap<String, Vec<u8>>,
+    /// Seit dem letzten Projektwechsel importierte Quellen, damit auch
+    /// vektorisierte Assets nach dem später vergebenen Projektnamen taggbar sind.
+    pub session_asset_context: std::collections::BTreeSet<String>,
     /// Kurze Erfolgs-/Statusmeldungen als Toasts oben rechts (Fehler laufen
     /// über `app_error` und bleiben stehen).
     pub toasts: crate::ui::Toasts,
@@ -136,8 +141,10 @@ impl App {
         let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
         let project = luxifer_application::ProjectService::new();
         let project_catalog = project.list();
+        image::enrich_asset_tags_from_projects();
         let asset_catalog =
             luxifer_core::list_assets(&luxifer_core::assets_dir()).unwrap_or_default();
+        let asset_thumbnails = image::load_asset_thumbnails(&asset_catalog);
         let mut app = Self {
             splash: ui_settings.show_splash.then(crate::ui::Splash::new),
             window,
@@ -153,6 +160,8 @@ impl App {
             project,
             project_catalog,
             asset_catalog,
+            asset_thumbnails,
+            session_asset_context: Default::default(),
             toasts: Default::default(),
             project_save_dialog: None,
             ui_settings,

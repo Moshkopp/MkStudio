@@ -117,6 +117,8 @@ pub enum PendingProjectAction {
 /// UI-Zustand — die Wahrheit liegt im `ProjectService`/Core.
 #[derive(Default)]
 pub struct ProjectBrowserState {
+    /// Lokaler Filter über Asset-Dateiname und automatisch abgeleitete Tags.
+    pub asset_search: String,
     /// `true` zeigt die empfangenen Charon-Revisionen statt lokaler Projekte.
     pub show_inbox: bool,
     /// `true` zeigt den projektübergreifenden Asset-Katalog.

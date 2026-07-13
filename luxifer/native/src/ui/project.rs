@@ -94,11 +94,15 @@ pub(super) fn project_browser(
     browser: &mut ProjectBrowserState,
     projects: &[ProjectInfo],
     inbox: &[InboxEntry],
-    assets: &[luxifer_core::AssetMeta],
+    asset_library: (
+        &[luxifer_core::AssetMeta],
+        &std::collections::BTreeMap<String, Vec<u8>>,
+    ),
     open_name: Option<&str>,
     dirty: bool,
 ) -> Vec<UiAction> {
     let mut actions = Vec::new();
+    let (assets, asset_thumbnails) = asset_library;
 
     // Kopfzeile: „Neues Projekt…" öffnet die Maske (Name + Beschreibung);
     // ein „Speichern"-Button ist bewusst weggelassen — Speichern läuft über
@@ -160,7 +164,7 @@ pub(super) fn project_browser(
         return actions;
     }
     if browser.show_assets {
-        assets_pane(ui, assets, &mut actions);
+        assets_pane(ui, browser, assets, asset_thumbnails, &mut actions);
         return actions;
     }
 
@@ -179,12 +183,29 @@ pub(super) fn project_browser(
     actions
 }
 
-fn assets_pane(ui: &mut egui::Ui, assets: &[luxifer_core::AssetMeta], actions: &mut Vec<UiAction>) {
+fn assets_pane(
+    ui: &mut egui::Ui,
+    browser: &mut ProjectBrowserState,
+    assets: &[luxifer_core::AssetMeta],
+    thumbnails: &std::collections::BTreeMap<String, Vec<u8>>,
+    actions: &mut Vec<UiAction>,
+) {
     ui.add_space(10.0);
     ui.heading("Assets");
     ui.weak("Importierte Bilder und originale SVG-/DXF-Dateien stehen projektübergreifend bereit.");
     ui.add_space(8.0);
+    ui.add(
+        egui::TextEdit::singleline(&mut browser.asset_search)
+            .hint_text("Nach Name oder Tag suchen …")
+            .desired_width(f32::INFINITY),
+    );
+    ui.add_space(8.0);
 
+    let query: Vec<String> = browser
+        .asset_search
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect();
     let reusable: Vec<_> = assets
         .iter()
         .filter(|asset| {
@@ -194,6 +215,12 @@ fn assets_pane(ui: &mut egui::Ui, assets: &[luxifer_core::AssetMeta], actions: &
                     | luxifer_core::AssetKind::SvgSource
                     | luxifer_core::AssetKind::DxfSource
             )
+        })
+        .filter(|asset| {
+            let name = asset.original_name.to_lowercase();
+            query
+                .iter()
+                .all(|term| name.contains(term) || asset.tags.iter().any(|tag| tag.contains(term)))
         })
         .collect();
     if reusable.is_empty() {
@@ -205,27 +232,51 @@ fn assets_pane(ui: &mut egui::Ui, assets: &[luxifer_core::AssetMeta], actions: &
         .id_salt("asset_catalog")
         .show(ui, |ui| {
             for asset in reusable {
-                egui::Frame::group(ui.style()).show(ui, |ui| {
-                    ui.set_width(ui.available_width());
-                    ui.horizontal(|ui| {
-                        ui.strong(if asset.original_name.is_empty() {
-                            &asset.id
-                        } else {
-                            &asset.original_name
-                        });
-                        ui.weak(match asset.kind {
-                            luxifer_core::AssetKind::Image => "Bild",
-                            luxifer_core::AssetKind::SvgSource => "SVG",
-                            luxifer_core::AssetKind::DxfSource => "DXF",
-                            luxifer_core::AssetKind::Font => "Font",
-                        });
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("Einfügen").clicked() {
-                                actions.push(UiAction::ImportCatalogAsset(asset.id.clone()));
+                let response = egui::Frame::group(ui.style())
+                    .show(ui, |ui| {
+                        ui.set_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            if let Some(bytes) = thumbnails.get(&asset.id) {
+                                ui.add(
+                                    egui::Image::from_bytes(
+                                        format!("bytes://asset-thumbnail/{}.png", asset.id),
+                                        bytes.clone(),
+                                    )
+                                    .fit_to_exact_size(egui::vec2(96.0, 72.0)),
+                                );
                             }
+                            ui.vertical(|ui| {
+                                ui.strong(if asset.original_name.is_empty() {
+                                    &asset.id
+                                } else {
+                                    &asset.original_name
+                                });
+                                ui.weak(match asset.kind {
+                                    luxifer_core::AssetKind::Image => "Bild",
+                                    luxifer_core::AssetKind::SvgSource => "SVG",
+                                    luxifer_core::AssetKind::DxfSource => "DXF",
+                                    luxifer_core::AssetKind::Font => "Font",
+                                });
+                                if !asset.tags.is_empty() {
+                                    ui.weak(asset.tags.join(" · "));
+                                }
+                            });
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("Einfügen").clicked() {
+                                        actions
+                                            .push(UiAction::ImportCatalogAsset(asset.id.clone()));
+                                    }
+                                },
+                            );
                         });
-                    });
-                });
+                    })
+                    .response
+                    .interact(egui::Sense::click());
+                if response.double_clicked() {
+                    actions.push(UiAction::ImportCatalogAsset(asset.id.clone()));
+                }
                 ui.add_space(6.0);
             }
         });

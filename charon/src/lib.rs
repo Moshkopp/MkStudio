@@ -301,7 +301,10 @@ fn route(
             };
             match luxifer_core::store_asset(&state.data_dir.join("assets"), &transfer.meta, &bytes)
             {
-                Ok(()) => json_body(&transfer.meta)?,
+                Ok(()) => json_body(
+                    &luxifer_core::asset_meta(&state.data_dir.join("assets"), &transfer.meta.id)
+                        .map_err(|error| std::io::Error::other(error.to_string()))?,
+                )?,
                 Err(_) => {
                     return Ok((
                         "422 Unprocessable Entity",

@@ -120,6 +120,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
             let dirty = app.session.is_dirty();
             let projects = &app.project_catalog;
             let assets = &app.asset_catalog;
+            let asset_thumbnails = &app.asset_thumbnails;
             let inbox = &app.project_inbox;
             let browser = &mut app.project_browser;
             let actions = egui::CentralPanel::default()
@@ -129,7 +130,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                         browser,
                         projects,
                         inbox,
-                        assets,
+                        (assets, asset_thumbnails),
                         open_name.as_deref(),
                         dirty,
                     )

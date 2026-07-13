@@ -5,10 +5,45 @@ use luxifer_core::Geo;
 use super::App;
 use crate::ui::ImageDialogState;
 
+pub(super) fn load_asset_thumbnails(
+    assets: &[luxifer_core::AssetMeta],
+) -> std::collections::BTreeMap<String, Vec<u8>> {
+    let store = luxifer_core::assets_dir();
+    assets
+        .iter()
+        .filter(|asset| asset.kind != luxifer_core::AssetKind::Font)
+        .filter_map(|asset| {
+            luxifer_core::asset_thumbnail(&store, &asset.id)
+                .ok()
+                .map(|thumbnail| (asset.id.clone(), thumbnail))
+        })
+        .collect()
+}
+
+pub(super) fn enrich_asset_tags_from_projects() {
+    let projects = luxifer_core::projects_dir();
+    let store = luxifer_core::assets_dir();
+    for info in luxifer_core::list_projects(&projects) {
+        let Ok(project) = luxifer_core::ProjectFile::load_by_name(&projects, &info.name) else {
+            continue;
+        };
+        for id in &project.asset_refs {
+            let _ = luxifer_core::add_asset_tags(
+                &store,
+                id,
+                [project.name.as_str(), project.description.as_str()],
+            );
+        }
+    }
+}
+
 impl App {
     pub(crate) fn refresh_asset_catalog(&mut self) {
         match luxifer_core::list_assets(&luxifer_core::assets_dir()) {
-            Ok(assets) => self.asset_catalog = assets,
+            Ok(assets) => {
+                self.asset_thumbnails = load_asset_thumbnails(&assets);
+                self.asset_catalog = assets;
+            }
             Err(error) => log::error!("Asset-Katalog aktualisieren: {error}"),
         }
     }
@@ -16,11 +51,46 @@ impl App {
     /// Fügt ein bereits im globalen Katalog vorhandenes Asset erneut ein.
     pub fn import_catalog_asset(&mut self, id: &str) {
         let store = luxifer_core::assets_dir();
-        let Some(path) = luxifer_core::asset_path(&store, &id.to_string()) else {
-            self.toasts.error("Asset-Datei ist lokal nicht verfügbar.");
+        let id = id.to_string();
+        let Ok(meta) = luxifer_core::asset_meta(&store, &id) else {
+            self.toasts
+                .error("Asset-Metadaten sind lokal nicht verfügbar.");
             return;
         };
-        self.import_path(&path);
+        match meta.kind {
+            luxifer_core::AssetKind::Image => {
+                let index = self.session.add_image(
+                    id,
+                    20.0,
+                    20.0,
+                    meta.width as f64 / 10.0,
+                    meta.height as f64 / 10.0,
+                );
+                self.session.selected = vec![index];
+                self.image_dirty = true;
+                self.fit_all();
+            }
+            luxifer_core::AssetKind::SvgSource | luxifer_core::AssetKind::DxfSource => {
+                let Ok(bytes) = luxifer_core::load_asset(&store, &id) else {
+                    self.toasts.error("Asset-Datei ist lokal nicht verfügbar.");
+                    return;
+                };
+                match luxifer_core::import::import_vector(&bytes, &meta.ext) {
+                    Ok(contours) => {
+                        self.session.add_polylines(contours);
+                        self.refresh_accent();
+                        self.fit_all();
+                    }
+                    Err(error) => self
+                        .toasts
+                        .error(format!("Asset-Import fehlgeschlagen: {error}")),
+                }
+            }
+            luxifer_core::AssetKind::Font => return,
+        }
+        self.session_asset_context.insert(meta.id.clone());
+        self.tag_asset_for_current_project(&meta.id);
+        self.refresh_asset_catalog();
     }
 
     /// Öffnet den Bildparameter-Dialog mit den aktuellen Werten des Bild-Shapes.
@@ -118,16 +188,19 @@ impl App {
                 } else {
                     luxifer_core::AssetKind::DxfSource
                 };
-                if let Err(error) = luxifer_core::import_source(
+                match luxifer_core::import_source(
                     &luxifer_core::assets_dir(),
                     &bytes,
                     name,
                     &ext,
                     kind,
                 ) {
-                    log::error!("Quelldatei katalogisieren: {error}");
-                } else {
-                    self.refresh_asset_catalog();
+                    Ok(meta) => {
+                        self.session_asset_context.insert(meta.id.clone());
+                        self.tag_asset_for_current_project(&meta.id);
+                        self.refresh_asset_catalog();
+                    }
+                    Err(error) => log::error!("Quelldatei katalogisieren: {error}"),
                 }
                 let started = std::time::Instant::now();
                 self.session.add_polylines(contours);
@@ -160,6 +233,8 @@ impl App {
             .to_string();
         match luxifer_core::import_image(&luxifer_core::assets_dir(), &bytes, &name) {
             Ok(meta) => {
+                self.session_asset_context.insert(meta.id.clone());
+                self.tag_asset_for_current_project(&meta.id);
                 self.refresh_asset_catalog();
                 // Pixel → mm bei 254 DPI (10 px/mm), wie der Core-Default.
                 let width_mm = meta.width as f64 / 10.0;
@@ -179,5 +254,45 @@ impl App {
             }
             Err(error) => log::error!("Bild-Import fehlgeschlagen: {error}"),
         }
+    }
+
+    pub(super) fn tag_asset_for_current_project(&self, id: &str) {
+        let Some(name) = self.project.open_name() else {
+            return;
+        };
+        let description = self
+            .project
+            .detail(name)
+            .map(|detail| detail.description)
+            .unwrap_or_default();
+        if let Err(error) = luxifer_core::add_asset_tags(
+            &luxifer_core::assets_dir(),
+            &id.to_string(),
+            [name, description.as_str()],
+        ) {
+            log::error!("Asset-Tags ergänzen: {error}");
+        }
+    }
+
+    pub(super) fn tag_current_project_assets(&mut self) {
+        let mut ids: Vec<String> = self
+            .session
+            .shapes
+            .iter()
+            .filter_map(|shape| match &shape.geo {
+                Geo::Image { asset, .. } => Some(asset.clone()),
+                _ => None,
+            })
+            .collect();
+        ids.extend(self.session_asset_context.iter().cloned());
+        ids.sort();
+        ids.dedup();
+        for id in ids {
+            self.tag_asset_for_current_project(&id);
+        }
+        if self.project.has_open() {
+            self.session_asset_context.clear();
+        }
+        self.refresh_asset_catalog();
     }
 }

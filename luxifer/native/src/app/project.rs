@@ -201,6 +201,7 @@ impl App {
     }
 
     fn replace_editor_state(&mut self, state: AppState) {
+        self.session_asset_context.clear();
         self.session.replace_state(state);
         self.refresh_accent();
         self.image_dirty = true;
@@ -289,6 +290,7 @@ impl App {
             Ok(()) => {
                 self.session.mark_saved();
                 self.refresh_project_catalog();
+                self.tag_current_project_assets();
                 self.queue_project_for_charon();
                 self.toasts
                     .success(format!("Neues Projekt: {}", name.trim()));
@@ -339,6 +341,7 @@ impl App {
             Ok(version) => {
                 self.session.mark_saved();
                 self.refresh_project_catalog();
+                self.tag_current_project_assets();
                 self.queue_project_for_charon();
                 self.toasts
                     .success(format!("Gespeichert ({})", version.label));
@@ -358,6 +361,7 @@ impl App {
             Ok(version) => {
                 self.session.mark_saved();
                 self.refresh_project_catalog();
+                self.tag_current_project_assets();
                 self.queue_project_for_charon();
                 self.toasts
                     .success(format!("Neue Version {}", version.label));

@@ -64,6 +64,10 @@ pub struct AssetMeta {
     /// Importzeitpunkt (ISO-8601 UTC).
     #[serde(default)]
     pub import_at: String,
+    /// Suchbegriffe aus Dateiname und den Projekten, in denen das Asset
+    /// verwendet wurde. Metadaten dürfen wachsen, die Content-ID bleibt stabil.
+    #[serde(default)]
+    pub tags: Vec<String>,
 }
 
 /// Fehler beim Import/Store.
@@ -155,13 +159,14 @@ pub fn import_image(
         width,
         height,
         import_at: now_iso8601(),
+        tags: derive_tags([original_name]),
     };
     let meta_path = store_dir.join(format!("{id}.meta.json"));
     if !meta_path.exists() {
         let json = serde_json::to_string_pretty(&meta).map_err(|e| AssetError(e.to_string()))?;
         std::fs::write(&meta_path, json)?;
     }
-    Ok(meta)
+    add_asset_tags(store_dir, &id, [original_name])
 }
 
 /// Legt eine unveränderte Quelldatei content-adressiert im Katalog ab.
@@ -196,13 +201,14 @@ pub fn import_source(
         width: 0,
         height: 0,
         import_at: now_iso8601(),
+        tags: derive_tags([original_name]),
     };
     let meta_path = store_dir.join(format!("{id}.meta.json"));
     if !meta_path.exists() {
         let json = serde_json::to_vec_pretty(&meta).map_err(|e| AssetError(e.to_string()))?;
         std::fs::write(meta_path, json)?;
     }
-    Ok(meta)
+    add_asset_tags(store_dir, &id, [original_name])
 }
 
 pub fn list_assets(store_dir: &Path) -> Result<Vec<AssetMeta>, AssetError> {
@@ -249,8 +255,183 @@ pub fn store_asset(store_dir: &Path, meta: &AssetMeta, bytes: &[u8]) -> Result<(
         let json = serde_json::to_vec_pretty(meta).map_err(|e| AssetError(e.to_string()))?;
         std::fs::write(&temp, json)?;
         std::fs::rename(temp, meta_path)?;
+    } else {
+        let mut stored: AssetMeta = serde_json::from_slice(&std::fs::read(&meta_path)?)
+            .map_err(|error| AssetError(error.to_string()))?;
+        let mut changed = false;
+        for tag in &meta.tags {
+            if !stored.tags.contains(tag) {
+                stored.tags.push(tag.clone());
+                changed = true;
+            }
+        }
+        if changed {
+            stored.tags.sort();
+            let temp = store_dir.join(format!(".{}.meta.tmp", meta.id));
+            let json = serde_json::to_vec_pretty(&stored)
+                .map_err(|error| AssetError(error.to_string()))?;
+            std::fs::write(&temp, json)?;
+            std::fs::rename(temp, meta_path)?;
+        }
     }
     Ok(())
+}
+
+/// Ergänzt lokale Suchbegriffe, ohne die content-adressierten Asset-Bytes oder
+/// ihre ID zu verändern. Bestehende Tags bleiben erhalten.
+pub fn add_asset_tags<'a>(
+    store_dir: &Path,
+    id: &AssetId,
+    sources: impl IntoIterator<Item = &'a str>,
+) -> Result<AssetMeta, AssetError> {
+    let mut meta = asset_meta(store_dir, id)?;
+    let mut changed = false;
+    for tag in derive_tags(sources) {
+        if !meta.tags.contains(&tag) {
+            meta.tags.push(tag);
+            changed = true;
+        }
+    }
+    if changed {
+        meta.tags.sort();
+        let path = store_dir.join(format!("{id}.meta.json"));
+        let temp = store_dir.join(format!(".{id}.meta.tmp"));
+        let bytes = serde_json::to_vec_pretty(&meta).map_err(|e| AssetError(e.to_string()))?;
+        std::fs::write(&temp, bytes)?;
+        std::fs::rename(temp, path)?;
+    }
+    Ok(meta)
+}
+
+/// Zerlegt Namen und Beschreibung in robuste, kleingeschriebene Such-Tags.
+/// Sehr kurze Fragmente und reine Satzzeichen werden ausgelassen.
+pub fn derive_tags<'a>(sources: impl IntoIterator<Item = &'a str>) -> Vec<String> {
+    let mut tags = Vec::new();
+    for source in sources {
+        for word in source
+            .split(|ch: char| !ch.is_alphanumeric())
+            .map(str::to_lowercase)
+            .filter(|word| word.chars().count() >= 2)
+            .filter(|word| {
+                !matches!(
+                    word.as_str(),
+                    "der"
+                        | "die"
+                        | "das"
+                        | "den"
+                        | "dem"
+                        | "des"
+                        | "ein"
+                        | "eine"
+                        | "einer"
+                        | "einem"
+                        | "einen"
+                        | "und"
+                        | "oder"
+                        | "für"
+                        | "von"
+                        | "mit"
+                        | "sein"
+                        | "seine"
+                        | "seinen"
+                )
+            })
+        {
+            if !tags.contains(&word) {
+                tags.push(word);
+            }
+        }
+    }
+    tags.sort();
+    tags
+}
+
+/// Erzeugt bzw. lädt ein lokales 160×120-Thumbnail. Es ist ein vollständig
+/// abgeleiteter Cache und wird deshalb nicht als eigenes Asset synchronisiert.
+pub fn asset_thumbnail(store_dir: &Path, id: &AssetId) -> Result<Vec<u8>, AssetError> {
+    let cache = store_dir.join(format!("{id}.thumb.png"));
+    if let Ok(bytes) = std::fs::read(&cache) {
+        return Ok(bytes);
+    }
+    let meta = asset_meta(store_dir, id)?;
+    let bytes = load_asset(store_dir, id)?;
+    let image = match meta.kind {
+        AssetKind::Image => image::load_from_memory(&bytes)
+            .map_err(|error| AssetError(error.to_string()))?
+            .resize(160, 120, image::imageops::FilterType::Triangle)
+            .to_luma8(),
+        AssetKind::SvgSource | AssetKind::DxfSource => vector_thumbnail(&bytes, &meta.ext)?,
+        AssetKind::Font => return Err(AssetError("Fonts haben kein Katalog-Thumbnail".into())),
+    };
+    let mut png = Vec::new();
+    image::DynamicImage::ImageLuma8(image)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|error| AssetError(error.to_string()))?;
+    let temp = store_dir.join(format!(".{id}.thumb.tmp"));
+    std::fs::write(&temp, &png)?;
+    std::fs::rename(temp, cache)?;
+    Ok(png)
+}
+
+fn vector_thumbnail(bytes: &[u8], ext: &str) -> Result<image::GrayImage, AssetError> {
+    let contours =
+        crate::import::import_vector(bytes, ext).map_err(|error| AssetError(error.to_string()))?;
+    let points: Vec<_> = contours
+        .iter()
+        .flat_map(|(points, _)| points.iter())
+        .collect();
+    let min_x = points.iter().map(|p| p.0).fold(f64::INFINITY, f64::min);
+    let max_x = points.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max);
+    let min_y = points.iter().map(|p| p.1).fold(f64::INFINITY, f64::min);
+    let max_y = points.iter().map(|p| p.1).fold(f64::NEG_INFINITY, f64::max);
+    let span_x = (max_x - min_x).max(1e-9);
+    let span_y = (max_y - min_y).max(1e-9);
+    let scale = (144.0 / span_x).min(104.0 / span_y);
+    let ox = (160.0 - span_x * scale) * 0.5;
+    let oy = (120.0 - span_y * scale) * 0.5;
+    let map = |p: &crate::geometry::Pt| {
+        (
+            (ox + (p.0 - min_x) * scale) as i32,
+            (oy + (p.1 - min_y) * scale) as i32,
+        )
+    };
+    let mut out = image::GrayImage::from_pixel(160, 120, image::Luma([245]));
+    for (points, closed) in contours {
+        for pair in points.windows(2) {
+            draw_line(&mut out, map(&pair[0]), map(&pair[1]));
+        }
+        if closed && points.len() > 2 {
+            draw_line(&mut out, map(points.last().unwrap()), map(&points[0]));
+        }
+    }
+    Ok(out)
+}
+
+fn draw_line(image: &mut image::GrayImage, from: (i32, i32), to: (i32, i32)) {
+    let (mut x0, mut y0) = from;
+    let (x1, y1) = to;
+    let dx = (x1 - x0).abs();
+    let sx = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy = if y0 < y1 { 1 } else { -1 };
+    let mut error = dx + dy;
+    loop {
+        if x0 >= 0 && y0 >= 0 && x0 < image.width() as i32 && y0 < image.height() as i32 {
+            image.put_pixel(x0 as u32, y0 as u32, image::Luma([32]));
+        }
+        if x0 == x1 && y0 == y1 {
+            break;
+        }
+        let twice = 2 * error;
+        if twice >= dy {
+            error += dy;
+            x0 += sx;
+        }
+        if twice <= dx {
+            error += dx;
+            y0 += sy;
+        }
+    }
 }
 
 /// Lädt die (Graustufen-)Bytes eines Assets.
@@ -516,6 +697,7 @@ mod tests {
             width: 0,
             height: 0,
             import_at: String::new(),
+            tags: vec!["werkstatt".into()],
         };
 
         store_asset(&dir, &meta, bytes).expect("gültiges Asset speichern");
@@ -523,5 +705,46 @@ mod tests {
         assert!(store_asset(&dir, &meta, b"manipuliert").is_err());
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn tags_kommen_aus_dateiname_projekt_und_beschreibung() {
+        assert_eq!(
+            derive_tags([
+                "Heinz-Untersetzer_v2.svg",
+                "Untersetzer für Heinz seinen Geburtstag"
+            ]),
+            vec!["geburtstag", "heinz", "svg", "untersetzer", "v2"]
+        );
+    }
+
+    #[test]
+    fn asset_tags_werden_idempotent_ergaenzt() {
+        let dir = std::env::temp_dir().join(format!("luxifer_tags_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let bytes = b"vector-source";
+        let meta = import_source(&dir, bytes, "eiche.svg", "svg", AssetKind::SvgSource).unwrap();
+        add_asset_tags(&dir, &meta.id, ["Heinz Untersetzer", "Eiche rund"]).unwrap();
+        add_asset_tags(&dir, &meta.id, ["Heinz Untersetzer"]).unwrap();
+        let stored = asset_meta(&dir, &meta.id).unwrap();
+        assert!(stored.tags.contains(&"heinz".into()));
+        assert!(stored.tags.contains(&"untersetzer".into()));
+        assert_eq!(stored.tags.iter().filter(|tag| *tag == "heinz").count(), 1);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn vektor_thumbnail_wird_lokal_gecacht() {
+        let dir = std::env::temp_dir().join(format!("luxifer_thumb_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="50"><rect x="2" y="2" width="96" height="46"/></svg>"#;
+        let meta = import_source(&dir, svg, "rahmen.svg", "svg", AssetKind::SvgSource).unwrap();
+        let first = asset_thumbnail(&dir, &meta.id).unwrap();
+        let second = asset_thumbnail(&dir, &meta.id).unwrap();
+        assert_eq!(first, second);
+        let image = image::load_from_memory(&first).unwrap();
+        assert_eq!((image.width(), image.height()), (160, 120));
+        assert!(dir.join(format!("{}.thumb.png", meta.id)).exists());
+        let _ = std::fs::remove_dir_all(dir);
     }
 }

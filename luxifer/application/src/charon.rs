@@ -321,7 +321,10 @@ pub fn sync_assets(base_url: &str) -> Result<CharonSyncReport, AppError> {
     })?;
     let mut report = CharonSyncReport::default();
     for meta in &local {
-        if remote.iter().any(|item| item.id == meta.id) {
+        if remote
+            .iter()
+            .any(|item| item.id == meta.id && meta.tags.iter().all(|tag| item.tags.contains(tag)))
+        {
             continue;
         }
         let bytes = luxifer_core::load_asset(&store, &meta.id).map_err(|error| {
@@ -349,11 +352,22 @@ pub fn sync_assets(base_url: &str) -> Result<CharonSyncReport, AppError> {
             &body,
             UPLOAD_TIMEOUT,
         )?)?;
-        remote.push(meta.clone());
+        if let Some(existing) = remote.iter_mut().find(|item| item.id == meta.id) {
+            for tag in &meta.tags {
+                if !existing.tags.contains(tag) {
+                    existing.tags.push(tag.clone());
+                }
+            }
+        } else {
+            remote.push(meta.clone());
+        }
         report.assets_uploaded += 1;
     }
     for meta in remote {
-        if local.iter().any(|item| item.id == meta.id) {
+        if local
+            .iter()
+            .any(|item| item.id == meta.id && meta.tags.iter().all(|tag| item.tags.contains(tag)))
+        {
             continue;
         }
         let transfer: AssetTransfer = parse_json_response(&send_request(
