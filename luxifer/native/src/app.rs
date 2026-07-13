@@ -57,6 +57,8 @@ pub struct App {
     pub laser_manager: Option<crate::ui::LaserManagerState>,
     /// Präsentationszustand des Projektbrowsers (Auswahl, Drafts, Detail-Cache).
     pub project_browser: crate::ui::ProjectBrowserState,
+    /// Persistente, noch nicht automatisch angewandte Charon-Revisionen.
+    pub project_inbox: Vec<luxifer_application::InboxEntry>,
     /// Material-Vorlage der Laser-Vorschau (Präsentationszustand).
     pub preview_material: crate::canvas::scene::PreviewMaterial,
     /// Leerfahrten in der Vorschau zeichnen (Präsentationszustand).
@@ -122,6 +124,7 @@ impl App {
 
         let ui_settings = luxifer_core::UiSettings::load();
         let charon_runtime = charon::CharonRuntime::new(&ui_settings);
+        let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
         let mut app = Self {
             splash: ui_settings.show_splash.then(crate::ui::Splash::new),
             window,
@@ -144,6 +147,7 @@ impl App {
             settings_dialog: None,
             laser_manager: None,
             project_browser: Default::default(),
+            project_inbox,
             preview_material: Default::default(),
             preview_show_travel: false,
             laser: LaserUi::default(),
@@ -367,6 +371,9 @@ impl App {
             A::RenameProject { from, to } => self.project_rename(&from, &to),
             A::OpenProjectVersion(id) => self.project_open_version(&id),
             A::DeleteProjectVersion(id) => self.project_delete_version(&id),
+            A::DeferInboxRevision(id) => self.defer_inbox_revision(&id),
+            A::ReconsiderInboxRevision(id) => self.reconsider_inbox_revision(&id),
+            A::ApplyInboxRevision(id) => self.apply_inbox_revision(&id),
             A::SelectView(view) => {
                 self.view = view;
                 if view == crate::tools::View::Laser {

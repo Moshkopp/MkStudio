@@ -15,6 +15,7 @@ const PAYLOAD_FILE: &str = "payload.luxi";
 #[serde(rename_all = "snake_case")]
 pub enum InboxStatus {
     PendingReview,
+    Deferred,
     Applied,
     Ignored,
 }
@@ -123,6 +124,141 @@ pub fn list_inbox() -> Result<Vec<InboxEntry>, AppError> {
     Ok(entries)
 }
 
+pub fn defer_inbox_revision(revision_id: &str) -> Result<(), AppError> {
+    set_inbox_status(revision_id, InboxStatus::Deferred)
+}
+
+pub fn reconsider_inbox_revision(revision_id: &str) -> Result<(), AppError> {
+    set_inbox_status(revision_id, InboxStatus::PendingReview)
+}
+
+pub fn apply_inbox_revision(revision_id: &str) -> Result<String, AppError> {
+    let entry = read_entry(&inbox_dir().join(revision_id).join(MANIFEST_FILE))?;
+    let payload = std::fs::read_to_string(entry.payload_path()).map_err(inbox_read_error)?;
+    if content_hash(payload.as_bytes()) != entry.content_hash {
+        return Err(AppError::new(
+            "inbox_hash",
+            "Die lokale Inbox-Revision ist beschädigt.",
+        ));
+    }
+    let mut project = luxifer_core::ProjectFile::from_json(&payload).map_err(|error| {
+        AppError::wrap(
+            "inbox_project_json",
+            "Die empfangene Projektrevision ist ungültig.",
+            error,
+        )
+    })?;
+    if project.id != entry.project_id || project.current_version != entry.project_version_id {
+        return Err(AppError::new(
+            "inbox_project_identity",
+            "Die empfangene Projektrevision passt nicht zu ihrem Manifest.",
+        ));
+    }
+    if !project.asset_refs.is_empty() {
+        return Err(AppError::new(
+            "inbox_assets_pending",
+            "Dieses Projekt verwendet Bild-Assets. Die Assetübertragung ist noch nicht verfügbar.",
+        ));
+    }
+    project
+        .versions
+        .retain(|version| version.id == project.current_version);
+    if project.versions.is_empty() {
+        return Err(AppError::new(
+            "inbox_project_version",
+            "Die empfangene aktuelle Projektversion fehlt.",
+        ));
+    }
+    let projects_dir = luxifer_core::projects_dir();
+    for local in luxifer_core::list_projects(&projects_dir) {
+        let existing = luxifer_core::ProjectFile::load_by_name(&projects_dir, &local.name)
+            .map_err(|error| {
+                AppError::wrap(
+                    "project_read",
+                    "Lokale Projekte konnten nicht geprüft werden.",
+                    error,
+                )
+            })?;
+        if existing.id == project.id {
+            return Err(AppError::new(
+                "inbox_project_conflict",
+                "Dieses Projekt existiert bereits lokal. Die Revision bleibt zur Prüfung in der Inbox.",
+            ));
+        }
+    }
+
+    let local_name = unique_project_name(&projects_dir, &project.name);
+    project.name = local_name.clone();
+    let temp_dir = projects_dir.join(format!(".inbox-{}.tmp", entry.revision_id));
+    let final_dir = projects_dir.join(&local_name);
+    std::fs::create_dir_all(temp_dir.join(luxifer_core::project::VERSIONS_DIR))
+        .map_err(inbox_write_error)?;
+    let result = (|| {
+        let bytes = project.to_json().map_err(|error| {
+            AppError::wrap(
+                "inbox_project_json",
+                "Empfangenes Projekt konnte nicht serialisiert werden.",
+                error,
+            )
+        })?;
+        std::fs::write(temp_dir.join(luxifer_core::project::PROJECT_FILE), &bytes)
+            .map_err(inbox_write_error)?;
+        std::fs::write(
+            temp_dir
+                .join(luxifer_core::project::VERSIONS_DIR)
+                .join(format!("{}.luxi", project.current_version)),
+            bytes,
+        )
+        .map_err(inbox_write_error)?;
+        std::fs::rename(&temp_dir, &final_dir).map_err(inbox_write_error)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+    result?;
+    set_inbox_status(revision_id, InboxStatus::Applied)?;
+    Ok(local_name)
+}
+
+fn set_inbox_status(revision_id: &str, status: InboxStatus) -> Result<(), AppError> {
+    let dir = inbox_dir().join(revision_id);
+    let manifest_path = dir.join(MANIFEST_FILE);
+    let mut entry = read_entry(&manifest_path)?;
+    entry.status = status;
+    let bytes = serde_json::to_vec_pretty(&entry).map_err(|error| {
+        AppError::wrap(
+            "inbox_json",
+            "Charon-Inbox konnte nicht serialisiert werden.",
+            error.to_string(),
+        )
+    })?;
+    let temp = dir.join(".manifest.tmp");
+    std::fs::write(&temp, bytes).map_err(inbox_write_error)?;
+    std::fs::rename(temp, manifest_path).map_err(inbox_write_error)
+}
+
+fn unique_project_name(projects_dir: &Path, preferred: &str) -> String {
+    let preferred = if preferred.trim().is_empty() {
+        "Empfangenes Projekt"
+    } else {
+        preferred.trim()
+    };
+    if !projects_dir.join(preferred).exists() {
+        return preferred.into();
+    }
+    for suffix in 1.. {
+        let candidate = if suffix == 1 {
+            format!("{preferred} (Charon)")
+        } else {
+            format!("{preferred} (Charon {suffix})")
+        };
+        if !projects_dir.join(&candidate).exists() {
+            return candidate;
+        }
+    }
+    unreachable!()
+}
+
 fn read_entry(path: &Path) -> Result<InboxEntry, AppError> {
     let bytes = std::fs::read(path).map_err(inbox_read_error)?;
     serde_json::from_slice(&bytes).map_err(|error| {
@@ -202,5 +338,36 @@ mod tests {
         item.content_hash = "falscher-hash".into();
         assert!(store_remote_revision(item).is_err());
         assert!(list_inbox().unwrap().is_empty());
+    }
+
+    #[test]
+    fn neues_projekt_wird_uebernommen_ohne_editorzustand_zu_beruehren() {
+        let _guard = with_temp_dir("sync_inbox_apply");
+        let project = luxifer_core::ProjectFile::from_state(
+            &luxifer_core::AppState::new(),
+            "Vom Office",
+            Vec::new(),
+        );
+        let payload = project.to_json().unwrap();
+        let item = CharonRevision {
+            revision_id: "revision-apply-1".into(),
+            project_id: project.id.clone(),
+            project_name: project.name.clone(),
+            project_version_id: project.current_version.clone(),
+            parent_revision_id: None,
+            workplace_id: "office-1".into(),
+            queued_at: "2026-07-13T12:00:00Z".into(),
+            content_hash: content_hash(payload.as_bytes()),
+            payload,
+        };
+        store_remote_revision(item).unwrap();
+
+        let name = apply_inbox_revision("revision-apply-1").unwrap();
+        assert_eq!(name, "Vom Office");
+        let imported =
+            luxifer_core::ProjectFile::load_by_name(&luxifer_core::projects_dir(), "Vom Office")
+                .unwrap();
+        assert_eq!(imported.id, project.id);
+        assert_eq!(list_inbox().unwrap()[0].status, InboxStatus::Applied);
     }
 }

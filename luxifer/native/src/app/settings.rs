@@ -75,6 +75,7 @@ impl App {
                             ));
                         }
                         if report.received > 0 {
+                            self.refresh_project_inbox();
                             self.toasts.success(format!(
                                 "{} neue Projektrevision(en) von Charon empfangen.",
                                 report.received

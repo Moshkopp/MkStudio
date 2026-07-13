@@ -113,6 +113,8 @@ pub enum PendingProjectAction {
 /// UI-Zustand — die Wahrheit liegt im `ProjectService`/Core.
 #[derive(Default)]
 pub struct ProjectBrowserState {
+    /// `true` zeigt die empfangenen Charon-Revisionen statt lokaler Projekte.
+    pub show_inbox: bool,
     /// Im Browser markiertes Projekt (unabhängig vom offenen Projekt).
     pub selected: Option<String>,
     /// `Some` = Umbenennen-Feld ist sichtbar und hält den Namensentwurf.

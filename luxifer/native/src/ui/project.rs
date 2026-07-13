@@ -10,6 +10,7 @@
 //! `ProjectService` kennt.
 
 use egui::RichText;
+use luxifer_application::{InboxEntry, InboxStatus};
 use luxifer_core::project::ProjectInfo;
 use luxifer_core::state::AppState;
 
@@ -92,6 +93,7 @@ pub(super) fn project_browser(
     ui: &mut egui::Ui,
     browser: &mut ProjectBrowserState,
     projects: &[ProjectInfo],
+    inbox: &[InboxEntry],
     open_name: Option<&str>,
     dirty: bool,
 ) -> Vec<UiAction> {
@@ -103,6 +105,27 @@ pub(super) fn project_browser(
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.heading("Projekte");
+        if ui
+            .selectable_label(!browser.show_inbox, "Meine Projekte")
+            .clicked()
+        {
+            browser.show_inbox = false;
+        }
+        let pending = inbox
+            .iter()
+            .filter(|entry| entry.status == InboxStatus::PendingReview)
+            .count();
+        let inbox_label = if pending > 0 {
+            format!("Von Charon ({pending})")
+        } else {
+            "Von Charon".into()
+        };
+        if ui
+            .selectable_label(browser.show_inbox, inbox_label)
+            .clicked()
+        {
+            browser.show_inbox = true;
+        }
         if ui.button("Neues Projekt…").clicked() {
             actions.push(UiAction::OpenProjectSaveDialog);
         }
@@ -122,6 +145,11 @@ pub(super) fn project_browser(
     ui.add_space(8.0);
     ui.separator();
 
+    if browser.show_inbox {
+        inbox_pane(ui, inbox, &mut actions);
+        return actions;
+    }
+
     // Master-Detail: Liste links, Detailbereich rechts.
     egui::SidePanel::left("project_list")
         .resizable(true)
@@ -135,6 +163,78 @@ pub(super) fn project_browser(
     });
 
     actions
+}
+
+fn inbox_pane(ui: &mut egui::Ui, inbox: &[InboxEntry], actions: &mut Vec<UiAction>) {
+    ui.add_space(10.0);
+    ui.heading("Von Charon");
+    ui.weak("Empfangene Revisionen werden erst nach deiner Entscheidung lokal übernommen.");
+    ui.add_space(8.0);
+
+    let visible: Vec<_> = inbox
+        .iter()
+        .filter(|entry| {
+            matches!(
+                entry.status,
+                InboxStatus::PendingReview | InboxStatus::Deferred
+            )
+        })
+        .collect();
+    if visible.is_empty() {
+        ui.weak("Keine offenen Projektrevisionen.");
+        return;
+    }
+
+    egui::ScrollArea::vertical()
+        .id_salt("charon_inbox")
+        .show(ui, |ui| {
+            for entry in visible {
+                egui::Frame::group(ui.style()).show(ui, |ui| {
+                    ui.set_width(ui.available_width());
+                    ui.horizontal(|ui| {
+                        ui.strong(&entry.project_name);
+                        if entry.status == InboxStatus::PendingReview {
+                            ui.colored_label(ui.visuals().warn_fg_color, "● neu");
+                        } else {
+                            ui.weak("später");
+                        }
+                    });
+                    ui.weak(format!(
+                        "Von Arbeitsplatz {} · empfangen {}",
+                        entry.source_workplace_id, entry.received_at
+                    ));
+                    ui.weak(format!(
+                        "Projektversion {} · Revision {}",
+                        short_id(&entry.project_version_id),
+                        short_id(&entry.revision_id)
+                    ));
+                    ui.add_space(6.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("Übernehmen").clicked() {
+                            actions.push(UiAction::ApplyInboxRevision(entry.revision_id.clone()));
+                        }
+                        ui.add_enabled(false, egui::Button::new("Änderungen anzeigen"))
+                            .on_disabled_hover_text(
+                                "Der visuelle Vergleich folgt im nächsten Konfliktschritt.",
+                            );
+                        if entry.status == InboxStatus::PendingReview {
+                            if ui.button("Später").clicked() {
+                                actions
+                                    .push(UiAction::DeferInboxRevision(entry.revision_id.clone()));
+                            }
+                        } else if ui.button("Erneut prüfen").clicked() {
+                            actions
+                                .push(UiAction::ReconsiderInboxRevision(entry.revision_id.clone()));
+                        }
+                    });
+                });
+                ui.add_space(8.0);
+            }
+        });
+}
+
+fn short_id(id: &str) -> &str {
+    id.get(..12).unwrap_or(id)
 }
 
 fn project_list(

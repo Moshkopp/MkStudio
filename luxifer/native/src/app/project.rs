@@ -4,6 +4,47 @@ use super::App;
 use crate::ui::PendingProjectAction;
 
 impl App {
+    pub fn defer_inbox_revision(&mut self, revision_id: &str) {
+        match luxifer_application::defer_inbox_revision(revision_id) {
+            Ok(()) => {
+                self.refresh_project_inbox();
+                self.toasts.success("Revision für später zurückgestellt.");
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn reconsider_inbox_revision(&mut self, revision_id: &str) {
+        match luxifer_application::reconsider_inbox_revision(revision_id) {
+            Ok(()) => {
+                self.refresh_project_inbox();
+                self.toasts
+                    .success("Revision wieder zur Prüfung vorgemerkt.");
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn apply_inbox_revision(&mut self, revision_id: &str) {
+        match luxifer_application::apply_inbox_revision(revision_id) {
+            Ok(name) => {
+                self.refresh_project_inbox();
+                self.project_browser.show_inbox = false;
+                self.project_browser.selected = Some(name.clone());
+                self.project_browser.cached = None;
+                self.toasts.success(format!("Projekt übernommen: {name}"));
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn refresh_project_inbox(&mut self) {
+        match luxifer_application::list_inbox() {
+            Ok(entries) => self.project_inbox = entries,
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
     pub fn project_open(&mut self, name: &str) {
         if self.session.is_dirty() {
             self.pending_project = Some(PendingProjectAction::Open(name.to_string()));

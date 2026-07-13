@@ -11,7 +11,12 @@ use super::action::UiAction;
 use crate::tools::View;
 
 /// `view` = aktive Ansicht (Reiter-Markierung); `project_name` = Anzeige rechts.
-pub(super) fn topbar(ui: &mut egui::Ui, view: View, project_name: &str) -> Vec<UiAction> {
+pub(super) fn topbar(
+    ui: &mut egui::Ui,
+    view: View,
+    project_name: &str,
+    inbox_count: usize,
+) -> Vec<UiAction> {
     let mut actions = Vec::new();
     ui.add_space(4.0);
     ui.allocate_ui(egui::vec2(ui.available_width(), 26.0), |ui| {
@@ -57,10 +62,12 @@ pub(super) fn topbar(ui: &mut egui::Ui, view: View, project_name: &str) -> Vec<U
             // Stabile Reihenfolge und als zusammengehörige Navigation zentriert.
             columns[1].horizontal_centered(|ui| {
                 for target in [View::Projekt, View::Design, View::Laser, View::Preview] {
-                    if ui
-                        .selectable_label(view == target, format!("  {}  ", target.label()))
-                        .clicked()
-                    {
+                    let label = if target == View::Projekt && inbox_count > 0 {
+                        format!("  {}  ● {}  ", target.label(), inbox_count)
+                    } else {
+                        format!("  {}  ", target.label())
+                    };
+                    if ui.selectable_label(view == target, label).clicked() {
                         actions.push(UiAction::SelectView(target));
                     }
                 }

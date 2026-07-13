@@ -58,8 +58,15 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
         .open_name()
         .unwrap_or("— (ungespeichert)")
         .to_string();
+    let inbox_count = app
+        .project_inbox
+        .iter()
+        .filter(|entry| entry.status == luxifer_application::InboxStatus::PendingReview)
+        .count();
     let topbar_actions = egui::TopBottomPanel::top("topbar")
-        .show(ctx, |ui| topbar::topbar(ui, view, &project_name))
+        .show(ctx, |ui| {
+            topbar::topbar(ui, view, &project_name, inbox_count)
+        })
         .inner;
     for action in topbar_actions {
         app.dispatch(action);
@@ -117,6 +124,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                         ui,
                         &mut app.project_browser,
                         &projects,
+                        &app.project_inbox,
                         open_name.as_deref(),
                         dirty,
                     )

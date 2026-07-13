@@ -103,7 +103,7 @@ Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Nächste Schritte
 
-1. Inbox-Übersicht und sicheren Übernehmen-/Später-Ablauf ergänzen.
+1. Visuellen Revisionsvergleich für bestehende Projekte ergänzen.
 2. Empfangsbestätigungen später für Aufräum- und Aufbewahrungsregeln nutzen.
 3. Push-Kanal und Konfliktbenachrichtigung ergänzen; zunächst ganze Version
    übernehmen oder zurückstellen. Stabil identifizierbare Shapes/Layer sind
@@ -173,8 +173,20 @@ Der erste Meilenstein ist umgesetzt:
 - geht die Bestätigung unterwegs verloren, wird die Revision noch einmal
   geliefert, lokal als bereits vorhanden erkannt und erneut bestätigt. Damit
   bleibt der Ablauf auch über Prozess- und Netzwerkausfälle hinweg sicher.
+- der Projekt-Reiter besitzt den Bereich `Von Charon`; ein Badge am
+  Projekt-Einstieg zählt neue `pending_review`-Revisionen. `Später` setzt sie
+  auf `deferred`, ohne sie zu löschen;
+- `Übernehmen` importiert ausschließlich Projekte, deren stabile Projekt-ID
+  lokal noch nicht existiert. Bereits vorhandene Projekte bleiben bis zum
+  Vergleichs-/Konfliktablauf unangetastet in der Inbox;
+- da Assets noch nicht übertragen werden, wird die Übernahme von Projekten mit
+  `asset_refs` verständlich abgelehnt. Der deaktivierte Knopf `Änderungen
+  anzeigen` macht die nächste Ausbaustufe sichtbar, ohne Funktion vorzutäuschen;
+- nach erfolgreichem Import erscheint das Projekt in `Meine Projekte`; der
+  Canvas und ein eventuell geöffnetes, ungespeichertes Projekt werden nicht
+  automatisch ersetzt.
 
-Noch offen sind Inbox-Übersicht/-Übernahme, Settings-Transfer, Push-Kanal,
+Noch offen sind Revisionsvergleich/-Merge, Asset- und Settings-Transfer, Push-Kanal,
 Konfliktvergleich sowie Ruida-Leases. Charon darf Versionen verteilen und
 Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten oder
 laufende Jobs unterbrechen.

@@ -68,6 +68,12 @@ pub enum UiAction {
     OpenProjectVersion(String),
     /// Eine Version des offenen Projekts löschen (Versions-ID).
     DeleteProjectVersion(String),
+    /// Empfangene Charon-Revision vorerst zurückstellen.
+    DeferInboxRevision(String),
+    /// Zurückgestellte Revision wieder als neu markieren.
+    ReconsiderInboxRevision(String),
+    /// Neues empfangenes Projekt sicher in die lokale Ablage übernehmen.
+    ApplyInboxRevision(String),
     /// Haupt-Ansicht (Reiter) wechseln.
     SelectView(View),
     /// Material-Vorlage der Laser-Vorschau wählen.
