@@ -428,6 +428,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     // sie ungespeicherte Änderungen verwerfen würde.
     if let Some(pending) = app.pending_project.as_ref() {
         let label = match pending {
+            PendingProjectAction::Blank => "Neue Arbeitsfläche",
             PendingProjectAction::New { .. } => "Neues Projekt anlegen",
             PendingProjectAction::Open(_) => "Projekt öffnen",
             PendingProjectAction::OpenVersion(_) => "Version laden",

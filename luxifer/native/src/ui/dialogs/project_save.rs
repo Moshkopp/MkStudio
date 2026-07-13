@@ -13,6 +13,7 @@ pub(in crate::ui) fn project_save_dialog_window(
 ) -> DialogOutcome {
     let mut outcome = DialogOutcome::None;
     egui::Window::new("Projekt speichern")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

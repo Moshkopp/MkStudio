@@ -43,6 +43,19 @@ fn anlegen_speichern_oeffnen_roundtrip() {
 }
 
 #[test]
+fn schliessen_loest_nur_die_offene_projektbindung() {
+    let _g = with_temp_dir("close_project");
+    let mut svc = ProjectService::new();
+    svc.new_project(&AppState::default(), "Bleibt", "").unwrap();
+
+    svc.close();
+
+    assert!(!svc.has_open());
+    assert_eq!(svc.list().len(), 1);
+    assert_eq!(svc.list()[0].name, "Bleibt");
+}
+
+#[test]
 fn outbox_friert_jeden_speicherstand_mit_parent_ein() {
     let _g = with_temp_dir("outbox_chain");
     let mut svc = ProjectService::new();

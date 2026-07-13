@@ -25,6 +25,7 @@ pub(in crate::ui) fn image_dialog_window(
     let mut outcome = ImageDialogOutcome::None;
     let p = &mut st.params;
     egui::Window::new("Bild bearbeiten")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

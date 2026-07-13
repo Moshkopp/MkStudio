@@ -28,6 +28,17 @@ pub(super) fn topbar(
                     if super::tools::icon_button(
                         ui,
                         side,
+                        "new-file",
+                        "Neue leere Arbeitsfläche",
+                        false,
+                        false,
+                    ) {
+                        actions.push(UiAction::NewBlankProject);
+                    }
+                    ui.separator();
+                    if super::tools::icon_button(
+                        ui,
+                        side,
                         "undo",
                         "Rückgängig (Strg+Z)",
                         false,

@@ -23,6 +23,7 @@ pub(in crate::ui) fn settings_dialog_window(
     let mut outcome = SettingsOutcome::None;
     let mut open = true;
     egui::Window::new("Einstellungen")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .fixed_size([660.0, 430.0])

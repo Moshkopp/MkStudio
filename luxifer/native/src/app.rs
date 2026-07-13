@@ -363,6 +363,7 @@ impl App {
             A::OpenLayerDialog(index) => self.open_layer_dialog(index),
             A::MoveLayer { from, to } => self.move_layer(from, to),
             A::OpenProjectSaveDialog => self.open_project_save_dialog(),
+            A::NewBlankProject => self.project_new_blank(),
             A::OpenSettings => self.open_settings_dialog(),
             A::SaveProjectVersion => self.project_save_version(),
             A::OpenProject(name) => self.project_open(&name),

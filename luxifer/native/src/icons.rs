@@ -323,6 +323,23 @@ pub fn draw(p: &Painter, rect: Rect, name: &str, color: Color32) {
         ),
 
         // ── Kopfzeile ──────────────────────────────────────────────────────
+        "new-file" => {
+            // Leeres Dokument mit umgeknickter Ecke und kleinem Plus.
+            poly(
+                &[
+                    [5.0, 3.0],
+                    [14.0, 3.0],
+                    [19.0, 8.0],
+                    [19.0, 21.0],
+                    [5.0, 21.0],
+                    [5.0, 3.0],
+                ],
+                false,
+            );
+            poly(&[[14.0, 3.0], [14.0, 8.0], [19.0, 8.0]], false);
+            line([8.0, 14.0], [16.0, 14.0]);
+            line([12.0, 10.0], [12.0, 18.0]);
+        }
         "undo" => {
             // Pfeil nach links + Bogen (Lucide undo-2), Bogen als Polylinie.
             poly(&[[9.0, 14.0], [4.0, 9.0], [9.0, 4.0]], false);

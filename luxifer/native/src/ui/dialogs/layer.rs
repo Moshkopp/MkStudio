@@ -18,6 +18,7 @@ pub(in crate::ui) fn layer_dialog_window(
     use luxifer_core::LayerMode;
     let mut outcome = DialogOutcome::None;
     egui::Window::new("Ebene bearbeiten")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])

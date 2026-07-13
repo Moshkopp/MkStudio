@@ -97,6 +97,8 @@ impl GeoOpDialogState {
 /// (Dirty-Guard). Wird ausgeführt, sobald der Nutzer „Verwerfen" wählt.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PendingProjectAction {
+    /// Aktuelles Projekt schließen und den Editor leeren.
+    Blank,
     /// Neues Projekt aus dem Maskenentwurf anlegen.
     New { name: String, description: String },
     /// Projekt mit diesem Namen öffnen.

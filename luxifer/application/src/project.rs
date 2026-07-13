@@ -81,6 +81,13 @@ impl ProjectService {
         self.open.is_some()
     }
 
+    /// Löst die Bindung an das aktuell geöffnete Projekt, ohne dessen Dateien
+    /// zu verändern. Der aufrufende Client kann anschließend einen leeren,
+    /// ungespeicherten Editorzustand einsetzen.
+    pub fn close(&mut self) {
+        self.open = None;
+    }
+
     /// Versionsliste des offenen Projekts (leer, wenn keins offen ist).
     pub fn versions(&self) -> &[VersionInfo] {
         self.open

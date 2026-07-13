@@ -53,8 +53,32 @@ impl App {
         }
     }
 
+    /// Beginnt eine leere, ungespeicherte Arbeitsfläche. Ein bestehendes
+    /// Projekt wird nur aus der Session gelöst; seine gespeicherten Dateien
+    /// bleiben unverändert.
+    pub fn project_new_blank(&mut self) {
+        if self.session.is_dirty() {
+            self.pending_project = Some(PendingProjectAction::Blank);
+        } else {
+            self.do_project_new_blank();
+        }
+    }
+
+    fn do_project_new_blank(&mut self) {
+        self.project.close();
+        self.replace_editor_state(AppState::default());
+        self.canvas.poly_pts.clear();
+        self.canvas.bezier_nodes.clear();
+        self.canvas.drag = crate::tools::Drag::None;
+        self.project_browser.selected = None;
+        self.project_browser.cached = None;
+        self.view = crate::tools::View::Design;
+        self.toasts.success("Neue leere Arbeitsfläche.");
+    }
+
     pub fn confirm_pending_project(&mut self) {
         match self.pending_project.take() {
+            Some(PendingProjectAction::Blank) => self.do_project_new_blank(),
             Some(PendingProjectAction::New { name, description }) => {
                 self.do_project_new(&name, &description);
             }

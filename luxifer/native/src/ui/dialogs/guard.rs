@@ -8,6 +8,7 @@ use super::DialogOutcome;
 pub(in crate::ui) fn guard_dialog(ctx: &egui::Context, action_label: &str) -> DialogOutcome {
     let mut outcome = DialogOutcome::None;
     egui::Window::new("Ungespeicherte Änderungen")
+        .order(egui::Order::Foreground)
         .collapsible(false)
         .resizable(false)
         .anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0])
