@@ -413,8 +413,18 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     }
 
     if let Some(state) = app.revision_comparison.as_ref() {
-        if dialogs::revision_comparison_window(ctx, state) {
-            app.revision_comparison = None;
+        let revision_id = state.comparison.entry.revision_id.clone();
+        match dialogs::revision_comparison_window(ctx, state) {
+            dialogs::RevisionComparisonOutcome::None => {}
+            dialogs::RevisionComparisonOutcome::Close => app.revision_comparison = None,
+            dialogs::RevisionComparisonOutcome::KeepLocal => {
+                app.revision_comparison = None;
+                app.keep_local_inbox_revision(&revision_id);
+            }
+            dialogs::RevisionComparisonOutcome::AcceptRemote => {
+                app.revision_comparison = None;
+                app.accept_inbox_revision(&revision_id);
+            }
         }
     }
 
@@ -437,6 +447,7 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
     if let Some(pending) = app.pending_project.as_ref() {
         let label = match pending {
             PendingProjectAction::Blank => "Neue Arbeitsfläche",
+            PendingProjectAction::AcceptInbox(_) => "Charon-Version übernehmen",
             PendingProjectAction::New { .. } => "Neues Projekt anlegen",
             PendingProjectAction::Open(_) => "Projekt öffnen",
             PendingProjectAction::OpenVersion(_) => "Version laden",

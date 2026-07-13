@@ -148,6 +148,106 @@ pub fn reconsider_inbox_revision(revision_id: &str) -> Result<(), AppError> {
     set_inbox_status(revision_id, InboxStatus::PendingReview)
 }
 
+pub fn ignore_inbox_revision(revision_id: &str) -> Result<(), AppError> {
+    set_inbox_status(revision_id, InboxStatus::Ignored)
+}
+
+/// Übernimmt den empfangenen Stand als neue lokale Projektversion. Die lokale
+/// Versionshistorie bleibt erhalten; Projektname und Erstellungszeit bleiben
+/// arbeitsplatzlokal. Bild-Assets werden bis zur Asset-Synchronisierung abgelehnt.
+pub fn accept_inbox_revision(revision_id: &str) -> Result<String, AppError> {
+    let entry = read_entry(&inbox_dir().join(revision_id).join(MANIFEST_FILE))?;
+    let remote = read_verified_project(&entry)?;
+    if !remote.asset_refs.is_empty() {
+        return Err(AppError::new(
+            "inbox_assets_pending",
+            "Dieses Projekt verwendet Bild-Assets. Die Assetübertragung ist noch nicht verfügbar.",
+        ));
+    }
+    let projects_dir = luxifer_core::projects_dir();
+    let (local_name, mut local) = luxifer_core::list_projects(&projects_dir)
+        .into_iter()
+        .map(|info| {
+            luxifer_core::ProjectFile::load_by_name(&projects_dir, &info.name)
+                .map(|project| (info.name, project))
+        })
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|error| {
+            AppError::wrap(
+                "project_read",
+                "Lokale Projekte konnten nicht geprüft werden.",
+                error,
+            )
+        })?
+        .into_iter()
+        .find(|(_, project)| project.id == entry.project_id)
+        .ok_or_else(|| {
+            AppError::new(
+                "inbox_project_missing",
+                "Das zugehörige lokale Projekt wurde nicht gefunden.",
+            )
+        })?;
+    let mut incoming_version = remote
+        .versions
+        .iter()
+        .find(|version| version.id == remote.current_version)
+        .cloned()
+        .ok_or_else(|| {
+            AppError::new(
+                "inbox_project_version",
+                "Die empfangene aktuelle Projektversion fehlt.",
+            )
+        })?;
+    // Die fremde Version bekommt bewusst eine neue lokale Versions-ID: Office
+    // und Workshop können dieselbe Ausgangsversion in-place verändert haben.
+    // Ein Überschreiben dieser ID würde den lokalen Stand vernichten.
+    incoming_version.id = luxifer_core::datetime::gen_id();
+    incoming_version.label = next_version_label(&local.versions);
+    incoming_version.note = format!("Von Charon: {}", entry.source_workplace_id);
+    let accepted_version_id = incoming_version.id.clone();
+    local.versions.push(incoming_version);
+    local.description = remote.description;
+    local.tags = remote.tags;
+    local.modified_at = remote.modified_at;
+    local.current_version = accepted_version_id;
+    local.bed_w_mm = remote.bed_w_mm;
+    local.bed_h_mm = remote.bed_h_mm;
+    local.layers = remote.layers;
+    local.shapes = remote.shapes;
+    local.sync_asset_refs();
+
+    let project_dir = projects_dir.join(&local_name);
+    let versions_dir = project_dir.join(luxifer_core::project::VERSIONS_DIR);
+    std::fs::create_dir_all(&versions_dir).map_err(inbox_write_error)?;
+    let bytes = local.to_json().map_err(|error| {
+        AppError::wrap(
+            "inbox_project_json",
+            "Übernommene Projektversion konnte nicht serialisiert werden.",
+            error,
+        )
+    })?;
+    let project_temp = project_dir.join(".projekt.inbox.tmp");
+    let version_temp = versions_dir.join(".version.inbox.tmp");
+    let version_path = versions_dir.join(format!("{}.luxi", local.current_version));
+    let result = (|| {
+        std::fs::write(&project_temp, &bytes).map_err(inbox_write_error)?;
+        std::fs::write(&version_temp, &bytes).map_err(inbox_write_error)?;
+        std::fs::rename(&version_temp, version_path).map_err(inbox_write_error)?;
+        std::fs::rename(
+            &project_temp,
+            project_dir.join(luxifer_core::project::PROJECT_FILE),
+        )
+        .map_err(inbox_write_error)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&project_temp);
+        let _ = std::fs::remove_file(&version_temp);
+    }
+    result?;
+    set_inbox_status(revision_id, InboxStatus::Applied)?;
+    Ok(local_name)
+}
+
 pub fn compare_inbox_revision(revision_id: &str) -> Result<InboxComparison, AppError> {
     let entry = read_entry(&inbox_dir().join(revision_id).join(MANIFEST_FILE))?;
     let remote = read_verified_project(&entry)?;
@@ -344,6 +444,16 @@ fn unique_project_name(projects_dir: &Path, preferred: &str) -> String {
     unreachable!()
 }
 
+fn next_version_label(versions: &[luxifer_core::project::VersionInfo]) -> String {
+    let max = versions
+        .iter()
+        .filter_map(|version| version.label.strip_prefix('V'))
+        .filter_map(|number| number.parse::<u32>().ok())
+        .max()
+        .unwrap_or(0);
+    format!("V{}", max + 1)
+}
+
 fn read_entry(path: &Path) -> Result<InboxEntry, AppError> {
     let bytes = std::fs::read(path).map_err(inbox_read_error)?;
     serde_json::from_slice(&bytes).map_err(|error| {
@@ -501,5 +611,42 @@ mod tests {
         assert_eq!(comparison.local_state.unwrap().shapes.len(), 0);
         assert_eq!(comparison.remote_state.shapes.len(), 1);
         assert_eq!(list_inbox().unwrap()[0].status, InboxStatus::PendingReview);
+
+        let name = accept_inbox_revision("revision-compare-1").unwrap();
+        assert_eq!(name, "Werkstattname");
+        let accepted =
+            luxifer_core::ProjectFile::load_by_name(&luxifer_core::projects_dir(), &name).unwrap();
+        assert_eq!(accepted.versions.len(), 2);
+        assert_eq!(accepted.current().unwrap().label, "V2");
+        assert_eq!(accepted.shapes.len(), 1);
+        assert_eq!(list_inbox().unwrap()[0].status, InboxStatus::Applied);
+    }
+
+    #[test]
+    fn lokal_behalten_quittiert_nur_die_inbox() {
+        let _guard = with_temp_dir("sync_inbox_ignore");
+        let project = luxifer_core::ProjectFile::from_state(
+            &luxifer_core::AppState::new(),
+            "Ignoriert",
+            Vec::new(),
+        );
+        let payload = project.to_json().unwrap();
+        store_remote_revision(CharonRevision {
+            revision_id: "revision-ignore-1".into(),
+            project_id: project.id.clone(),
+            project_name: project.name,
+            project_version_id: project.current_version,
+            parent_revision_id: None,
+            workplace_id: "office-1".into(),
+            queued_at: "2026-07-13T12:00:00Z".into(),
+            content_hash: content_hash(payload.as_bytes()),
+            payload,
+        })
+        .unwrap();
+
+        ignore_inbox_revision("revision-ignore-1").unwrap();
+
+        assert_eq!(list_inbox().unwrap()[0].status, InboxStatus::Ignored);
+        assert!(luxifer_core::list_projects(&luxifer_core::projects_dir()).is_empty());
     }
 }

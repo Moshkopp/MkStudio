@@ -21,7 +21,7 @@ pub(super) use image::{image_dialog_window, ImageDialogOutcome};
 pub(super) use laser_manager::{laser_manager_window, LaserManagerOutcome};
 pub(super) use layer::layer_dialog_window;
 pub(super) use project_save::project_save_dialog_window;
-pub(super) use revision_compare::revision_comparison_window;
+pub(super) use revision_compare::{revision_comparison_window, RevisionComparisonOutcome};
 pub(super) use settings::{settings_dialog_window, SettingsOutcome};
 pub(super) use text::text_dialog_window;
 

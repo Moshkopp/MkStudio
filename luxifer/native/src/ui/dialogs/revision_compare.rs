@@ -2,13 +2,21 @@
 
 use crate::ui::RevisionComparisonState;
 
-/// `true` bedeutet, dass der Dialog geschlossen werden soll.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(in crate::ui) enum RevisionComparisonOutcome {
+    #[default]
+    None,
+    Close,
+    KeepLocal,
+    AcceptRemote,
+}
+
 pub(in crate::ui) fn revision_comparison_window(
     ctx: &egui::Context,
     state: &RevisionComparisonState,
-) -> bool {
+) -> RevisionComparisonOutcome {
     let mut open = true;
-    let mut close = false;
+    let mut outcome = RevisionComparisonOutcome::None;
     let screen = ctx.screen_rect().size();
     egui::Window::new("Projektänderungen")
         .order(egui::Order::Foreground)
@@ -39,13 +47,25 @@ pub(in crate::ui) fn revision_comparison_window(
                 if let Some(preview) = state.local_preview.as_ref() {
                     columns[0].weak(format!(
                         "{} · geändert {}",
-                        comparison.local_project_name.as_deref().unwrap_or("Projekt"),
-                        comparison.local_modified_at.as_deref().unwrap_or("unbekannt")
+                        comparison
+                            .local_project_name
+                            .as_deref()
+                            .unwrap_or("Projekt"),
+                        comparison
+                            .local_modified_at
+                            .as_deref()
+                            .unwrap_or("unbekannt")
                     ));
                     columns[0].label(format!(
                         "{} Ebenen · {} Objekte · {:.0} × {:.0} mm",
-                        comparison.local_state.as_ref().map_or(0, |s| s.layers.len()),
-                        comparison.local_state.as_ref().map_or(0, |s| s.shapes.len()),
+                        comparison
+                            .local_state
+                            .as_ref()
+                            .map_or(0, |s| s.layers.len()),
+                        comparison
+                            .local_state
+                            .as_ref()
+                            .map_or(0, |s| s.shapes.len()),
                         preview.bed.0,
                         preview.bed.1
                     ));
@@ -67,16 +87,26 @@ pub(in crate::ui) fn revision_comparison_window(
             });
 
             ui.separator();
-            ui.weak(
-                "Nur Vergleich: Dieser Dialog verändert weder das lokale Projekt noch die Charon-Revision.",
-            );
+            ui.weak("Die Auswahl wird erst nach Betätigung einer Entscheidung angewendet.");
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 if ui.button("Schließen").clicked() {
-                    close = true;
+                    outcome = RevisionComparisonOutcome::Close;
+                }
+                if comparison.local_project_name.is_some() {
+                    if ui.button("Charon-Version übernehmen").clicked() {
+                        outcome = RevisionComparisonOutcome::AcceptRemote;
+                    }
+                    if ui.button("Lokale Version behalten").clicked() {
+                        outcome = RevisionComparisonOutcome::KeepLocal;
+                    }
                 }
             });
         });
-    close || !open || ctx.input(|input| input.key_pressed(egui::Key::Escape))
+    if !open || ctx.input(|input| input.key_pressed(egui::Key::Escape)) {
+        RevisionComparisonOutcome::Close
+    } else {
+        outcome
+    }
 }
 
 fn change_badge(ui: &mut egui::Ui, label: &str, changed: bool) {

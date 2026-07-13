@@ -56,6 +56,56 @@ impl App {
         }
     }
 
+    pub fn keep_local_inbox_revision(&mut self, revision_id: &str) {
+        match luxifer_application::ignore_inbox_revision(revision_id) {
+            Ok(()) => {
+                self.refresh_project_inbox();
+                self.toasts
+                    .success("Lokale Projektversion bleibt erhalten.");
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn accept_inbox_revision(&mut self, revision_id: &str) {
+        let target_is_open = match luxifer_application::compare_inbox_revision(revision_id) {
+            Ok(comparison) => comparison
+                .local_project_name
+                .is_some_and(|name| self.project.open_name() == Some(name.as_str())),
+            Err(error) => {
+                self.app_error = Some(error);
+                return;
+            }
+        };
+        if target_is_open && self.session.is_dirty() {
+            self.pending_project = Some(PendingProjectAction::AcceptInbox(revision_id.to_string()));
+        } else {
+            self.do_accept_inbox_revision(revision_id);
+        }
+    }
+
+    fn do_accept_inbox_revision(&mut self, revision_id: &str) {
+        match luxifer_application::accept_inbox_revision(revision_id) {
+            Ok(name) => {
+                let was_open = self.project.open_name() == Some(name.as_str());
+                if was_open {
+                    match self.project.open(&name) {
+                        Ok(state) => self.replace_editor_state(state),
+                        Err(error) => {
+                            self.app_error = Some(error);
+                            return;
+                        }
+                    }
+                }
+                self.project_browser.cached = None;
+                self.refresh_project_inbox();
+                self.toasts
+                    .success(format!("Charon-Version übernommen: {name}"));
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
     pub fn refresh_project_inbox(&mut self) {
         match luxifer_application::list_inbox() {
             Ok(entries) => self.project_inbox = entries,
@@ -97,6 +147,9 @@ impl App {
     pub fn confirm_pending_project(&mut self) {
         match self.pending_project.take() {
             Some(PendingProjectAction::Blank) => self.do_project_new_blank(),
+            Some(PendingProjectAction::AcceptInbox(revision_id)) => {
+                self.do_accept_inbox_revision(&revision_id);
+            }
             Some(PendingProjectAction::New { name, description }) => {
                 self.do_project_new(&name, &description);
             }

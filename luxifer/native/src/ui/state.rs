@@ -99,6 +99,8 @@ impl GeoOpDialogState {
 pub enum PendingProjectAction {
     /// Aktuelles Projekt schließen und den Editor leeren.
     Blank,
+    /// Empfangene Charon-Version nach Dirty-Bestätigung übernehmen.
+    AcceptInbox(String),
     /// Neues Projekt aus dem Maskenentwurf anlegen.
     New { name: String, description: String },
     /// Projekt mit diesem Namen öffnen.

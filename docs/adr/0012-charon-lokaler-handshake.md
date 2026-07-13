@@ -103,8 +103,8 @@ Fähigkeiten müssen von Clients ignoriert werden.
 
 ## Nächste Schritte
 
-1. Vergleich um sichere Entscheidungen für bestehende Projekte erweitern
-   (`lokal behalten` oder ganze Charon-Version übernehmen).
+1. Optionalen Drei-Wege-Objektvergleich auf Basis stabiler Shape-/Layer-IDs
+   vorbereiten; bis dahin bleiben Entscheidungen auf Versionsebene.
 2. Empfangsbestätigungen später für Aufräum- und Aufbewahrungsregeln nutzen.
 3. Push-Kanal und Konfliktbenachrichtigung ergänzen; zunächst ganze Version
    übernehmen oder zurückstellen. Stabil identifizierbare Shapes/Layer sind
@@ -191,9 +191,15 @@ Der erste Meilenstein ist umgesetzt:
   getrennten Miniaturen, Größen sowie Änderungsmarkern für Arbeitsbereich,
   Ebenen, Objekte und Metadaten angezeigt. Der Dialog verändert weder Inbox-
   Status noch Projektdateien.
+- `Lokale Version behalten` quittiert ausschließlich die konkrete Inbox-
+  Revision als ignoriert. `Charon-Version übernehmen` hängt den empfangenen
+  Stand als neue lokale Version mit eigener Versions-ID und Herkunftsnotiz an;
+  die lokale Historie bleibt erhalten. Ist genau dieses Projekt geöffnet und
+  ungespeichert, greift vorher der Dirty-Guard. Projekte mit noch nicht
+  übertragenen Bild-Assets bleiben gesperrt.
 
-Noch offen sind Übernahmeentscheidungen und späterer Merge, Asset- und
-Settings-Transfer, Push-Kanal, Konfliktbenachrichtigung sowie Ruida-Leases.
+Noch offen sind späterer Objekt-Merge, Asset- und Settings-Transfer, Push-Kanal,
+Konfliktbenachrichtigung sowie Ruida-Leases.
 Charon darf Versionen verteilen und
 Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten oder
 laufende Jobs unterbrechen.
