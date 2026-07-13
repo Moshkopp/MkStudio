@@ -234,7 +234,8 @@ Teil dieses ADR — hier entstehen nur Datenmodell, Import, Bearbeitung und Laye
 ## Konsequenzen
 
 - Der Asset-Store (`Assets/`) entsteht jetzt; `asset_refs` (ADR 0003) wird erstmals
-  befüllt. Charon kann Assets später per Hash einmalig synchronisieren.
+  befüllt. Charon kann Assets später per Hash einmalig ablegen und zusammen mit
+  referenzierenden Projektversionen an andere Arbeitsplätze ausliefern.
 - `Geo` bekommt die Variante `Image`; Serialisierung bleibt vorwärts-tolerant.
 - `LayerMode` bekommt `Image`; `Layer` bekommt `bidirectional`.
 - Projekt-Versionen (ADR 0003): Ein Bild-Shape referenziert nur die Asset-ID —

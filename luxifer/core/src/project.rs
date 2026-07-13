@@ -130,7 +130,8 @@ impl ProjectFile {
     /// Leitet `asset_refs` aus den aktuellen Shapes ab (ADR 0004 §1): sammelt die
     /// Asset-IDs aller `Geo::Image`-Shapes (dedupliziert, in Reihenfolge des
     /// ersten Auftretens). So kennt das Projekt seine Assets explizit — Grundlage
-    /// für Anzeige, Aufräumen verwaister Assets und späteren Charon-Sync.
+    /// für Anzeige, Aufräumen verwaister Assets und Charons spätere
+    /// versionsbasierte Verteilung.
     pub fn sync_asset_refs(&mut self) {
         let mut refs: Vec<String> = Vec::new();
         for s in &self.shapes {

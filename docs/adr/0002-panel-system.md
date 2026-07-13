@@ -47,8 +47,9 @@ ignoriert.
 2. FitView verwendet feste Insets pro Tab, keine Ableitung aus Panel-Rechtecken.
 3. Theming kommt weiter aus den GUI-Settings und wird per CSS-Variablen
    angewendet.
-4. GUI-Settings bleiben offline lokal persistent; Charon-Sync ist optionaler
-   späterer Ausbau.
+4. GUI-Settings bleiben offline lokal persistent. Charon sichert versionierte
+   Settings je stabiler Arbeitsplatz-ID; Laden und Übernehmen bleiben
+   ausdrückliche Nutzeraktionen auf dem jeweiligen Client.
 5. Unbenutzte Layout-Altlasten bleiben nicht im aktiven Codepfad.
 
 ## Konsequenzen
@@ -65,4 +66,4 @@ ignoriert.
 ## Offen / nicht Teil dieser Entscheidung
 
 - Inhaltlicher Ausbau des Monitor-Reiters.
-- Optionaler späterer Charon-Sync der verbleibenden GUI-Settings.
+- Optionale spätere Charon-Sicherung arbeitsplatzbezogener GUI-Settings.

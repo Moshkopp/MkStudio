@@ -39,7 +39,9 @@ Sammelmodul werden; Projekt-, Asset- und Laserabläufe erhalten eigene Services.
 Charon-Meilenstein 1 (ADR 0012): lokaler Server auf `127.0.0.1:3737`,
 `/health`, versionierter Handshake, UI-unabhängiger Application-Client sowie
 persistente Aktivierung/URL und Verbindungstest in den globalen Einstellungen.
-Projekt-/Asset-Synchronisation ist noch ausdrücklich nicht enthalten.
+Projekt-Outbox/Inbox, Push-Verteilung, arbeitsplatzbezogene Settings-Sicherung
+und Ruida-Lease-Vergabe sind noch ausdrücklich nicht enthalten. Lokales
+Speichern bleibt unabhängig; Charon editiert oder merged keine Projektinhalte.
 
 ## Editor, Auswahl und Layer
 

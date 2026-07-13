@@ -8,9 +8,10 @@ Akzeptiert — 2026-07-07 · **überarbeitet 2026-07-08 (Versions-Modell)**
 Zum Testen und Arbeiten muss man Projekte **speichern und wieder laden** können.
 Das Core-Fundament steht (`luxifer/core/src/project.rs`: `ProjectFile`,
 `save_to_dir`, `load`, `list_projects`), aber es fehlen Tauri-Commands und
-Frontend. Zugleich soll das Format so gebaut sein, dass **Charon** es später pro
-Arbeitsplatz **synchronisieren** kann (Invariante: Charon ist optional, steuert nie
-eine Maschine, ist nie Voraussetzung für lokale Arbeit).
+Frontend. Zugleich soll das Format so gebaut sein, dass **Charon** versionierte
+Projektstände zwischen Arbeitsplätzen **verteilen** kann (Invariante: lokales
+Speichern funktioniert immer zuerst und ohne Charon; Charon editiert oder
+merged keine Projektinhalte selbst).
 
 Drei Erkenntnisse prägen die Entscheidung:
 
@@ -161,8 +162,10 @@ das war die zentrale Baustelle der ersten Fassung.
 
 ## Konsequenzen
 
-- Charon kann später per `id` + `modified_at` Projekte abgleichen und geteilte
-  Assets nur einmal übertragen.
+- Charon kann Projektversionen anhand stabiler Projekt-, Versions- und
+  Eltern-IDs verteilen und geteilte Assets nur einmal ablegen. Parallele
+  Änderungen bleiben erkennbare Zweige; Übernehmen, Vergleich und Merge sind
+  explizite Clientaktionen.
 - Der `last_project_id`-Anker erweitert die GUI-Settings (ADR 0002).
 - Thumbnails kosten je Version eine kleine PNG-Datei — bewusst, für die visuelle
   Versionsliste.

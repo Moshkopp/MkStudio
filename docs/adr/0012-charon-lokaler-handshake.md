@@ -2,14 +2,16 @@
 
 ## Status
 
-Akzeptiert — 2026-07-13.
+Akzeptiert — 2026-07-13 · präzisiert nach Rollen-/Lease-Entscheidung.
 
 ## Kontext
 
-Charon ist bisher nur ein leeres Workspace-Binary. Die Projekt- und
-Asset-ADRs sehen ihn langfristig für Synchronisation und Koordination vor,
-fordern aber zugleich, dass LuxiFer vollständig offline und ohne Server
-arbeitsfähig bleibt.
+Charon soll Projektstände zwischen Office und Workshop verteilen, die
+regelmäßige Proxmox-Sicherung als zentralen Ablagepunkt nutzen,
+arbeitsplatzbezogene Einstellungen sichern und konkurrierende Zugriffe auf
+einen Ethernet-Ruida koordinieren. Gleichzeitig gilt unverändert:
+**LuxiFer first, Charon optional.** Editor, lokales Speichern und Laserbetrieb
+müssen ohne Charon möglich bleiben.
 
 Der erste Entwicklungsschritt soll auf demselben Rechner wie LuxiFer laufen.
 Damit können Protokoll, Fehlergrenzen und Bedienung stabilisiert werden, bevor
@@ -47,23 +49,64 @@ Fähigkeiten müssen von Clients ignoriert werden.
    Betriebsentscheidung mit eigener Authentifizierungs- und TLS-Grenze.
 5. Handshake-Kompatibilität wird über die Protokollversion entschieden, nicht
    über die Charon-Binaryversion.
+6. **Lokales Speichern kommt zuerst.** Ein Speichervorgang schreibt immer zuerst
+   die lokale Projektversion und endet unabhängig vom Charon-Ergebnis
+   erfolgreich. Eine persistente Outbox überträgt neue Versionen später und
+   wiederholt fehlgeschlagene Übertragungen nach Neustarts.
+7. **Charon verteilt Versionen, verändert sie aber nicht.** Charon speichert
+   empfangene Projektversionen inhaltsgetreu, katalogisiert Elternbeziehung,
+   Arbeitsplatz und Hash und meldet sie anderen verbundenen Arbeitsplätzen per
+   Push. Er editiert oder merged keine Projektinhalte und überschreibt keine
+   lokale Datei selbst.
+8. **Der empfangende Client entscheidet.** Neue Versionen landen zunächst in
+   einer lokalen Inbox. Bei geöffneten, ungespeicherten oder abweichenden
+   Projekten zeigt LuxiFer `Übernehmen`, `Später`, `Änderungen anzeigen` und
+   später einen expliziten Merge-Ablauf. Konflikte bleiben als parallele
+   Versionszweige erhalten; Charon bestimmt keinen Gewinner.
+9. **Arbeitsplätze haben stabile Identität.** Ein unsichtbarer stabiler
+   `workplace_id` identifiziert den Rechner; `workplace_name` ist der
+   menschenlesbare Name. UI-Settings und Laserprofile werden je Arbeitsplatz
+   als versionierte Sicherungen abgelegt. Eine Neuinstallation lädt und
+   übernimmt sie nur nach ausdrücklicher Auswahl durch den Nutzer.
+10. **Ruida-Exklusivität ist Koordination, keine Maschinensteuerung.** Charon
+   vergibt später genau eine zeitlich begrenzte Lease pro Ethernet-Controller.
+   Nur der Lease-Inhaber verbindet sich selbst mit dem Ruida; Charon sendet
+   niemals Maschinenbefehle oder Jobdaten.
+11. **Die Verbindung bleibt manuell.** `Verbinden` im Laser-Tab fordert die
+   Lease an. Hält ein anderer Arbeitsplatz eine untätige Verbindung, fordert
+   Charon ihn per Push zum Trennen auf und übergibt anschließend die Lease.
+   Läuft oder pausiert ein Job, wird die Übergabe abgelehnt. Kurze kritische
+   Controller-Schreibvorgänge gelten ebenfalls als belegt.
+12. **Verwaiste Leases sperren nicht dauerhaft.** Heartbeats halten eine Lease
+   aktiv. Nach Ablauf darf eine zuletzt sicher untätige Lease automatisch
+   freigegeben werden. Bei `Running`, `Paused` oder unbekanntem letzten Status
+   ist nur eine deutlich bestätigte Zwangsfreigabe nach Kontrolle an der
+   Maschine zulässig. Ein Prozentfortschritt ist für die Lease nicht nötig.
+13. **Charon-Ausfall bleibt beherrschbar.** Ist Charon nicht konfiguriert, darf
+   LuxiFer direkt verbinden. Ist er konfiguriert, aber nicht erreichbar, warnt
+   LuxiFer vor einer unkoordinierten Ethernet-Verbindung und verlangt eine
+   manuelle Bestätigung. USB-Verbindungen benötigen keine Charon-Lease.
 
 ## Nicht Teil dieses Meilensteins
 
-- Projekt-, Versions-, Profil- oder GUI-Settings-Synchronisation;
+- Projekt-Outbox/Inbox, Versionstransfer und Push-Kanal;
+- Arbeitsplatzidentität sowie Settings-/Laserprofil-Sicherung;
 - Assetübertragung und Deduplizierung;
 - Benutzerkonten, Tokens, TLS, Discovery oder Fernzugriff;
-- Queueing, Maschinen-Sessions oder Jobübertragung;
+- Ruida-Lease-Protokoll, Queueing oder Jobübertragung;
 - Proxmox-, Container- oder Systemdienst-Deployment.
 
 ## Nächste Schritte
 
-1. Lokalen Server und serialisierbares Handshake-Modell implementieren.
-2. UI-unabhängigen Charon-Client in `luxifer-application` ergänzen.
-3. Persistente Charon-Konfiguration und Live-Verbindungstest in den globalen
-   Einstellungen anbinden.
-4. Erst nach realer lokaler Nutzung den ersten Synchronisationsfall separat
-   entscheiden.
+1. Arbeitsplatzidentität und persistente lokale Outbox/Inbox modellieren.
+2. Unveränderte Projektversionen übertragen, bestätigen und erneut zustellen.
+3. Push-Kanal und Konfliktbenachrichtigung ergänzen; zunächst ganze Version
+   übernehmen oder zurückstellen. Stabil identifizierbare Shapes/Layer sind
+   Voraussetzung für späteren Vergleich und Drei-Wege-Objekt-Merge.
+4. Arbeitsplatzbezogene Settings- und Laserprofil-Sicherungen ergänzen.
+5. Explizites `Verbinden`/`Trennen` im Laser-Tab einführen.
+6. Ruida-Lease, Heartbeat, Übergabe-Push und sichere Zwangsfreigabe als eigenen
+   Meilenstein umsetzen.
 
 ## Umsetzungsstand
 
@@ -77,4 +120,7 @@ Der erste Meilenstein ist umgesetzt:
 - Aktivierung, URL und Verbindungstest liegen in der globalen
   Charon-Einstellungssektion; alte Settings erhalten sichere Defaults.
 
-Noch offen ist bewusst jede Form der Synchronisation.
+Noch offen sind Outbox/Inbox, Projekt- und Settings-Transfer, Push-Kanal,
+Konfliktvergleich sowie Ruida-Leases. Charon darf Versionen verteilen und
+Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten oder
+laufende Jobs unterbrechen.
