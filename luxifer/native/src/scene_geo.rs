@@ -222,44 +222,12 @@ pub fn fill_rect(x: f32, y: f32, w: f32, h: f32, color: [f32; 4]) -> Vec<Vertex>
     ]
 }
 
-/// `grid_mm` = Rasterweite aus den GUI-Settings = Abstand der FEINEN Linien
-/// (dieselbe Semantik wie der Tauri-Canvas); Hauptlinien alle 5 Schritte.
-/// Default-Settings (10 mm) ergeben das gewohnte 10/50-Bild.
-pub fn bed_grid(w: f32, h: f32, grid_mm: f32) -> Vec<Vertex> {
+/// Arbeitsbereich als Bühne: dezent hellere Fläche + kräftiger Rahmen +
+/// Nullpunkt-Kreuz. Das Gitter liegt NICHT mehr hier (zoom-unabhängig
+/// gecacht), sondern im kamera-abhängigen [`viewport_grid`].
+pub fn bed_base(w: f32, h: f32) -> Vec<Vertex> {
     // Bett-Fläche zuunterst, etwas heller als der Fenster-Hintergrund.
     let mut v = fill_rect(0.0, 0.0, w, h, [0.10, 0.11, 0.13, 1.0]);
-    // Schutzkappe: mehr als ~200 Linien pro Richtung werden zur Tapete
-    // (der Puffer ist zoom-unabhängig gecacht, ausdünnen per Zoom gibt es
-    // hier nicht) — dann Schrittweite verdoppeln.
-    let mut minor = grid_mm.max(1.0);
-    while w.max(h) / minor > 200.0 {
-        minor *= 2.0;
-    }
-    let fine = [1.0, 1.0, 1.0, 0.05];
-    let coarse = [1.0, 1.0, 1.0, 0.12];
-
-    // Linien über den Schritt-Index statt Modulo — bei krummen Rasterweiten
-    // driftet Float-Modulo und Hauptlinien würden zufällig „fein".
-    let mut i = 0u32;
-    loop {
-        let x = i as f32 * minor;
-        if x > w + 0.01 {
-            break;
-        }
-        let color = if i.is_multiple_of(5) { coarse } else { fine };
-        push_seg(&mut v, [x, 0.0], [x, h], color);
-        i += 1;
-    }
-    let mut i = 0u32;
-    loop {
-        let y = i as f32 * minor;
-        if y > h + 0.01 {
-            break;
-        }
-        let color = if i.is_multiple_of(5) { coarse } else { fine };
-        push_seg(&mut v, [0.0, y], [w, y], color);
-        i += 1;
-    }
     // Bett-Rahmen kräftiger.
     for seg in rect_outline(0.0, 0.0, w, h, BED_COLOR) {
         v.push(seg);
@@ -268,6 +236,70 @@ pub fn bed_grid(w: f32, h: f32, grid_mm: f32) -> Vec<Vertex> {
     let o = 14.0;
     push_seg(&mut v, [0.0, 0.0], [o, 0.0], ORIGIN_COLOR);
     push_seg(&mut v, [0.0, 0.0], [0.0, o], ORIGIN_COLOR);
+    v
+}
+
+/// Unterhalb dieses Bildschirm-Abstands (px pro Rasterschritt) ist eine
+/// Linienschar komplett ausgeblendet — dort begänne Moiré/Flimmern.
+pub const GRID_FADE_LO_PX: f32 = 7.0;
+/// Ab diesem Abstand hat die Feinlinien-Schar ihre volle Deckkraft.
+pub const GRID_FADE_HI_PX: f32 = 14.0;
+
+/// Wählt die Feinraster-Schrittweite für den aktuellen Zoom: die Settings-
+/// Rasterweite, bei Bedarf ×5 vergröbert, bis ein Schritt auf dem Bildschirm
+/// mindestens [`GRID_FADE_LO_PX`] misst. ×5 hält die Progression konsistent
+/// zur Hauptlinien-Regel „jede 5. Linie": Die bisherige Hauptlinie wird beim
+/// Rauszoomen nahtlos zur neuen Feinlinie.
+pub fn grid_step_mm(grid_mm: f32, scale_px_per_mm: f32) -> f32 {
+    let mut step = grid_mm.max(0.05);
+    while step * scale_px_per_mm < GRID_FADE_LO_PX {
+        step *= 5.0;
+    }
+    step
+}
+
+/// Gitter über den gesamten sichtbaren Ausschnitt (H1): am Maschinen-Nullpunkt
+/// ausgerichtete Linien, Hauptlinien alle 5 Schritte. Zoom-adaptiv gegen
+/// Moiré: Die Feinlinien blenden zwischen [`GRID_FADE_HI_PX`] und
+/// [`GRID_FADE_LO_PX`] Bildschirm-Abstand weich aus; parallel sinkt die
+/// Hauptlinien-Deckkraft auf Feinlinien-Niveau, sodass die Hauptlinie beim
+/// Stufenwechsel (×5) ohne Sprung zur Feinlinie der nächsten Stufe wird.
+pub fn viewport_grid(cam: &crate::camera::Camera, grid_mm: f32) -> Vec<Vertex> {
+    let step = grid_step_mm(grid_mm, cam.scale);
+    let t = ((step * cam.scale - GRID_FADE_LO_PX) / (GRID_FADE_HI_PX - GRID_FADE_LO_PX))
+        .clamp(0.0, 1.0);
+    const FINE_A: f32 = 0.05;
+    const COARSE_A: f32 = 0.12;
+    let fine = [1.0, 1.0, 1.0, FINE_A * t];
+    let coarse = [1.0, 1.0, 1.0, FINE_A + (COARSE_A - FINE_A) * t];
+
+    // Sichtbarer Weltausschnitt (mm), einen Schritt großzügiger.
+    let tl = cam.screen_to_world([0.0, 0.0]);
+    let br = cam.screen_to_world(cam.viewport);
+    let (x0, x1) = (tl[0] as f32 - step, br[0] as f32 + step);
+    let (y0, y1) = (tl[1] as f32 - step, br[1] as f32 + step);
+
+    // Linien über den Schritt-Index statt Modulo — bei krummen Rasterweiten
+    // driftet Float-Modulo und Hauptlinien würden zufällig „fein".
+    let mut v = Vec::new();
+    let mut axis = |a0: f32, a1: f32, vertical: bool| {
+        let i0 = (a0 / step).floor() as i64;
+        let i1 = (a1 / step).ceil() as i64;
+        for i in i0..=i1 {
+            let color = if i.rem_euclid(5) == 0 { coarse } else { fine };
+            if color[3] < 0.005 {
+                continue;
+            }
+            let a = i as f32 * step;
+            if vertical {
+                push_seg(&mut v, [a, y0], [a, y1], color);
+            } else {
+                push_seg(&mut v, [x0, a], [x1, a], color);
+            }
+        }
+    };
+    axis(x0, x1, true);
+    axis(y0, y1, false);
     v
 }
 
@@ -303,19 +335,36 @@ mod tests {
         assert!(fill_lines(&state).is_empty());
     }
 
-    /// Die Rasterweite ist das Feinraster; absurd kleine Werte dürfen das Bett
-    /// nicht zur Linien-Tapete machen (Schutzkappe verdoppelt die Schrittweite).
+    /// Beim Arbeitszoom bleibt der Schritt exakt die Settings-Rasterweite;
+    /// erst wenn ein Schritt unter die Moiré-Schwelle fiele, vergröbert ×5.
     #[test]
-    fn bett_raster_bleibt_begrenzt() {
-        let fein = bed_grid(900.0, 600.0, 10.0);
-        let tapete = bed_grid(900.0, 600.0, 1.0);
-        // 1-mm-Raster würde ungekappt ~9x so viele Linien liefern wie 10 mm —
-        // mit Kappe (max ~200 Linien je Richtung) bleibt es in derselben Liga.
-        assert!(
-            tapete.len() <= fein.len() * 2,
-            "{} > {}",
-            tapete.len(),
-            fein.len() * 2
-        );
+    fn gitter_schritt_vergroebert_erst_unter_der_moire_schwelle() {
+        // 10 mm × 2 px/mm = 20 px ≥ 7 px → Settings-Raster unverändert.
+        assert_eq!(grid_step_mm(10.0, 2.0), 10.0);
+        // 10 mm × 0.5 px/mm = 5 px < 7 px → eine Stufe ×5 (50 mm = 25 px).
+        assert_eq!(grid_step_mm(10.0, 0.5), 50.0);
+        // Sehr weit raus: mehrere Stufen, aber immer 5er-Potenz des Rasters.
+        let step = grid_step_mm(10.0, 0.02);
+        assert!(step * 0.02 >= GRID_FADE_LO_PX);
+        assert_eq!(step % 10.0, 0.0);
+    }
+
+    /// Das viewportfüllende Gitter darf bei keinem Zoom zur Tapete werden:
+    /// Der Linienabstand auf dem Schirm bleibt über der Moiré-Schwelle,
+    /// also ist die Linienzahl durch die Viewport-Pixel begrenzt.
+    #[test]
+    fn viewport_gitter_bleibt_bei_jedem_zoom_begrenzt() {
+        for scale in [0.02_f32, 0.1, 1.0, 10.0, 2000.0] {
+            let cam = crate::camera::Camera {
+                center: [450.0, 300.0],
+                scale,
+                viewport: [1920.0, 1080.0],
+            };
+            let v = viewport_grid(&cam, 1.0);
+            // 6 Vertices pro Segment; je Achse maximal Viewport/Schwelle
+            // Linien (+ Überhang) → großzügige Obergrenze.
+            let lines = v.len() / 6;
+            assert!(lines < 700, "scale {scale}: {lines} Linien");
+        }
     }
 }

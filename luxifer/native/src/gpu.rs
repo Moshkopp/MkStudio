@@ -32,6 +32,11 @@ pub struct Gpu {
     obuf: wgpu::Buffer,
     obuf_cap: u64,
     ocount: u32,
+    // Grid-Buffer (viewportfüllendes Gitter): kamera-abhängig, wird nur bei
+    // Kamera-/Rasteränderung neu hochgeladen.
+    gbuf: wgpu::Buffer,
+    gbuf_cap: u64,
+    gcount: u32,
 }
 
 impl Gpu {
@@ -156,6 +161,13 @@ impl Gpu {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let gbuf_cap = 1 << 13;
+        let gbuf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("grid"),
+            size: gbuf_cap * std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
 
         Self {
             device,
@@ -170,6 +182,9 @@ impl Gpu {
             obuf,
             obuf_cap,
             ocount: 0,
+            gbuf,
+            gbuf_cap,
+            gcount: 0,
         }
     }
 
@@ -201,6 +216,36 @@ impl Gpu {
         rp.set_bind_group(0, &self.bind, &[]);
         rp.set_vertex_buffer(0, self.obuf.slice(..));
         rp.draw(0..self.ocount, 0..1);
+    }
+
+    /// Grid-Vertices hochladen — nur bei Kamera-/Rasteränderung, klein.
+    pub fn upload_grid(&mut self, verts: &[Vertex]) {
+        let need = verts.len() as u64;
+        if need > self.gbuf_cap {
+            self.gbuf_cap = need.next_power_of_two().max(1);
+            self.gbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("grid"),
+                size: self.gbuf_cap * std::mem::size_of::<Vertex>() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !verts.is_empty() {
+            self.queue
+                .write_buffer(&self.gbuf, 0, bytemuck::cast_slice(verts));
+        }
+        self.gcount = verts.len() as u32;
+    }
+
+    /// Zeichnet das Gitter (nach der Bett-Fläche, vor den Inhalten).
+    pub fn draw_grid<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
+        if self.gcount == 0 {
+            return;
+        }
+        rp.set_pipeline(&self.pipeline);
+        rp.set_bind_group(0, &self.bind, &[]);
+        rp.set_vertex_buffer(0, self.gbuf.slice(..));
+        rp.draw(0..self.gcount, 0..1);
     }
 
     pub fn resize(&mut self, w: u32, h: u32) {

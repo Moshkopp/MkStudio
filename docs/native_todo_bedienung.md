@@ -21,7 +21,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 | A2 | ERLEDIGT | P1 | Bézier-Feder: Drücken setzt Anker, Ziehen erzeugt symmetrische Tangenten; Enter schließt den Entwurf ab. |
 | A3 | ERLEDIGT | P2 | Spline/Polyline/Bézier rasten nahe dem Startknoten ein; Klick oder Enter schließt den Pfad, der Startknoten signalisiert die Fangzone farbig. |
 | A4 | ERLEDIGT | P1 | Strg+Z = Undo, Strg+Shift+Z und Strg+Y = Redo. |
-| A5 | UX | P3 | Undo/Redo sollen als Icons in den Header. |
+| A5 | ERLEDIGT | P3 | Undo/Redo als Icon-Buttons im Header; Vektor-/Bild-Import zu einem Icon-Button zusammengelegt. |
 
 ## B. Geometrie-Operationen
 
@@ -80,8 +80,8 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
 | ID | Klasse | Prio | Beschreibung |
 |----|--------|------|--------------|
-| H1 | UX | P2 | Canvasgrid soll über den gesamten Body gehen; das Arbeitsfeld wird nur umrandet statt durchgehend gerastert. |
-| H2 | FEHLT | P2 | Canvas fehlen Lineale (Ruler oben/links). |
+| H1 | ERLEDIGT | P2 | Grid füllt den sichtbaren Ausschnitt bis zum Fensterrand; der Arbeitsbereich ist Fläche+Rahmen. Zoom-adaptiv gegen Moiré: Feinlinien blenden unter 14 px Bildschirm-Abstand weich aus, ab 7 px vergröbert der Schritt ×5 (Settings-Raster bleibt beim Arbeitszoom unverändert). |
+| H2 | ERLEDIGT | P2 | Lineale oben/links in mm, Tick-Intervall zoomabhängig (1/2/5er-Reihe), Cursor-Marker in Akzentfarbe. |
 
 ---
 

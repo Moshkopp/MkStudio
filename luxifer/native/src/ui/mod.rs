@@ -16,6 +16,7 @@ mod layers;
 mod palette;
 mod preview;
 mod project;
+mod ruler;
 mod splash;
 mod state;
 mod status;
@@ -249,6 +250,17 @@ pub fn build(ctx: &egui::Context, app: &mut App) {
                 }
             }
         }
+    }
+
+    // Lineale am Canvas-Rand — nach den Panels, damit `available_rect` genau
+    // den freien Canvas-Bereich meint. Vorschau/Projekt bleiben linealfrei.
+    if matches!(app.view, View::Design | View::Laser) {
+        ruler::rulers(
+            ctx,
+            &app.canvas.cam,
+            app.canvas.cursor,
+            app.ui_settings.theme.accent.hue,
+        );
     }
 
     // Text-Dialog: Entwurf als &mut, Font-Namen als reine Anzeigeliste.

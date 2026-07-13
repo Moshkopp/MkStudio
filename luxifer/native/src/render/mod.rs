@@ -67,6 +67,9 @@ pub struct Renderer {
     fps: f32,
     /// Ob egui im letzten Frame sofort weiter zeichnen wollte.
     wants_repaint: bool,
+    /// Kamera-/Rasterstand des letzten Grid-Aufbaus (Center, Scale, Viewport,
+    /// grid_mm) — das viewportfüllende Gitter wird nur bei Änderung neu gebaut.
+    grid_key: Option<([f32; 2], f32, [f32; 2], f32)>,
 }
 
 impl Renderer {
@@ -88,6 +91,7 @@ impl Renderer {
             last_frame: Instant::now(),
             fps: 0.0,
             wants_repaint: false,
+            grid_key: None,
         }
     }
 
@@ -235,7 +239,7 @@ impl Renderer {
         }
         if scene_changed {
             self.last_render_rev = rev;
-            let geometry = base_vertices(scene.session, scene.grid_mm);
+            let geometry = base_vertices(scene.session);
             self.background_end = geometry.background_end;
             self.verts = geometry.vertices;
             self.preview_legend = None;
@@ -244,6 +248,26 @@ impl Renderer {
             self.verts = verts;
         }
         self.gpu.upload_camera(scene.cam);
+        // Viewportfüllendes Gitter (kamera-abhängig): nur bei Änderung neu.
+        // Die Vorschau ist die Material-Bühne und bleibt gitterfrei.
+        let grid_key = if scene.preview {
+            None
+        } else {
+            Some((
+                scene.cam.center,
+                scene.cam.scale,
+                scene.cam.viewport,
+                scene.grid_mm,
+            ))
+        };
+        if grid_key != self.grid_key {
+            self.grid_key = grid_key;
+            let grid = match grid_key {
+                Some(_) => crate::scene_geo::viewport_grid(scene.cam, scene.grid_mm),
+                None => Vec::new(),
+            };
+            self.gpu.upload_grid(&grid);
+        }
         if scene.image_dirty || scene_changed {
             self.images.sync(
                 &self.gpu.device,
@@ -311,10 +335,12 @@ impl Renderer {
                 timestamp_writes: None,
                 occlusion_query_set: None,
             });
-            // Opakes Bett/Gitter zuerst. Danach Bildtexturen — im Preview die
-            // verarbeiteten Job-Rasterungen, sonst die Design-Originale —,
-            // anschließend Vektor-Fills und Konturen; Handles bleiben ganz oben.
+            // Opake Bett-Fläche zuerst, darüber das viewportfüllende Gitter.
+            // Danach Bildtexturen — im Preview die verarbeiteten
+            // Job-Rasterungen, sonst die Design-Originale —, anschließend
+            // Vektor-Fills und Konturen; Handles bleiben ganz oben.
             self.gpu.draw_canvas_range(&mut rp, 0..self.background_end);
+            self.gpu.draw_grid(&mut rp);
             if scene.preview {
                 self.images
                     .draw_rasters(&mut rp, &self.gpu, scene.cam, &mut img_scratch);
