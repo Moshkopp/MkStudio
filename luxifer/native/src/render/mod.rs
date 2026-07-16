@@ -356,9 +356,10 @@ impl Renderer {
                     resolve_target: None,
                     ops: wgpu::Operations {
                         load: wgpu::LoadOp::Clear(wgpu::Color {
-                            r: 0.025,
-                            g: 0.03,
-                            b: 0.04,
+                            // Dark-Workshop-Canvas (#111318 in etwa, linear).
+                            r: 0.006,
+                            g: 0.007,
+                            b: 0.009,
                             a: 1.0,
                         }),
                         store: wgpu::StoreOp::Store,

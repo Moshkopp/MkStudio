@@ -83,9 +83,10 @@ impl EditorSession {
         self.state.scale_selection_to(start, target);
     }
 
-    pub fn rotate_edit(&mut self, degrees: f64) {
-        debug_assert!(self.edit_active(), "rotate_edit ohne begin_edit");
-        self.state.rotate_selection(degrees);
+    pub fn rotate_edit_around(&mut self, pivot: [f64; 2], degrees: f64) {
+        debug_assert!(self.edit_active(), "rotate_edit_around ohne begin_edit");
+        self.state
+            .rotate_selection_around((pivot[0], pivot[1]), degrees);
     }
 
     pub fn commit_edit(&mut self) {

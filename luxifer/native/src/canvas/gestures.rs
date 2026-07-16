@@ -312,7 +312,7 @@ impl CanvasState {
                 Self::restore_snapshot(session, &orig);
                 let a = (w[1] - pivot[1]).atan2(w[0] - pivot[0]);
                 let delta_deg = (a - start_angle).to_degrees();
-                session.rotate_edit(delta_deg);
+                session.rotate_edit_around(pivot, delta_deg);
                 self.drag = Drag::Rotate {
                     pivot,
                     start_angle,

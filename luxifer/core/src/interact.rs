@@ -217,6 +217,17 @@ impl AppState {
         let Some(pivot) = self.selection_bbox().map(|b| b.center()) else {
             return;
         };
+        self.rotate_selection_around(pivot, degrees);
+    }
+
+    /// Dreht um einen vom Gestenbeginn stabil gehaltenen Pivot. Direkte
+    /// Manipulation darf den Mittelpunkt nicht aus der während der Drehung
+    /// wechselnden achsparallelen Auswahlbox neu ableiten; besonders
+    /// asymmetrische Polygone würden sonst zwischen Frames versetzt werden.
+    pub fn rotate_selection_around(&mut self, pivot: (f64, f64), degrees: f64) {
+        if degrees == 0.0 {
+            return;
+        }
         for &idx in &self.selected {
             if let Some(s) = self.shapes.get_mut(idx) {
                 // Geometrie-Zentrum (ohne Eigen-Rotation) um den Pivot drehen und
@@ -455,6 +466,25 @@ mod tests {
         assert!((before.0 - after.0).abs() < 1e-6);
         assert!((before.1 - after.1).abs() < 1e-6);
         assert!((s.shapes[0].rotation - 45.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn asymmetrisches_polygon_dreht_mit_stabilem_gestenpivot() {
+        let mut s = AppState::new();
+        s.add_shape(Geo::Polyline {
+            pts: vec![(10.0, 10.0), (80.0, 20.0), (45.0, 90.0), (20.0, 55.0)],
+            closed: true,
+        });
+        s.selected = vec![0];
+        let original = s.shapes[0].clone();
+        let pivot = s.selection_bbox().unwrap().center();
+
+        for angle in [8.0, 17.0, 31.0, 46.0, 73.0] {
+            s.shapes[0] = original.clone();
+            s.rotate_selection_around(pivot, angle);
+            assert_eq!(s.shapes[0].geo.bbox().center(), pivot);
+            assert!((s.shapes[0].rotation - angle).abs() < 1e-9);
+        }
     }
 
     #[test]

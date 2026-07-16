@@ -62,4 +62,4 @@ pub use raster::{raster_rows, raster_texture, Placement, RasterImage, RasterRow,
 pub use scanline::FillSegment;
 pub use shapes::{PolyShape, ShapeInfo};
 pub use state::AppState;
-pub use ui_settings::{Theme, ThemeColor, UiSettings};
+pub use ui_settings::{Theme, ThemeColor, ThemePalette, UiSettings};

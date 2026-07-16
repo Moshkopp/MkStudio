@@ -38,7 +38,10 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
     // Von oben (letzter Layer) nach unten anzeigen.
     for i in (0..n).rev() {
         let row = &rows[i];
-        egui::Frame::group(ui.style())
+        let card = egui::Frame::group(ui.style())
+            .fill(ui.visuals().faint_bg_color)
+            .stroke(egui::Stroke::new(1.0, ui.visuals().window_stroke.color))
+            .corner_radius(egui::CornerRadius::same(9))
             .inner_margin(egui::Margin::same(10))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -89,7 +92,7 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
                     ];
                     for (label, active, toggle) in toggles {
                         if ui
-                            .selectable_label(active, label)
+                            .add(status_chip(ui, label, active))
                             .on_hover_cursor(egui::CursorIcon::PointingHand)
                             .clicked()
                         {
@@ -98,9 +101,42 @@ pub(super) fn layers_panel(ui: &mut egui::Ui, rows: &[LayerRow]) -> Vec<UiAction
                     }
                 });
             });
+        let strip = egui::Rect::from_min_max(
+            card.response.rect.min,
+            egui::pos2(card.response.rect.left() + 4.0, card.response.rect.bottom()),
+        );
+        ui.painter().rect_filled(
+            strip,
+            egui::CornerRadius {
+                nw: 9,
+                sw: 9,
+                ne: 0,
+                se: 0,
+            },
+            c32(row.color),
+        );
         ui.add_space(6.0);
     }
     actions
+}
+
+fn status_chip<'a>(ui: &egui::Ui, label: &'a str, active: bool) -> egui::Button<'a> {
+    let text = if active {
+        RichText::new(label).strong()
+    } else {
+        RichText::new(label).color(ui.visuals().weak_text_color())
+    };
+    let mut button = egui::Button::new(text).corner_radius(egui::CornerRadius::same(12));
+    if active {
+        button = button
+            .fill(ui.visuals().selection.bg_fill.gamma_multiply(0.75))
+            .stroke(egui::Stroke::new(1.0, ui.visuals().selection.stroke.color));
+    } else {
+        button = button
+            .fill(ui.visuals().panel_fill)
+            .stroke(egui::Stroke::new(1.0, ui.visuals().window_stroke.color));
+    }
+    button
 }
 
 pub(super) fn laser_edit_layers(

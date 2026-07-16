@@ -65,6 +65,15 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
         .filter(|entry| entry.status == luxifer_application::InboxStatus::PendingReview)
         .count();
     let topbar_actions = egui::Panel::top("topbar")
+        .frame(
+            egui::Frame::new()
+                .fill(c32(app.ui_settings.theme.palette.toolbar))
+                .inner_margin(egui::Margin::symmetric(8, 5))
+                .stroke(egui::Stroke::new(
+                    1.0,
+                    c32(app.ui_settings.theme.palette.border),
+                )),
+        )
         .show(ui, |ui| {
             topbar::topbar(
                 ui,
@@ -753,20 +762,18 @@ fn scale_rgb(hue: [u8; 3], f: f32) -> Color32 {
     Color32::from_rgb(s(hue[0]), s(hue[1]), s(hue[2]))
 }
 
-/// Dunkles Theme, an den Svelte-Look angelehnt (kühles Blau-Grau).
-/// Theme nah am Tauri-Design (app.css): kühles Blau-Grau, Akzent nur am aktiven
-/// Element, sanfte Rundungen und ein bisschen mehr Luft. Bewusst ohne echtes
-/// Glas/Blur (das kann egui nicht), aber mit denselben Farbwerten.
+/// Dark-Workshop-Theme: warme Graphitflächen mit klarer Helligkeitsstaffelung.
 /// Akzent- und Buttonfarbe kommen aus den GUI-Settings (ADR 0002); mit den
 /// Default-Settings entspricht das exakt dem bisherigen festen Look.
 fn apply_theme(ui: &mut egui::Ui, theme: &luxifer_core::Theme) {
     use egui::{CornerRadius, Stroke};
-    let bg = Color32::from_rgb(0x10, 0x12, 0x16); // --bg
-    let panel = Color32::from_rgb(0x17, 0x1a, 0x20); // --panel
-    let panel2 = Color32::from_rgb(0x1c, 0x1f, 0x26); // --panel-2 (Inputs/Kacheln)
-    let border = Color32::from_rgb(0x2a, 0x2e, 0x36); // --border
-    let text = Color32::from_rgb(0xec, 0xee, 0xf1); // --text
-    let muted = Color32::from_rgb(0x9a, 0xa0, 0xa9); // --muted
+    let bg = c32(theme.palette.background);
+    let toolbar = c32(theme.palette.toolbar);
+    let panel = c32(theme.palette.panel);
+    let panel2 = c32(theme.palette.surface);
+    let border = c32(theme.palette.border);
+    let text = c32(theme.palette.text);
+    let muted = c32(theme.palette.muted);
 
     // Akzent: voller Farbton für Kanten/Text, Intensität steuert die Füllungen
     // (Default 0.7 → 0.85/0.9, die bisherigen festen Werte).
@@ -781,7 +788,7 @@ fn apply_theme(ui: &mut egui::Ui, theme: &luxifer_core::Theme) {
 
     let mut v = egui::Visuals::dark();
     v.panel_fill = panel;
-    v.window_fill = panel;
+    v.window_fill = panel2;
     v.extreme_bg_color = bg; // Hintergrund von TextEdit/Canvas-Rand
     v.faint_bg_color = panel2;
     v.override_text_color = Some(text);
@@ -790,10 +797,12 @@ fn apply_theme(ui: &mut egui::Ui, theme: &luxifer_core::Theme) {
     v.selection.bg_fill = accent_sel;
     v.selection.stroke = Stroke::new(1.0, accent);
     v.hyperlink_color = accent;
+    v.error_fg_color = c32(theme.palette.danger);
+    v.warn_fg_color = accent;
 
     let r = CornerRadius::same(8);
     // Ruhende Widgets: neutrale Fläche, weiche Kante.
-    v.widgets.noninteractive.bg_fill = panel;
+    v.widgets.noninteractive.bg_fill = toolbar;
     v.widgets.noninteractive.fg_stroke = Stroke::new(1.0, muted);
     v.widgets.noninteractive.corner_radius = r;
     v.widgets.inactive.bg_fill = button_fill;

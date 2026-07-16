@@ -207,6 +207,53 @@ pub fn handle_marker(cx: f32, cy: f32, hw: f32, color: [f32; 4]) -> Vec<Vertex> 
     v
 }
 
+/// Ruhiger Transform-Griff ohne X-Diagonalen. Ecken bleiben quadratisch,
+/// Seiten werden als kurze Balken dargestellt und kommunizieren so ihre Achse.
+pub fn transform_handle(
+    cx: f32,
+    cy: f32,
+    half_w: f32,
+    half_h: f32,
+    color: [f32; 4],
+) -> Vec<Vertex> {
+    let mut v = fill_rect(
+        cx - half_w,
+        cy - half_h,
+        half_w * 2.0,
+        half_h * 2.0,
+        [0.035, 0.045, 0.06, 1.0],
+    );
+    v.extend(rect_outline(
+        cx - half_w,
+        cy - half_h,
+        half_w * 2.0,
+        half_h * 2.0,
+        color,
+    ));
+    v
+}
+
+/// Eigenständiger runder Rotationsgriff mit Mittelpunkt statt Resize-X.
+pub fn rotation_handle(cx: f32, cy: f32, radius: f32, color: [f32; 4]) -> Vec<Vertex> {
+    let mut v = Vec::new();
+    const SEGMENTS: usize = 20;
+    let mut previous = [cx + radius, cy];
+    for i in 1..=SEGMENTS {
+        let angle = i as f32 / SEGMENTS as f32 * std::f32::consts::TAU;
+        let point = [cx + radius * angle.cos(), cy + radius * angle.sin()];
+        push_seg(&mut v, previous, point, color);
+        previous = point;
+    }
+    v.extend(fill_rect(
+        cx - radius * 0.22,
+        cy - radius * 0.22,
+        radius * 0.44,
+        radius * 0.44,
+        color,
+    ));
+    v
+}
+
 /// Baut das Arbeitsbett: Rahmen + mm-Gitter (grob alle `major` mm kräftiger,
 /// fein alle `minor` mm dezent) + Nullpunkt-Kreuz. Gibt dem Canvas das Gefühl
 /// einer Werkbank statt leeren Graus.
@@ -307,8 +354,8 @@ pub fn viewport_grid(cam: &crate::camera::Camera, grid_mm: f32) -> Vec<Vertex> {
     let step = grid_step_mm(grid_mm, cam.scale);
     let t = ((step * cam.scale - GRID_FADE_LO_PX) / (GRID_FADE_HI_PX - GRID_FADE_LO_PX))
         .clamp(0.0, 1.0);
-    const FINE_A: f32 = 0.035;
-    const COARSE_A: f32 = 0.09;
+    const FINE_A: f32 = 0.018;
+    const COARSE_A: f32 = 0.055;
     let fine = [1.0, 1.0, 1.0, FINE_A * t];
     let coarse = [1.0, 1.0, 1.0, FINE_A + (COARSE_A - FINE_A) * t];
 
@@ -359,7 +406,7 @@ pub fn bed_material(w: f32, h: f32, color: [f32; 4]) -> Vec<Vertex> {
 }
 
 /// Farbwert für den deutlich sichtbaren Tisch-Rahmen.
-pub const BED_COLOR: [f32; 4] = [0.76, 0.80, 0.88, 1.0];
+pub const BED_COLOR: [f32; 4] = [0.62, 0.65, 0.7, 0.95];
 /// Auswahl-BBox-Rahmen (heller Akzentton).
 pub const SEL_BOX_COLOR: [f32; 4] = [0.4, 0.7, 1.0, 0.9];
 /// Transform-Handles (weiß).

@@ -29,10 +29,10 @@ pub struct OverlayInput<'a> {
     pub bridge: Option<super::state::BridgeDraft>,
 }
 
-/// Halbe Handle-Kantenlänge in Welt-mm, damit sie am Bildschirm konstant
-/// ~7px groß wirken (unabhängig vom Zoom). Auch für den Handle-Hit-Test genutzt.
+/// Halbe Handle-Kantenlänge in Welt-mm, damit die sichtbare Fläche am
+/// Bildschirm konstant etwa 10 px groß bleibt. Der Hit-Test ist großzügiger.
 pub(crate) fn handle_hw(cam_scale: f32) -> f32 {
-    7.0 / cam_scale
+    5.0 / cam_scale
 }
 
 /// Rotate-Handle-Position (mm): mittig über der Auswahl-BBox, mit Abstand.
@@ -357,11 +357,19 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
         return v;
     };
     let hw = handle_hw(input.cam_scale);
-    for (_, (hx, hy)) in luxifer_core::Handle::positions(&b) {
-        v.extend(scene_geo::handle_marker(
+    for (handle, (hx, hy)) in luxifer_core::Handle::positions(&b) {
+        let (half_w, half_h) = if handle.is_corner() {
+            (hw, hw)
+        } else if matches!(handle, luxifer_core::Handle::N | luxifer_core::Handle::S) {
+            (hw * 1.35, hw * 0.62)
+        } else {
+            (hw * 0.62, hw * 1.35)
+        };
+        v.extend(scene_geo::transform_handle(
             hx as f32,
             hy as f32,
-            hw,
+            half_w,
+            half_h,
             scene_geo::HANDLE_COLOR,
         ));
     }
@@ -374,10 +382,10 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
         [rp[0] as f32, rp[1] as f32],
         scene_geo::SEL_BOX_COLOR,
     );
-    v.extend(scene_geo::handle_marker(
+    v.extend(scene_geo::rotation_handle(
         rp[0] as f32,
         rp[1] as f32,
-        hw * 1.1,
+        hw * 1.15,
         scene_geo::HANDLE_COLOR,
     ));
     v

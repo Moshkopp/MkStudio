@@ -1,8 +1,6 @@
 //! Werkzeugleiste (links): 2-spaltiges Icon-Grid, 5 Gruppen wie die
 //! Tauri-ToolsPanel. Enthält den geteilten `icon_button`-Helfer.
 
-use egui::Color32;
-
 use super::action::UiAction;
 use super::ICON_BUTTON_SIDE;
 use crate::tools::Tool;
@@ -18,25 +16,32 @@ pub(super) fn icon_button(
     dim: bool,
 ) -> bool {
     let (rect, resp) = ui.allocate_exact_size(egui::vec2(side, side), egui::Sense::click());
-    let accent = Color32::from_rgb(0x3B, 0x82, 0xF6);
+    let accent = ui.visuals().selection.stroke.color;
     let bg = if on {
-        accent.gamma_multiply(0.85)
+        accent.gamma_multiply(0.72)
     } else if resp.hovered() {
-        Color32::from_rgb(0x25, 0x2a, 0x33)
+        ui.visuals().widgets.hovered.bg_fill
     } else {
-        Color32::from_rgb(0x1c, 0x1f, 0x26)
+        ui.visuals().faint_bg_color
     };
     ui.painter().rect(
         rect,
         7.0,
         bg,
-        egui::Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x36)),
+        egui::Stroke::new(
+            if on { 1.5 } else { 1.0 },
+            if on {
+                accent
+            } else {
+                ui.visuals().window_stroke.color
+            },
+        ),
         egui::StrokeKind::Inside,
     );
     let fg = if dim {
-        Color32::from_rgb(0x9a, 0xa0, 0xa9)
+        ui.visuals().weak_text_color()
     } else {
-        Color32::from_rgb(0xec, 0xee, 0xf1)
+        ui.visuals().text_color()
     };
     // Icon-Box zentriert (etwas kleiner als der Button).
     let pad = side * 0.22;
@@ -75,6 +80,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
     let gap = 4.0;
     let side = ICON_BUTTON_SIDE;
 
+    group_label(ui, "AUSWAHL");
     // Gruppe 1: Auswahl. Gleiche Kantenlänge wie alle anderen Werkzeuge;
     // die frühere volle Panelbreite machte diesen Knopf unverhältnismäßig groß.
     ui.horizontal(|ui| {
@@ -91,6 +97,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
     });
     divider(ui);
     // Gruppe 2: Zeichnen & Formen.
+    group_label(ui, "ZEICHNEN");
     if let Some(t) = tool_grid(
         ui,
         side,
@@ -136,6 +143,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
         });
     divider(ui);
     // Gruppe 3: Operationen. `trim` bleibt Stub (wie Tauri).
+    group_label(ui, "BEARBEITEN");
     egui::Grid::new("tg_ops")
         .spacing([gap, gap])
         .show(ui, |ui| {
@@ -200,6 +208,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
         });
     divider(ui);
     // Gruppe 4: Spiegeln.
+    group_label(ui, "ANORDNEN");
     egui::Grid::new("tg_mirror")
         .spacing([gap, gap])
         .show(ui, |ui| {
@@ -272,7 +281,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
 
 /// Dünner horizontaler Trenner zwischen Werkzeuggruppen.
 fn divider(ui: &mut egui::Ui) {
-    ui.add_space(4.0);
+    ui.add_space(3.0);
     let w = ui.available_width() * 0.8;
     let (rect, _) =
         ui.allocate_exact_size(egui::vec2(ui.available_width(), 1.0), egui::Sense::hover());
@@ -280,7 +289,16 @@ fn divider(ui: &mut egui::Ui) {
     let x0 = rect.center().x - w / 2.0;
     ui.painter().line_segment(
         [egui::pos2(x0, y), egui::pos2(x0 + w, y)],
-        egui::Stroke::new(1.0, Color32::from_rgb(0x2a, 0x2e, 0x36)),
+        egui::Stroke::new(1.0, ui.visuals().window_stroke.color.gamma_multiply(0.7)),
     );
-    ui.add_space(4.0);
+    ui.add_space(3.0);
+}
+
+fn group_label(ui: &mut egui::Ui, label: &str) {
+    ui.label(
+        egui::RichText::new(label)
+            .size(9.0)
+            .color(ui.visuals().weak_text_color()),
+    );
+    ui.add_space(2.0);
 }

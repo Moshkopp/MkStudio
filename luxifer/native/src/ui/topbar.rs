@@ -81,7 +81,7 @@ pub(super) fn topbar(
                     } else {
                         format!("  {}  ", target.label())
                     };
-                    if ui.selectable_label(view == target, label).clicked() {
+                    if view_tab(ui, &label, view == target).clicked() {
                         actions.push(UiAction::SelectView(target));
                     }
                 }
@@ -137,4 +137,34 @@ pub(super) fn topbar(
     });
     ui.add_space(4.0);
     actions
+}
+
+/// Ruhiger Navigationstab: keine massive Akzentfläche, sondern klare
+/// Typografie und eine Markenlinie am aktiven Reiter.
+fn view_tab(ui: &mut egui::Ui, label: &str, active: bool) -> egui::Response {
+    let text = if active {
+        RichText::new(label).strong()
+    } else {
+        RichText::new(label).color(ui.visuals().weak_text_color())
+    };
+    let response = ui.add_sized([86.0, 28.0], egui::Button::new(text).frame(false));
+    if active {
+        let rect = response.rect;
+        ui.painter().line_segment(
+            [
+                egui::pos2(rect.left() + 12.0, rect.bottom() - 1.0),
+                egui::pos2(rect.right() - 12.0, rect.bottom() - 1.0),
+            ],
+            egui::Stroke::new(2.5, ui.visuals().selection.stroke.color),
+        );
+    } else if response.hovered() {
+        ui.painter().line_segment(
+            [
+                egui::pos2(response.rect.left() + 18.0, response.rect.bottom() - 1.0),
+                egui::pos2(response.rect.right() - 18.0, response.rect.bottom() - 1.0),
+            ],
+            egui::Stroke::new(1.0, ui.visuals().widgets.hovered.bg_stroke.color),
+        );
+    }
+    response
 }

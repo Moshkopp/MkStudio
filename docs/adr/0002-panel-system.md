@@ -33,7 +33,7 @@ Die freien Layoutdaten werden nicht mehr gespeichert. `UiSettings` enthält nur
 noch:
 
 - Arbeitsplatzname,
-- Theme-Farben samt Intensität,
+- semantische Theme-Palette sowie Akzent-/Buttonfarben samt Intensität,
 - Raster- und Splash-Darstellung,
 - Deckkraft der einheitlichen modalen Dialog-Abdunklung,
 - zuletzt verwendetes Projekt.
@@ -45,8 +45,9 @@ ignoriert.
 
 1. Bedienflächen werden nicht per Nutzer-Drag positioniert oder skaliert.
 2. FitView verwendet feste Insets pro Tab, keine Ableitung aus Panel-Rechtecken.
-3. Theming kommt weiter aus den GUI-Settings und wird per CSS-Variablen
-   angewendet.
+3. Theming kommt aus den GUI-Settings und wird in Native zentral auf die
+   `egui::Visuals` abgebildet. Einzelne Panels erfinden keine eigenen
+   Grundflächenfarben.
 4. GUI-Settings bleiben offline lokal persistent. Charon sichert versionierte
    Settings je stabiler Arbeitsplatz-ID; Laden und Übernehmen bleiben
    ausdrückliche Nutzeraktionen auf dem jeweiligen Client.
@@ -67,3 +68,21 @@ ignoriert.
 
 - Inhaltlicher Ausbau des Monitor-Reiters.
 - Optionale spätere Charon-Sicherung arbeitsplatzbezogener GUI-Settings.
+
+## Umsetzung 2026-07-16 — Dark Workshop
+
+Die native Oberfläche verwendet eine semantische Graphit-Palette mit getrennten
+Tokens für Hintergrund, Toolbar, Panel, Oberfläche, Rahmen, Text, Sekundärtext,
+Erfolg und Fehler. LuxiFer-Orange ist der neue Standardakzent. Gespeicherte
+benutzerdefinierte Akzentfarben bleiben beim Upgrade erhalten; nur der frühere
+unveränderte Blau/Grau-Standard wird migriert.
+
+Die sichtbare Hierarchie folgt daraus statt aus lokalen RGB-Literalen:
+
+- aktive Hauptreiter tragen eine schmale Akzentlinie statt einer massiven
+  Auswahlfläche;
+- Werkzeuggruppen haben Bezeichnungen und klar getrennte Flächen;
+- Layerkarten verwenden eine angehobene Oberfläche, Status-Chips und einen
+  Farbstreifen in der fachlichen Layerfarbe;
+- Canvas, Feinraster, Hauptraster und Bettgrenze sind in ihrer Helligkeit
+  gestaffelt, damit Geometrie der visuelle Fokus bleibt.

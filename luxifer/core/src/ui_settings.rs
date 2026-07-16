@@ -13,7 +13,7 @@ use crate::project::data_root;
 pub const UI_SETTINGS_FILE: &str = "gui-settings.json";
 
 /// Aktuelle Formatversion der GUI-Settings.
-pub const UI_FORMAT_VERSION: u32 = 1;
+pub const UI_FORMAT_VERSION: u32 = 2;
 
 /// Eine Theme-Farbe: Farbton (RGB) plus geklemmte Intensität (ADR §3).
 ///
@@ -48,20 +48,55 @@ impl ThemeColor {
     }
 }
 
-/// Theming: Glassmorphism-Grundstil (fest) plus zwei einstellbare Farben.
+/// Semantische Oberflächenfarben. Dadurch verwenden Panels keine verstreuten
+/// RGB-Literale und die visuelle Hierarchie bleibt über alle Ansichten stabil.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct ThemePalette {
+    pub background: [u8; 3],
+    pub toolbar: [u8; 3],
+    pub panel: [u8; 3],
+    pub surface: [u8; 3],
+    pub border: [u8; 3],
+    pub text: [u8; 3],
+    pub muted: [u8; 3],
+    pub success: [u8; 3],
+    pub danger: [u8; 3],
+}
+
+impl Default for ThemePalette {
+    fn default() -> Self {
+        Self {
+            background: [0x11, 0x13, 0x18],
+            toolbar: [0x18, 0x1b, 0x22],
+            panel: [0x1e, 0x22, 0x2b],
+            surface: [0x26, 0x2b, 0x35],
+            border: [0x34, 0x3a, 0x46],
+            text: [0xf2, 0xf3, 0xf5],
+            muted: [0xa7, 0xaf, 0xbc],
+            success: [0x4a, 0xde, 0x80],
+            danger: [0xf8, 0x71, 0x71],
+        }
+    }
+}
+
+/// Theming: semantische Dark-Workshop-Palette plus einstellbare Aktionsfarben.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Theme {
     /// Akzent: aktive Werkzeuge, Auswahl, Handles, Hervorhebungen.
     pub accent: ThemeColor,
     /// Button-Grundfläche, getrennt einstellbar für Sichtbarkeit/Kontrast.
     pub button: ThemeColor,
+    #[serde(default)]
+    pub palette: ThemePalette,
 }
 
 impl Default for Theme {
     fn default() -> Self {
         Theme {
-            accent: ThemeColor::new([0x3B, 0x82, 0xF6], 0.7), // Blau, kräftig
-            button: ThemeColor::new([0x60, 0x66, 0x70], 0.5), // neutrales Grau
+            accent: ThemeColor::new([0xf5, 0x9e, 0x42], 0.75),
+            button: ThemeColor::new([0x43, 0x4b, 0x5a], 0.6),
+            palette: ThemePalette::default(),
         }
     }
 }
@@ -71,6 +106,7 @@ impl Theme {
         Theme {
             accent: self.accent.clamped(),
             button: self.button.clamped(),
+            palette: self.palette,
         }
     }
 }
@@ -184,6 +220,17 @@ impl UiSettings {
 
     pub fn from_json(json: &str) -> Result<Self, String> {
         let mut s: Self = serde_json::from_str(json).map_err(|e| e.to_string())?;
+        if s.version < UI_FORMAT_VERSION {
+            // Nur den früheren unveränderten Standard migrieren; bewusst
+            // gewählte Benutzerfarben bleiben erhalten.
+            if s.theme.accent.hue == [0x3b, 0x82, 0xf6] && s.theme.button.hue == [0x60, 0x66, 0x70]
+            {
+                let defaults = Theme::default();
+                s.theme.accent = defaults.accent;
+                s.theme.button = defaults.button;
+            }
+            s.version = UI_FORMAT_VERSION;
+        }
         s.sanitize();
         Ok(s)
     }
@@ -216,8 +263,12 @@ impl UiSettings {
                     .ok()
                     .and_then(|value| value.get("workplace_id").cloned())
                     .is_some();
+                let needs_format_upgrade = serde_json::from_str::<serde_json::Value>(&json)
+                    .ok()
+                    .and_then(|value| value.get("version").and_then(|v| v.as_u64()))
+                    .is_none_or(|version| version < UI_FORMAT_VERSION as u64);
                 let settings = Self::from_json(&json).unwrap_or_default();
-                if !had_workplace_id {
+                if !had_workplace_id || needs_format_upgrade {
                     let _ = settings.save_to(dir);
                 }
                 settings
@@ -265,8 +316,8 @@ mod tests {
         }"#;
         let back = UiSettings::from_json(json).unwrap();
         assert_eq!(back.workplace, "Alt");
-        assert_eq!(back.theme.accent.intensity, INTENSITY_MAX);
-        assert_eq!(back.theme.button.intensity, INTENSITY_MIN);
+        assert_eq!(back.version, UI_FORMAT_VERSION);
+        assert_eq!(back.theme, Theme::default());
         assert_eq!(back.last_project, "Text");
         // Fehlende neue Felder fallen auf ihre Defaults zurück.
         assert_eq!(back.grid_size_mm, default_grid_size());
@@ -275,6 +326,24 @@ mod tests {
         assert_eq!(back.modal_backdrop_alpha, default_modal_backdrop_alpha());
         assert!(!back.charon_enabled);
         assert_eq!(back.charon_url, default_charon_url());
+    }
+
+    #[test]
+    fn alte_benutzerfarben_bleiben_beim_palette_upgrade_erhalten() {
+        let json = r#"{
+            "version": 1,
+            "workplace": "Alt",
+            "theme": {
+                "accent": { "hue": [10, 20, 30], "intensity": 0.6 },
+                "button": { "hue": [40, 50, 60], "intensity": 0.7 }
+            }
+        }"#;
+
+        let back = UiSettings::from_json(json).unwrap();
+
+        assert_eq!(back.theme.accent.hue, [10, 20, 30]);
+        assert_eq!(back.theme.button.hue, [40, 50, 60]);
+        assert_eq!(back.theme.palette, ThemePalette::default());
     }
 
     #[test]
