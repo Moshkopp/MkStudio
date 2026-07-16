@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use super::App;
 use crate::ui::TextDialogState;
+use luxifer_application::AssetService;
 use luxifer_core::text::{layout_text, TextOptions};
 
 impl App {
@@ -99,37 +100,10 @@ impl App {
         else {
             return;
         };
-        let bytes = match std::fs::read(&path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                self.toasts.error(format!("Font lesen: {error}"));
-                return;
-            }
-        };
-        // Vor dem Ablegen prüfen, ob die Datei überhaupt ein brauchbarer Font
-        // ist — sonst landet Datenmüll dauerhaft im Katalog.
-        if let Err(error) = luxifer_core::text::text_to_contours(&bytes, "Ag", 20.0) {
-            self.toasts.error(format!("Font unbrauchbar: {error}"));
-            return;
-        }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("font.ttf");
-        let ext = path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("ttf");
-        let meta = match luxifer_core::import_source(
-            &luxifer_core::assets_dir(),
-            &bytes,
-            name,
-            ext,
-            luxifer_core::AssetKind::Font,
-        ) {
+        let meta = match AssetService::import_font(&path) {
             Ok(meta) => meta,
             Err(error) => {
-                self.toasts.error(format!("Font importieren: {error}"));
+                self.app_error = Some(error);
                 return;
             }
         };
@@ -137,7 +111,7 @@ impl App {
         // Liste neu aufbauen und den frisch importierten Schnitt (über seinen
         // Katalog-Pfad) direkt auswählen.
         self.fonts = crate::fonts::list_font_families();
-        let asset_path = luxifer_core::asset_path(&luxifer_core::assets_dir(), &meta.id);
+        let asset_path = AssetService::asset_path(&meta.id);
         let found = asset_path
             .as_ref()
             .and_then(|p| self.find_font_by_path(&p.to_string_lossy()));
@@ -218,24 +192,10 @@ impl App {
                 return false;
             }
         };
-        let font_name = font_path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("font.ttf");
-        let font_ext = font_path
-            .extension()
-            .and_then(|ext| ext.to_str())
-            .unwrap_or("ttf");
-        let font_asset = match luxifer_core::import_source(
-            &luxifer_core::assets_dir(),
-            &font_data,
-            font_name,
-            font_ext,
-            luxifer_core::AssetKind::Font,
-        ) {
+        let font_asset = match AssetService::catalog_font(&font_path, &font_data) {
             Ok(meta) => Some(meta.id),
             Err(error) => {
-                self.toasts.error(format!("Font katalogisieren: {error}"));
+                self.app_error = Some(error);
                 return false;
             }
         };

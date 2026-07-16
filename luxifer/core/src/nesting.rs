@@ -11,11 +11,14 @@
 /// Ergebnis je Teil: linke obere Ziel-Ecke, oder `None`, wenn es nicht mehr
 /// passt. Die Reihenfolge entspricht der Eingabe.
 pub fn nest(sizes: &[(f64, f64)], frame_w: f64, frame_h: f64, gap: f64) -> Vec<Option<(f64, f64)>> {
+    if !frame_w.is_finite() || !frame_h.is_finite() || !gap.is_finite() {
+        return vec![None; sizes.len()];
+    }
     let gap = gap.max(0.0);
     // Nach Höhe absteigend packen (First-Fit-Decreasing) — klassisch gute
     // Regalauslastung; Indizes merken, um die Eingabe-Reihenfolge zu wahren.
     let mut order: Vec<usize> = (0..sizes.len()).collect();
-    order.sort_by(|&a, &b| sizes[b].1.partial_cmp(&sizes[a].1).unwrap());
+    order.sort_by(|&a, &b| sizes[b].1.total_cmp(&sizes[a].1));
 
     let mut out = vec![None; sizes.len()];
     let mut shelf_y = gap; // Oberkante des aktuellen Regals
@@ -24,7 +27,13 @@ pub fn nest(sizes: &[(f64, f64)], frame_w: f64, frame_h: f64, gap: f64) -> Vec<O
 
     for &i in &order {
         let (w, h) = sizes[i];
-        if w <= 0.0 || h <= 0.0 || w + 2.0 * gap > frame_w || h + 2.0 * gap > frame_h {
+        if !w.is_finite()
+            || !h.is_finite()
+            || w <= 0.0
+            || h <= 0.0
+            || w + 2.0 * gap > frame_w
+            || h + 2.0 * gap > frame_h
+        {
             continue; // Teil ist entartet oder größer als der Rahmen
         }
         // Passt es noch in das aktuelle Regal?
@@ -221,6 +230,20 @@ mod tests {
     fn zu_grosses_teil_bleibt_ungeplant() {
         let placed = nest(&[(200.0, 10.0)], 100.0, 100.0, 2.0);
         assert!(placed[0].is_none());
+    }
+
+    #[test]
+    fn nicht_finite_werte_bleiben_ungeplant_statt_zu_paniken() {
+        let placed = nest(
+            &[(f64::NAN, 10.0), (10.0, f64::INFINITY), (10.0, 10.0)],
+            100.0,
+            100.0,
+            2.0,
+        );
+        assert_eq!(placed[0], None);
+        assert_eq!(placed[1], None);
+        assert!(placed[2].is_some());
+        assert!(nest(&[(10.0, 10.0)], f64::NAN, 100.0, 2.0)[0].is_none());
     }
 
     #[test]

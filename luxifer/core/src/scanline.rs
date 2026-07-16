@@ -25,6 +25,9 @@ pub struct Contour<'a> {
 /// Überlappende Formen werden korrekt kombiniert. `step_mm` wird auf ein
 /// sinnvolles Minimum begrenzt.
 pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
+    if !step_mm.is_finite() {
+        return vec![];
+    }
     let step = step_mm.max(0.01);
 
     // Y-Bereich über alle (geschlossenen, ≥3 Punkte) Konturen.
@@ -40,6 +43,9 @@ pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
             continue;
         }
         for &(_, y) in c.points {
+            if !y.is_finite() {
+                continue;
+            }
             min_y = min_y.min(y);
             max_y = max_y.max(y);
             any = true;
@@ -62,6 +68,9 @@ pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
             for i in 0..n {
                 let (x0, y0) = c.points[i];
                 let (x1, y1) = c.points[(i + 1) % n];
+                if ![x0, y0, x1, y1].into_iter().all(f64::is_finite) {
+                    continue;
+                }
                 // Halb-offenes Intervall: Kante zählt, wenn y genau eine
                 // Endpunktseite unterschreitet (verhindert Doppelkreuzung an
                 // Scheitelpunkten).
@@ -71,7 +80,7 @@ pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
                 }
             }
         }
-        xs.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        xs.sort_by(f64::total_cmp);
 
         // Even-Odd: paarweise füllen.
         let mut i = 0;
@@ -143,5 +152,19 @@ mod tests {
             closed: false,
         };
         assert!(fill_segments(&[c], 1.0).is_empty());
+    }
+
+    #[test]
+    fn nicht_finite_werte_paniken_nicht() {
+        let pts = vec![(0.0, 0.0), (10.0, f64::NAN), (10.0, 10.0), (0.0, 10.0)];
+        let c = Contour {
+            points: &pts,
+            closed: true,
+        };
+        let result = fill_segments(&[c], 1.0);
+        assert!(result.iter().all(|segment| {
+            segment.y.is_finite() && segment.x0.is_finite() && segment.x1.is_finite()
+        }));
+        assert!(fill_segments(&[], f64::NAN).is_empty());
     }
 }

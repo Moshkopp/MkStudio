@@ -40,10 +40,12 @@ pub struct Gpu {
 }
 
 impl Gpu {
-    pub async fn new(window: std::sync::Arc<winit::window::Window>) -> Self {
+    pub async fn new(window: std::sync::Arc<winit::window::Window>) -> Result<Self, String> {
         let size = window.inner_size();
         let instance = wgpu::Instance::default();
-        let surface = instance.create_surface(window.clone()).unwrap();
+        let surface = instance
+            .create_surface(window.clone())
+            .map_err(|error| format!("GPU-Oberfläche konnte nicht erstellt werden: {error}"))?;
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions {
                 power_preference: wgpu::PowerPreference::HighPerformance,
@@ -51,12 +53,12 @@ impl Gpu {
                 force_fallback_adapter: false,
             })
             .await
-            .expect("kein GPU-Adapter");
+            .map_err(|error| format!("Kein geeigneter GPU-Adapter verfügbar: {error}"))?;
         log::info!("GPU: {}", adapter.get_info().name);
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
-            .unwrap();
+            .map_err(|error| format!("GPU-Gerät konnte nicht geöffnet werden: {error}"))?;
 
         let caps = surface.get_capabilities(&adapter);
         let format = caps
@@ -64,14 +66,20 @@ impl Gpu {
             .iter()
             .copied()
             .find(|f| f.is_srgb())
-            .unwrap_or(caps.formats[0]);
+            .or_else(|| caps.formats.first().copied())
+            .ok_or_else(|| "GPU-Oberfläche bietet kein Texturformat an.".to_owned())?;
+        let alpha_mode = caps
+            .alpha_modes
+            .first()
+            .copied()
+            .ok_or_else(|| "GPU-Oberfläche bietet keinen Alpha-Modus an.".to_owned())?;
         let config = wgpu::SurfaceConfiguration {
             usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
             format,
             width: size.width.max(1),
             height: size.height.max(1),
             present_mode: wgpu::PresentMode::AutoVsync,
-            alpha_mode: caps.alpha_modes[0],
+            alpha_mode,
             view_formats: vec![],
             desired_maximum_frame_latency: 2,
         };
@@ -169,7 +177,7 @@ impl Gpu {
             mapped_at_creation: false,
         });
 
-        Self {
+        Ok(Self {
             device,
             queue,
             surface,
@@ -185,7 +193,7 @@ impl Gpu {
             gbuf,
             gbuf_cap,
             gcount: 0,
-        }
+        })
     }
 
     /// Overlay-Vertices (Handles/Marquee) hochladen — jeden Frame, klein.

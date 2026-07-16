@@ -62,9 +62,8 @@ fortgeschrieben.
 Ziel: Keine weitere scheinbare Funktionsbreite; belastbare Migrationsmatrix.
 
 - [x] Aktuelle Native-Änderungen prüfen und als eigenen Spike-Checkpoint sichern.
-- [ ] Native-Demodaten aus `App::new` entfernen oder klar hinter einen
-      Entwicklungsmodus stellen (offen: Demo-Shapes beim Start sowie der
-      pfad-abhängige „Aztec laden“-Knopf existieren noch).
+- [x] Native-Demodaten aus `App::new` entfernt; ein optionales CLI-Argument
+      importiert ausschließlich die ausdrücklich übergebene Nutzerdatei.
 - [x] Alle sichtbaren Native-Aktionen inventarisieren (Funktionsmatrix und
       `docs/native_todo_bedienung.md`).
 - [x] Nicht implementierte Aktionen deaktivieren oder klar kennzeichnen
@@ -112,19 +111,18 @@ Ziel: Testbare Sitzung und konsistenter Aufrufpfad vor weiterer Migration.
       aufnehmen.
 - [x] Abhängigkeiten nur in zulässiger Richtung aufbauen:
       `native -> application -> core/drivers`; niemals zurück.
-- [ ] `Application` beziehungsweise fachlich geschnittene Services definieren
-      (begonnen mit `EditorSession`; Projekt/Assets/Laser folgen schnittweise).
+- [x] Fachlich geschnittene Application-Dienste definieren
+      (`EditorSession`, `ProjectService`, `AssetService`, `LaserService`).
 - [x] `EditorSession` mit eindeutigem Besitz des laufenden `AppState` einführen.
 - [x] Einheitliches `AppError` definieren:
   - [x] stabiler Fehlercode;
   - [x] nutzerlesbare Meldung;
   - [x] optionale technische Ursache/Quelle;
-  - [ ] Konvertierungen für I/O, Projektformat, Import und Treiberfehler.
+  - [x] Konvertierungen für I/O, Projektformat, Import und Treiberfehler.
 - [x] Ergebnis-/Statusmodelle UI-unabhängig halten; keine `egui`, `winit`,
       `wgpu` oder Tauri-Typen.
-- [ ] Native besitzt genau eine zentrale Fehleranzeige und loggt technische
-      Details (Banner für `AppError` vorhanden; technisches Logging folgt mit
-      den ersten I/O-Fehlerkonvertierungen).
+- [x] Native besitzt eine zentrale `AppError`-Anzeige; technische Ursachen
+      bleiben als Details erhalten und werden an den Startgrenzen geloggt.
 - [x] Erste Application-Tests für Sitzung, Fehler und Dirty-Status ergänzen.
 
 Abnahme Phase 1:
@@ -186,7 +184,8 @@ Abnahme Phase 2:
 - [ ] Manueller Smoke-Test: zeichnen, mehrfach auswählen, bewegen, skalieren,
       rotieren, Farbe ändern, sperren, Undo/Redo, löschen. (Offen: verlangt
       interaktiven Fensterlauf; automatisierte Pfade sind grün.)
-- [ ] Keine bekannten Panics oder inkonsistenten Dirty-/Undo-Zustände.
+- [x] Bekannte Start- und Geometrie-Panics entfernt: GPU/Eventloop/Worker sind
+      fallibel; Scanline/Nesting behandeln NaN und Infinity robust.
 
 Zwischenstand 2026-07-12: `EditorSession` kapselt Klick-/additive Auswahl,
 Gruppenerweiterung, Marquee und den Gestenlebenszyklus
@@ -287,6 +286,9 @@ Ziel: Verlustfreies Arbeiten und vollständiger Datei-/Asset-Lebenszyklus.
       Dirty-Guard beim Ersetzen des Canvas; PNG-Thumbnails noch offen).
 - [x] Asset-Verzeichnis und `asset_id`-Referenzen unverändert (der Dienst nutzt
       die kanonische Core-API `ProjectFile`; keine Base64-Dauerablage).
+- [x] `AssetService` kapselt Katalog, Datei-/Fontimport, Vorbereitung,
+      Thumbnails, Tags und Löschen/Ausblenden; Native-Worker koordinieren nur
+      Hintergrundausführung und UI-Rückgabe.
 - [x] Manuell speichern beibehalten (kein Autosave; ADR 0003, Strg+S-Workflow).
 - [x] Dirty-Guard bei Neu, Öffnen und Programmende (`request_close`); Schließen
       ohne Beenden = Projektwechsel, deckt Neu/Öffnen bereits ab.
@@ -349,7 +351,7 @@ Smoke-Test mit Screenshot (Legende + Rasterbild sichtbar, 430 fps).
 Ziel: Vollständige Erzeugungs- und Bearbeitungsworkflows statt Import-Demos.
 
 - [x] Nativer Dateidialog ist nur Pfadlieferant (rfd; Abbruch mutiert nichts).
-- [x] SVG-/DXF-Import mit Fehlerbehandlung (`import_path` über den Core).
+- [x] SVG-/DXF-Import mit Fehlerbehandlung (`AssetService::import_path`).
 - [x] Bildimport mit Asset-Anlage und Textur-Invalidierung (`image_dirty`).
 - [x] Bildparameter: Modus, Schwelle, Helligkeit, Kontrast, Gamma und Invert
       (`EditorSession::set_image_params`, validiert; Dialog per Doppelklick).
@@ -357,8 +359,8 @@ Ziel: Vollständige Erzeugungs- und Bearbeitungsworkflows statt Import-Demos.
       erst nach Übernahme über die Textur-Neuberechnung; Live-Vorschau offen).
 - [x] Systemfonts auflisten, Text anlegen und Text editieren (Doppelklick →
       `replace_text_block`).
-- [x] Fehlende/ungültige Fonts und nicht unterstützte Dateien behandelt
-      (Font-Lesefehler/leere Konturen melden, Import-Fehler geloggt).
+- [x] Fehlende/ungültige Fonts und nicht unterstützte Dateien werden als
+      stabile `AppError`s behandelt und durch Application getestet.
 - [x] Trace-Workflow (Bild → Vektor): `EditorSession::trace_image` mit
       LUT-Vorverarbeitung; UI im Bild-Dialog (Schwelle/Invert); Fehlerpfade
       getestet. (Bild-Zuschneiden bleibt eigenes offenes Feature.)
@@ -567,7 +569,8 @@ bewusste Ausnahme ist hier dokumentiert.
       entfernen.
 - [ ] IPC-/JavaScript-DTOs entfernen; Rust-Domänentypen nicht künstlich an alte
       Serialisierungsformen binden.
-- [ ] Workspace-Kommentare und `exclude` für `frontend/src-tauri` bereinigen.
+- [x] Workspace-Kommentare und den überholten `frontend/src-tauri`-Exclude
+      bereinigen.
 - [ ] tote Dependencies und Feature-Flags entfernen (`cargo machete` nur falls
       bereits verfügbar; sonst manuell und per Build prüfen).
 - [ ] README, Entwicklerdokumentation, Roadmap und ADR-Verweise aktualisieren.
@@ -610,12 +613,13 @@ eingetragen werden; sie blockieren nicht Phase 0/1:
 
 ## Übergabenotiz für den nächsten Agenten
 
-Stand 2026-07-12: Phasen 0–2 sind im Kern abgeschlossen (Rest: Demo-Daten,
-manueller Smoke-Test), Phasen 3–6 sind im Kern umgesetzt (`ProjectService`,
-`LaserService`, Bild-/Text-/Geometrie-Workflows über die Session; die nativen
+Stand 2026-07-16: Phasen 0–2 sind im Kern abgeschlossen (Rest: manueller
+Smoke-Test), Phasen 3–6 sind im Kern umgesetzt (`ProjectService`,
+`AssetService`, `LaserService`, Bild-/Text-/Geometrie-Workflows über die Session; die nativen
 Duplikate `native/src/{project,laser}.rs` sind gelöscht), Phase 7 ist begonnen
-(UiAction-Grenze vollständig, canvas-/render-Zerlegung abgeschlossen,
-`app.rs` ~1190 Zeilen als Composition-Root).
+(UiAction-Grenze vollständig, Canvas-/Render-Zerlegung abgeschlossen). GPU-,
+Eventloop- und Worker-Initialisierung sind fallibel; Scanline/Nesting sind
+gegen nicht-finite Werte gehärtet.
 
 Ausdrücklich **offen** (nicht als fertig behandeln):
 
@@ -623,13 +627,12 @@ Ausdrücklich **offen** (nicht als fertig behandeln):
   (Cut/Fill/Travel, verarbeitete Rastertexturen, Legende — D2 abgeschlossen).
 - Bridge/Haltesteg (Stub) und Ecken-Fillet.
 - Bild-Zuschneiden (C3-Rest).
-- Bézier-Node-Editing (Anlegen vorhanden; Hit-Test/Knoten ziehen/teilen/
-  löschen/glatt-eckig fehlen).
+- Bézier-Node-Editing: Knoten löschen und glatt/eckig umschalten bleiben offen;
+  Hit-Test, Ziehen und Teilen sind bereits im Core vorhanden.
 - Projektbrowser: PNG-Thumbnails pro Version (Master-Detail-Browser mit
   Versionen/Umbenennen/Live-Miniatur ist seit dem E4-Schnitt umgesetzt).
 - Laser Ping/Verbindungsstatus/Position.
 - Live-Bildvorschau im Bildparameter-Dialog.
-- Demo-Startinhalt und „Aztec laden“ hinter einen Dev-Modus stellen.
 
 Nächste sinnvolle Schnitte in dieser Reihenfolge: Bridge (eigene Geste),
 dann Bézier-Node-Editing. Arbeitsgrundlage ist

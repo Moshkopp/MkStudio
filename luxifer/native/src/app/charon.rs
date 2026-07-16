@@ -3,7 +3,7 @@
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender, TryRecvError};
 use std::time::Duration;
 
-use luxifer_application::CharonConnection;
+use luxifer_application::{AppError, CharonConnection};
 
 const HEARTBEAT_INTERVAL: Duration = Duration::from_secs(5);
 
@@ -70,7 +70,10 @@ pub(super) struct CharonRuntime {
 }
 
 impl CharonRuntime {
-    pub fn new(settings: &luxifer_core::UiSettings, lasers: &luxifer_core::LaserRegistry) -> Self {
+    pub fn new(
+        settings: &luxifer_core::UiSettings,
+        lasers: &luxifer_core::LaserRegistry,
+    ) -> Result<Self, AppError> {
         let (command_tx, command_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
         let (lease_tx, lease_command_rx) = mpsc::channel();
@@ -78,11 +81,23 @@ impl CharonRuntime {
         std::thread::Builder::new()
             .name("charon-heartbeat".into())
             .spawn(move || worker(command_rx, result_tx))
-            .expect("Charon-Hintergrundthread konnte nicht gestartet werden");
+            .map_err(|error| {
+                AppError::wrap(
+                    "charon_worker_start",
+                    "Charon-Synchronisierung konnte nicht gestartet werden.",
+                    error.to_string(),
+                )
+            })?;
         std::thread::Builder::new()
             .name("charon-lease".into())
             .spawn(move || lease_worker(lease_command_rx, lease_result_tx))
-            .expect("Charon-Lease-Thread konnte nicht gestartet werden");
+            .map_err(|error| {
+                AppError::wrap(
+                    "charon_lease_worker_start",
+                    "Charon-Maschinenkoordination konnte nicht gestartet werden.",
+                    error.to_string(),
+                )
+            })?;
         let runtime = Self {
             command_tx,
             result_rx,
@@ -90,7 +105,7 @@ impl CharonRuntime {
             lease_rx,
         };
         runtime.configure(settings, lasers);
-        runtime
+        Ok(runtime)
     }
 
     pub fn configure(

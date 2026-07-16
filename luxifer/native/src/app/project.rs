@@ -15,7 +15,7 @@ struct ProjectIntegrationResult {
 }
 
 impl ProjectIntegrationRuntime {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, luxifer_application::AppError> {
         let (request_tx, request_rx) = std::sync::mpsc::channel::<Vec<String>>();
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         std::thread::Builder::new()
@@ -57,11 +57,17 @@ impl ProjectIntegrationRuntime {
                     }
                 }
             })
-            .expect("Projekt-Integrationsworker konnte nicht gestartet werden");
-        Self {
+            .map_err(|error| {
+                luxifer_application::AppError::wrap(
+                    "project_worker_start",
+                    "Projektabgleich konnte nicht gestartet werden.",
+                    error.to_string(),
+                )
+            })?;
+        Ok(Self {
             request_tx,
             result_rx,
-        }
+        })
     }
 }
 

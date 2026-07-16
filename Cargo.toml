@@ -1,8 +1,8 @@
-# LuxiFer — Cargo-Workspace (Rust-Core + spätere Tauri-App + Charon-Server)
+# LuxiFer — Cargo-Workspace (Core + Application + Native + Charon)
 #
 # Der Core ist die einzige Quelle der Wahrheit für Geometrie, Layer/Farbe,
-# Projektformat und Job-Kompilierung. Die Tauri-GUI (Svelte) und Charon teilen
-# sich diesen Core; das Frontend zeichnet nur.
+# Projektformat und Job-Kompilierung. Application koordiniert die Anwendungsfälle;
+# Native zeichnet und verarbeitet Eingaben. Charon bleibt optional.
 [workspace]
 resolver = "2"
 members = [
@@ -12,10 +12,6 @@ members = [
     "luxifer/drivers/grbl",
     "luxifer/drivers/ruida",
     "charon",
-]
-# Das Tauri-Backend baut eigenständig über die Tauri-CLI (eigene crate-types).
-exclude = [
-    "luxifer/frontend/src-tauri",
 ]
 
 [workspace.package]

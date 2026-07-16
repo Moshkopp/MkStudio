@@ -10,33 +10,39 @@ LuxiFer ist eine offline-first Desktop-Anwendung zur Laser-Steuerung.
 **Die GUI ist das Produkt.** Charon (Rust) ist ein optionaler Koordinations-
 Server und niemals Voraussetzung für lokale Arbeit.
 
-## Stack (Neustart 2026-07-06, weg von C#/Avalonia)
+## Stack (Native-only seit ADR 0011)
 
-- **luxifer-core** (Rust): Datenmodell, Geometrie, Layer/Farbe, Undo, später
-  Projektformat und Job-Kompilierung. **Einzige Quelle der Wahrheit.**
-- **LuxiFer-GUI**: Tauri + **Svelte**. Das Frontend **zeichnet nur** und ruft
-  Core-Logik über Tauri-Commands.
-- **Charon** (Rust): optionaler Server, teilt sich den Core. Aktuell leer.
+- **luxifer-core** (Rust): Fachmodell, Geometrie, Layer/Farbe, Undo,
+  Projektformat und Job-Kompilierung. **Einzige fachliche Quelle der Wahrheit.**
+- **luxifer-application** (Rust): UI-unabhängige Anwendungsfälle, I/O-
+  Koordination, Fehlergrenze und Geräte-Lebenszyklen.
+- **luxifer-native** (Rust): winit + wgpu + egui. Fenster, Eingaben, Rendering
+  und kurzlebiger Präsentationszustand.
+- **Charon** (Rust): optionaler Koordinationsserver; niemals Voraussetzung für
+  lokale Arbeit und niemals Maschinensteuerung.
 
 ## Verzeichnisse
 
 | Pfad | Inhalt |
 |------|--------|
 | `luxifer/core/` | Rust-Core (UI-frei, testbar) |
-| `luxifer/frontend/` | Tauri-App (Rust-Backend + Svelte-Frontend) |
-| `charon/` | Charon-Server (Rust, noch leer) |
+| `luxifer/application/` | UI-unabhängige Anwendungsfälle und Fehlergrenze |
+| `luxifer/native/` | Produktive native Desktop-GUI |
+| `luxifer/drivers/` | Maschinenprotokolle hinter Application-Schnittstellen |
+| `charon/` | Optionaler Koordinationsserver |
 | `docs/referenz/` | ThorBurn-Analyse + Funktions-Worksheet (Bauplan) |
 | `nur zur Referenu/` | Altes ThorBurn-Projekt — **nur Referenz, gitignored** |
 
 ## Architektur-Invarianten
 
-1. **Fachlogik gehört in `luxifer-core`** (Rust), nicht ins Svelte-Frontend.
+1. **Fachlogik gehört in `luxifer-core`** (Rust), nicht in die native UI.
    Geometrie, Hit-Test, Bounds, Skalierung, Layer/Farbe, Undo, Job sind im Core
    und dort testbar. Faustregel: Was ohne UI testbar sein sollte, gehört in den
    Core. **Keine Canvas-Fachlogik doppelt im Frontend** (das war ThorBurns
    Fehler).
-2. Das **Frontend zeichnet nur** und leitet Eingaben als Tauri-Commands an den
-   Core weiter; es hält keinen eigenen Wahrheits-Zustand.
+2. Native zeichnet und übersetzt Eingaben in Application-Aufrufe. Vollständige
+   Anwendungsfälle, Persistenz und Geräte-Lebenszyklen gehören nach
+   `luxifer-application`; Native hält keinen zweiten fachlichen Wahrheitszustand.
 3. **Farbe = Layer = Parametersatz, automatisch verwaltet.** Der Nutzer legt NIE
    manuell einen Layer an. Farbe klicken → `AppState::activate_color` (bei
    Auswahl Shape in Farb-Layer verschieben, sonst `pending_color` merken); leere
@@ -63,16 +69,9 @@ cargo test        # müssen grün sein; neue Core-Logik bekommt Tests
 cargo clippy
 cargo fmt
 
-# Frontend (aus luxifer/frontend/)
-npm install
-./dev.sh            # startet tauri dev mit den nötigen Wayland-Flags
+# Native Anwendung starten
+cargo run -p luxifer-native
 ```
-
-**Wayland-Hinweis:** WebKitGTK braucht unter Wayland
-`WEBKIT_DISABLE_DMABUF_RENDERER=1` (+ `WEBKIT_DISABLE_COMPOSITING_MODE=1`),
-sonst bleibt das App-Fenster leer oder der Prozess stirbt still beim Start.
-`dev.sh` setzt das. Das `src-tauri`-Crate ist bewusst aus dem Cargo-Workspace
-`exclude`t (eigene crate-types, baut über die Tauri-CLI).
 
 7. **Vor jedem Commit:** `cargo build` + `cargo test` grün, `cargo clippy` ohne
    Warnungen, `cargo fmt`. Neue Core-Fachlogik bekommt Tests.

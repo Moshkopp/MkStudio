@@ -14,6 +14,7 @@ mod sync_outbox;
 #[cfg(test)]
 mod test_env;
 
+pub use assets::{AssetService, ImportedContours, PreparedAsset, PreparedImage};
 pub use charon::{
     acquire_lease, connect_charon, heartbeat_lease, list_workplace_backups, release_lease,
     sync_assets, sync_project_revisions, upload_pending_revisions, upload_workplace_backups,

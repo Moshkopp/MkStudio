@@ -74,26 +74,26 @@ Quelle: `frontend/src-tauri/src/commands/shapes.rs`.
 
 | Tauri-Command | Ziel | Native-Stand | Migration/Abnahme |
 |---|---|---|---|
-| `import_vector_file` | Application/Core | über `EditorSession::import_path` | SVG/DXF mit Fehlerbehandlung; großer Import weiter beobachten |
+| `import_vector_file` | Application/Core | über `AssetService::import_path` | SVG/DXF mit `AppError`; großer Import weiter beobachten |
 | `pattern_fill_op` | Core/Application | über `EditorSession::pattern_fill` | Parameterdialog (Muster/Abstände/Winkel/Größe); validiert; leere Treffer melden Fehler |
 | `add_spline` | Core/Application | über `EditorSession` | Abschluss/Abbruch, Fangzone am Startknoten, ein Core-Undo-Punkt |
-| `upload_font` | Application | **offen** | Zielverzeichnis, Namens-/Schreibfehler (Bedienungsliste G2) |
+| `upload_font` | Application | `AssetService::import_font` | validiert vor Katalogisierung; I/O-/Formatfehler als `AppError` |
 | `list_fonts` | Application | eigene Native-Variante (`fonts.rs`) | eine kanonische Fontquelle herstellen |
 | `add_text` | Core/Application | über `EditorSession::add_text_block` | nativer Dialog; Font-Lesefehler/leere Konturen werden gemeldet |
-| `text_preview` | Core/Application | **offen** | Vorschau ohne Mutation (Bedienungsliste G1) |
+| `text_preview` | Core/Native | vorhanden | gecachte Vorschau ohne Mutation über `layout_text` |
 | `update_text` | Core/Application | über `replace_text_block` | Doppelklick auf Textblock öffnet den Dialog; atomarer Ersatz |
 | `add_bezier` | Core/Application | über `EditorSession` | Drücken setzt Anker, Ziehen erzeugt Tangenten; ein Undo-Schritt |
 | `add_bezier_nodes` | Core/Application | über `EditorSession` | Draft-Knoten mit `h_in`/`h_out`; geschlossener Pfad über Fangzone |
-| `drag_node` | Core | **offen** | Node-Editing-Schnitt: Anker/Tangenten, smooth-Regel, Gesten-Undo |
-| `split_node` | Core | **offen** | Segmentparameter und Metadaten |
-| `hit_bezier_segment` | Core | **offen** | nur Core-Hit-Test, zoomabhängige Toleranz |
-| `toggle_node_smooth` | Core | **offen** | tangentiale Kopplung und Undo |
-| `delete_node` | Core | **offen** | Mindestknoten und Formlöschung klären |
+| `drag_node` | Core | vorhanden | Anker/Tangenten und smooth-Regel in `drag_node` |
+| `split_node` | Core | vorhanden | De-Casteljau-Teilung erhält Kurvenform und Metadaten |
+| `hit_bezier_segment` | Core | vorhanden | rotationsbewusster Core-Hit-Test mit Toleranz |
+| `toggle_node_smooth` | Core | vorhanden | tangentiale Kopplung in Core |
+| `delete_node` | Core | vorhanden | Mindestknoten und Formlöschung in Core behandelt |
 | `trace_image` | Core/Application | über `EditorSession::trace_image` | Bild-Dialog (Schwelle/Invert); LUT wirkt vor der Schwelle; Fehlerpfade getestet |
 | `boolean_op` | Core/Application | über `EditorSession::boolean` | Union/Schnitt/Differenz mit Parameterdialog (`dialogs/geo_op.rs`) |
 | `offset_op` | Core/Application | über `EditorSession::offset` | Distanzdialog; Core hält harte Miter-Ecken bei konvexen Konturen |
-| `bridge_op` | Core/Application | **offen** (Stub) | UI meldet `not_migrated`; Geste, Breite, ungültige Treffer |
-| `fillet_corners_op` | Core/Application | **offen** | Eckenauswahl, Radiusgrenzen, Undo |
+| `bridge_op` | Core/Application | vorhanden | Canvas-Geste, Breite, stabile Fehler und Undo getestet |
+| `fillet_corners_op` | Core/Application | über `EditorSession::fillet` | Radiusgrenzen und Undo über Core |
 | `fillet_op` | Core/Application | über `EditorSession::fillet` | Radiusdialog über Session |
 | `nest_op` | Core/Application | über `EditorSession` | Auswahlvoraussetzung und Core-Undo |
 | `nest_fill_op` | Core/Application | über `EditorSession` | Auswahlvoraussetzung und Core-Undo |

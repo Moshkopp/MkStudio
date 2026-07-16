@@ -1,6 +1,5 @@
-//! LuxiFer nativ (ADR 0010): winit + wgpu (Canvas) + egui (Panels), direkt an
-//! luxifer-core. Kein WebView, kein IPC. Startpunkt des Umbaus neben der noch
-//! lauffähigen Tauri-App.
+//! LuxiFer nativ (ADR 0010/0011): produktive winit/wgpu/egui-Anwendung ohne
+//! WebView oder IPC. Fachliche Anwendungsfälle laufen über luxifer-application.
 
 mod app;
 mod camera;
@@ -60,9 +59,30 @@ impl ApplicationHandler for Runner {
             attrs = WindowAttributesExtWayland::with_name(attrs, "luxifer", "luxifer");
             attrs = WindowAttributesExtX11::with_name(attrs, "luxifer", "luxifer");
         }
-        let window = Arc::new(el.create_window(attrs).unwrap());
-        let gpu = pollster::block_on(Gpu::new(window.clone()));
-        let mut app = App::new(window, gpu);
+        let window = match el.create_window(attrs) {
+            Ok(window) => Arc::new(window),
+            Err(error) => {
+                log::error!("Anwendungsfenster konnte nicht erstellt werden: {error}");
+                el.exit();
+                return;
+            }
+        };
+        let gpu = match pollster::block_on(Gpu::new(window.clone())) {
+            Ok(gpu) => gpu,
+            Err(error) => {
+                log::error!("{error}");
+                el.exit();
+                return;
+            }
+        };
+        let mut app = match App::new(window, gpu) {
+            Ok(app) => app,
+            Err(error) => {
+                log::error!("Anwendung konnte nicht initialisiert werden: {error:?}");
+                el.exit();
+                return;
+            }
+        };
         // Ersten Frame sofort präsentieren und Redraw anfordern — sonst bleibt
         // das Fenster unter manchen Wayland-Compositoren leer/unsichtbar, bis
         // ein Event kommt.
@@ -137,14 +157,16 @@ impl ApplicationHandler for Runner {
     }
 }
 
-fn main() {
+fn main() -> Result<(), String> {
     // Nur Warnungen/Fehler loggen — das INFO-Log von wgpu würde sonst das
     // Terminal fluten (Device::maintain je Frame).
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
-    let el = EventLoop::new().unwrap();
+    let el = EventLoop::new()
+        .map_err(|error| format!("Eventloop konnte nicht gestartet werden: {error}"))?;
     // Warten statt pollen: der Editor zeichnet nur bei Bedarf neu, nicht in einer
     // Endlosschleife. Spart CPU/GPU und beruhigt das Terminal.
     el.set_control_flow(winit::event_loop::ControlFlow::Wait);
     let mut runner = Runner::default();
-    el.run_app(&mut runner).unwrap();
+    el.run_app(&mut runner)
+        .map_err(|error| format!("Eventloop wurde mit einem Fehler beendet: {error}"))
 }

@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use luxifer_application::{AppError, AssetService, PreparedAsset};
 use luxifer_core::Geo;
 
 use super::App;
@@ -10,24 +11,9 @@ pub(super) struct ThumbnailRuntime {
     result_rx: std::sync::mpsc::Receiver<(String, Result<Vec<u8>, String>)>,
 }
 
-type ImportedContours = Vec<(Vec<(f64, f64)>, bool)>;
-struct PreparedImage {
-    rgba: Vec<u8>,
-    width: u32,
-    height: u32,
-}
-type PreparedAssetResult = Result<
-    (
-        luxifer_core::AssetMeta,
-        Option<ImportedContours>,
-        Option<PreparedImage>,
-    ),
-    String,
->;
-
 enum AssetWorkerResult {
-    Prepared(PreparedAssetResult),
-    Deleted(Result<(String, bool), String>),
+    Prepared(Result<PreparedAsset, AppError>),
+    Deleted(Result<(String, bool), AppError>),
 }
 
 pub(super) struct AssetImportRuntime {
@@ -37,7 +23,7 @@ pub(super) struct AssetImportRuntime {
 
 enum AssetImportRequest {
     Catalog(String),
-    ImagePath(std::path::PathBuf),
+    Path(std::path::PathBuf),
     Delete {
         id: String,
         referenced_in_session: bool,
@@ -45,20 +31,19 @@ enum AssetImportRequest {
 }
 
 impl AssetImportRuntime {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, AppError> {
         let (request_tx, request_rx) = std::sync::mpsc::channel::<AssetImportRequest>();
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("asset-import".into())
             .spawn(move || {
-                let store = luxifer_core::assets_dir();
                 while let Ok(request) = request_rx.recv() {
                     let request = match request {
                         AssetImportRequest::Delete {
                             id,
                             referenced_in_session,
                         } => {
-                            let result = delete_or_hide_asset(&store, &id, referenced_in_session)
+                            let result = AssetService::delete_or_hide(&id, referenced_in_session)
                                 .map(|hidden| (id, hidden));
                             if result_tx.send(AssetWorkerResult::Deleted(result)).is_err() {
                                 return;
@@ -67,139 +52,66 @@ impl AssetImportRuntime {
                         }
                         request => request,
                     };
-                    let result = (|| {
-                        let meta = match request {
-                            AssetImportRequest::Catalog(id) => {
-                                luxifer_core::asset_meta(&store, &id)
-                                    .map_err(|error| error.to_string())?
-                            }
-                            AssetImportRequest::ImagePath(path) => {
-                                let bytes = std::fs::read(&path)
-                                    .map_err(|error| format!("Bild lesen: {error}"))?;
-                                let name = path
-                                    .file_name()
-                                    .and_then(|name| name.to_str())
-                                    .unwrap_or("bild");
-                                luxifer_core::import_image(&store, &bytes, name)
-                                    .map_err(|error| error.to_string())?
-                            }
-                            AssetImportRequest::Delete { .. } => unreachable!(),
-                        };
-                        let contours = match meta.kind {
-                            luxifer_core::AssetKind::SvgSource
-                            | luxifer_core::AssetKind::DxfSource => {
-                                let bytes = luxifer_core::load_asset(&store, &meta.id)
-                                    .map_err(|error| error.to_string())?;
-                                Some(
-                                    luxifer_core::import::import_vector(&bytes, &meta.ext)
-                                        .map_err(|error| error.to_string())?,
-                                )
-                            }
-                            _ => None,
-                        };
-                        let prepared_image = if meta.kind == luxifer_core::AssetKind::Image {
-                            let (luma, width, height) =
-                                luxifer_core::load_asset_luma(&store, &meta.id)
-                                    .map_err(|error| error.to_string())?;
-                            let mut rgba = Vec::with_capacity(luma.len() * 4);
-                            for value in luma {
-                                rgba.extend_from_slice(&[value, value, value, 255]);
-                            }
-                            Some(PreparedImage {
-                                rgba,
-                                width,
-                                height,
-                            })
-                        } else {
-                            None
-                        };
-                        Ok((meta, contours, prepared_image))
-                    })();
+                    let result = match request {
+                        AssetImportRequest::Catalog(id) => AssetService::prepare_catalog(&id),
+                        AssetImportRequest::Path(path) => AssetService::import_path(&path),
+                        AssetImportRequest::Delete { .. } => unreachable!(),
+                    };
                     if result_tx.send(AssetWorkerResult::Prepared(result)).is_err() {
                         return;
                     }
                 }
             })
-            .expect("Asset-Importworker konnte nicht gestartet werden");
-        Self {
+            .map_err(|error| {
+                AppError::wrap(
+                    "asset_worker_start",
+                    "Asset-Import konnte nicht gestartet werden.",
+                    error.to_string(),
+                )
+            })?;
+        Ok(Self {
             request_tx,
             result_rx,
-        }
+        })
     }
-}
-
-fn delete_or_hide_asset(
-    store: &Path,
-    id: &str,
-    referenced_in_session: bool,
-) -> Result<bool, String> {
-    let projects = luxifer_core::projects_dir();
-    let referenced = referenced_in_session
-        || luxifer_core::list_projects(&projects)
-            .into_iter()
-            .any(|info| {
-                luxifer_core::ProjectFile::load_by_name(&projects, &info.name)
-                    .map(|project| project.asset_refs.iter().any(|asset| asset == id))
-                    .unwrap_or(false)
-            });
-    if referenced {
-        luxifer_core::hide_asset(store, &id.to_owned()).map_err(|error| error.to_string())?;
-    } else {
-        luxifer_core::delete_asset(store, &id.to_owned()).map_err(|error| error.to_string())?;
-    }
-    Ok(referenced)
 }
 
 impl ThumbnailRuntime {
-    pub fn new() -> Self {
+    pub fn new() -> Result<Self, AppError> {
         let (request_tx, request_rx) = std::sync::mpsc::channel::<String>();
         let (result_tx, result_rx) = std::sync::mpsc::channel();
         std::thread::Builder::new()
             .name("asset-thumbnails".into())
             .spawn(move || {
-                let store = luxifer_core::assets_dir();
                 while let Ok(id) = request_rx.recv() {
-                    let result = luxifer_core::asset_thumbnail(&store, &id)
-                        .map_err(|error| error.to_string());
+                    let result = AssetService::thumbnail(&id).map_err(|error| error.to_string());
                     if result_tx.send((id, result)).is_err() {
                         return;
                     }
                 }
             })
-            .expect("Thumbnail-Hintergrundthread konnte nicht gestartet werden");
-        Self {
+            .map_err(|error| {
+                AppError::wrap(
+                    "thumbnail_worker_start",
+                    "Asset-Vorschauen konnten nicht gestartet werden.",
+                    error.to_string(),
+                )
+            })?;
+        Ok(Self {
             request_tx,
             result_rx,
-        }
+        })
     }
 }
 
 pub(super) fn enrich_asset_tags_from_projects() {
-    let projects = luxifer_core::projects_dir();
-    let store = luxifer_core::assets_dir();
-    for info in luxifer_core::list_projects(&projects) {
-        let Ok(project) = luxifer_core::ProjectFile::load_by_name(&projects, &info.name) else {
-            continue;
-        };
-        for id in &project.asset_refs {
-            let _ = luxifer_core::add_asset_tags(
-                &store,
-                id,
-                [project.name.as_str(), project.description.as_str()],
-            );
-        }
-    }
+    AssetService::enrich_tags_from_projects();
 }
 
 impl App {
     pub(crate) fn refresh_asset_catalog(&mut self) {
-        let store = luxifer_core::assets_dir();
-        match luxifer_core::list_assets(&store) {
+        match AssetService::list_visible() {
             Ok(assets) => {
-                let assets: Vec<_> = assets
-                    .into_iter()
-                    .filter(|asset| !luxifer_core::asset_hidden(&store, &asset.id))
-                    .collect();
                 self.asset_thumbnails
                     .retain(|id, _| assets.iter().any(|asset| asset.id == *id));
                 self.thumbnail_failed
@@ -308,14 +220,18 @@ impl App {
         let AssetWorkerResult::Prepared(result) = result else {
             unreachable!()
         };
-        let (meta, contours, prepared_image) = match result {
+        let prepared = match result {
             Ok(result) => result,
             Err(error) => {
-                self.toasts
-                    .error(format!("Asset-Import fehlgeschlagen: {error}"));
+                self.app_error = Some(error);
                 return true;
             }
         };
+        let PreparedAsset {
+            meta,
+            contours,
+            image: prepared_image,
+        } = prepared;
         match meta.kind {
             luxifer_core::AssetKind::Image => {
                 if let Some(image) = prepared_image {
@@ -438,68 +354,6 @@ impl App {
     /// Importiert eine Datei direkt nach Endung — Vektor (SVG/DXF) oder Bild.
     /// Nutzen der Import-Dialog und das CLI-Argument.
     pub fn import_path(&mut self, path: &Path) {
-        let ext = path
-            .extension()
-            .and_then(|extension| extension.to_str())
-            .unwrap_or("")
-            .to_ascii_lowercase();
-        if matches!(
-            ext.as_str(),
-            "png" | "jpg" | "jpeg" | "bmp" | "gif" | "webp"
-        ) {
-            self.import_image_path(path);
-            return;
-        }
-
-        let bytes = match std::fs::read(path) {
-            Ok(bytes) => bytes,
-            Err(error) => {
-                log::error!("Datei lesen: {error}");
-                return;
-            }
-        };
-        match luxifer_core::import::import_vector(&bytes, &ext) {
-            Ok(contours) => {
-                let name = path
-                    .file_name()
-                    .and_then(|name| name.to_str())
-                    .unwrap_or("quelle");
-                let kind = if ext == "svg" {
-                    luxifer_core::AssetKind::SvgSource
-                } else {
-                    luxifer_core::AssetKind::DxfSource
-                };
-                match luxifer_core::import_source(
-                    &luxifer_core::assets_dir(),
-                    &bytes,
-                    name,
-                    &ext,
-                    kind,
-                ) {
-                    Ok(meta) => {
-                        self.session_asset_context.insert(meta.id.clone());
-                        self.tag_asset_for_current_project(&meta.id);
-                        self.refresh_asset_catalog();
-                    }
-                    Err(error) => log::error!("Quelldatei katalogisieren: {error}"),
-                }
-                let started = std::time::Instant::now();
-                self.session.add_polylines(contours);
-                self.refresh_accent();
-                self.fit_all();
-                log::info!(
-                    "Import {}: {} Shapes in {:?}",
-                    path.display(),
-                    self.session.shapes.len(),
-                    started.elapsed()
-                );
-            }
-            Err(error) => log::error!("Import fehlgeschlagen: {error}"),
-        }
-    }
-
-    /// Bilddatei in den Asset-Store importieren und als Image-Shape platzieren.
-    fn import_image_path(&mut self, path: &Path) {
         if self.asset_import_pending {
             self.toasts
                 .error("Ein anderer Asset-Import wird bereits verarbeitet.");
@@ -508,7 +362,7 @@ impl App {
         if self
             .asset_import_runtime
             .request_tx
-            .send(AssetImportRequest::ImagePath(path.to_owned()))
+            .send(AssetImportRequest::Path(path.to_owned()))
             .is_ok()
         {
             self.asset_import_pending = true;
@@ -525,12 +379,8 @@ impl App {
             .detail(name)
             .map(|detail| detail.description)
             .unwrap_or_default();
-        if let Err(error) = luxifer_core::add_asset_tags(
-            &luxifer_core::assets_dir(),
-            &id.to_string(),
-            [name, description.as_str()],
-        ) {
-            log::error!("Asset-Tags ergänzen: {error}");
+        if let Err(error) = AssetService::add_tags(id, [name, description.as_str()]) {
+            log::error!("Asset-Tags ergänzen: {error:?}");
         }
     }
 
