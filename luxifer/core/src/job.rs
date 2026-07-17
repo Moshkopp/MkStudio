@@ -227,7 +227,14 @@ impl JobPlan {
         mut resolve: F,
     ) -> JobPlan
     where
-        F: FnMut(&str) -> Option<(std::borrow::Cow<'a, [u8]>, usize, usize)>,
+        F: FnMut(
+            &str,
+        ) -> Option<(
+            std::borrow::Cow<'a, [u8]>,
+            std::borrow::Cow<'a, [u8]>,
+            usize,
+            usize,
+        )>,
     {
         let mut job_layers: Vec<JobLayer> = Vec::new();
 
@@ -320,7 +327,14 @@ fn raster_image_layer<'a, F>(
     resolve: &mut F,
 ) -> (Vec<RasterRow>, Option<RasterTexture>)
 where
-    F: FnMut(&str) -> Option<(std::borrow::Cow<'a, [u8]>, usize, usize)>,
+    F: FnMut(
+        &str,
+    ) -> Option<(
+        std::borrow::Cow<'a, [u8]>,
+        std::borrow::Cow<'a, [u8]>,
+        usize,
+        usize,
+    )>,
 {
     let mut out: Vec<RasterRow> = Vec::new();
     // Vorschau-Textur: beim Regelfall (ein Bild je Layer) die des Bildes. Bei
@@ -338,7 +352,7 @@ where
         else {
             continue;
         };
-        let Some((pixels, px_w, px_h)) = resolve(asset) else {
+        let Some((pixels, alpha, px_w, px_h)) = resolve(asset) else {
             continue;
         };
         // Achsenparallel rastern. Bild-Rotation wird hier bewusst NICHT
@@ -348,6 +362,7 @@ where
         // (dann müssten Runs echte 2D-Strecken sein).
         let src = RasterImage {
             pixels: &pixels,
+            alpha: Some(&alpha),
             px_w,
             px_h,
         };
@@ -819,7 +834,12 @@ mod tests {
         // Resolver liefert die Pixel des Assets „cafe": Zeile 0 schwarz, Zeile 1 weiß.
         let pixels = vec![0u8, 0, 255, 255];
         let plan = JobPlan::from_shapes_with_assets(&s.shapes, &s.layers, |id| {
-            (id == "cafe").then_some((std::borrow::Cow::Borrowed(pixels.as_slice()), 2, 2))
+            (id == "cafe").then_some((
+                std::borrow::Cow::Borrowed(pixels.as_slice()),
+                std::borrow::Cow::Owned(vec![255; 4]),
+                2,
+                2,
+            ))
         });
 
         assert_eq!(plan.layers.len(), 1);
@@ -860,7 +880,12 @@ mod tests {
         // … und über die Store-Auflösung zu einem Raster-Plan bauen.
         let plan = JobPlan::from_shapes_with_assets(&s.shapes, &s.layers, |id| {
             let (px, w, h) = load_asset_luma(&dir, &id.to_string()).ok()?;
-            Some((std::borrow::Cow::Owned(px), w as usize, h as usize))
+            Some((
+                std::borrow::Cow::Owned(px),
+                std::borrow::Cow::Owned(vec![255; (w * h) as usize]),
+                w as usize,
+                h as usize,
+            ))
         });
 
         let LayerWork::Raster { rows, .. } = &plan.layers[0].work else {

@@ -191,9 +191,9 @@ impl ImageStore {
                     continue;
                 }
                 self.ensure_pipeline(device, format);
-                match luxifer_core::load_asset_luma(&dir, asset) {
-                    Ok((luma, w, h)) => {
-                        let tex = self.upload_texture(device, queue, &luma, w, h);
+                match luxifer_core::load_asset_rgba(&dir, asset) {
+                    Ok((rgba, w, h)) => {
+                        let tex = self.upload_rgba(device, queue, &rgba, w, h);
                         self.textures.insert(asset.clone(), tex);
                     }
                     Err(e) => log::error!("Asset {asset} laden: {e}"),
@@ -243,22 +243,6 @@ impl ImageStore {
                 h: r.h as f32,
             });
         }
-    }
-
-    fn upload_texture(
-        &self,
-        device: &wgpu::Device,
-        queue: &wgpu::Queue,
-        luma: &[u8],
-        w: u32,
-        h: u32,
-    ) -> Tex {
-        // Luma → RGBA (grau), damit ein Standard-Format reicht.
-        let mut rgba = Vec::with_capacity((w * h * 4) as usize);
-        for &g in luma {
-            rgba.extend_from_slice(&[g, g, g, 255]);
-        }
-        self.upload_rgba(device, queue, &rgba, w, h)
     }
 
     fn upload_rgba(

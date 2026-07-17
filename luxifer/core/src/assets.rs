@@ -68,6 +68,10 @@ pub struct AssetMeta {
     /// verwendet wurde. Metadaten dürfen wachsen, die Content-ID bleibt stabil.
     #[serde(default)]
     pub tags: Vec<String>,
+    /// Intern erzeugtes Asset (z. B. Crop), nicht vom Nutzer importiertes
+    /// Original. Der Katalog zeigt es nur bei gespeicherter Projektreferenz.
+    #[serde(default)]
+    pub derived: bool,
 }
 
 /// Fehler beim Import/Store.
@@ -161,12 +165,50 @@ pub fn import_image(
         height,
         import_at: now_iso8601(),
         tags: derive_tags([original_name]),
+        derived: false,
     };
     let meta_path = store_dir.join(format!("{id}.meta.json"));
     if !meta_path.exists() {
         let json = serde_json::to_string_pretty(&meta).map_err(|e| AssetError(e.to_string()))?;
         std::fs::write(&meta_path, json)?;
     }
+    add_asset_tags(store_dir, &id, [original_name])
+}
+
+/// Importiert ein Graustufenbild wie `import_image`, erhält aber den
+/// Alpha-Kanal. Für abgeleitete Masken (z. B. elliptischer Crop), deren
+/// Außenbereich wirklich transparent bleiben muss.
+pub fn import_image_preserve_alpha(
+    store_dir: &Path,
+    source_bytes: &[u8],
+    original_name: &str,
+) -> Result<AssetMeta, AssetError> {
+    let image = image::load_from_memory(source_bytes).map_err(|e| AssetError(e.to_string()))?;
+    let luma_alpha = image.to_luma_alpha8();
+    let (width, height) = luma_alpha.dimensions();
+    let mut png = Vec::new();
+    image::DynamicImage::ImageLumaA8(luma_alpha)
+        .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+        .map_err(|e| AssetError(e.to_string()))?;
+    let id = content_hash(&png);
+    std::fs::create_dir_all(store_dir)?;
+    std::fs::write(store_dir.join(format!("{id}.png")), &png)?;
+    let meta = AssetMeta {
+        id: id.clone(),
+        ext: "png".into(),
+        kind: AssetKind::Image,
+        original_name: original_name.into(),
+        source_format: "png".into(),
+        width,
+        height,
+        import_at: now_iso8601(),
+        tags: derive_tags([original_name]),
+        derived: true,
+    };
+    std::fs::write(
+        store_dir.join(format!("{id}.meta.json")),
+        serde_json::to_vec_pretty(&meta).map_err(|e| AssetError(e.to_string()))?,
+    )?;
     add_asset_tags(store_dir, &id, [original_name])
 }
 
@@ -204,6 +246,7 @@ pub fn import_source(
         height: 0,
         import_at: now_iso8601(),
         tags: derive_tags([original_name]),
+        derived: false,
     };
     let meta_path = store_dir.join(format!("{id}.meta.json"));
     if !meta_path.exists() {
@@ -506,6 +549,32 @@ pub fn load_asset_luma(store_dir: &Path, id: &AssetId) -> Result<(Vec<u8>, u32, 
     Ok((luma.into_raw(), w, h))
 }
 
+pub fn load_asset_rgba(store_dir: &Path, id: &AssetId) -> Result<(Vec<u8>, u32, u32), AssetError> {
+    let bytes = load_asset(store_dir, id)?;
+    let rgba = image::load_from_memory(&bytes)
+        .map_err(|e| AssetError(e.to_string()))?
+        .to_rgba8();
+    let (w, h) = rgba.dimensions();
+    Ok((rgba.into_raw(), w, h))
+}
+
+pub fn load_asset_luma_alpha(
+    store_dir: &Path,
+    id: &AssetId,
+) -> Result<(Vec<u8>, Vec<u8>, u32, u32), AssetError> {
+    let bytes = load_asset(store_dir, id)?;
+    let image = image::load_from_memory(&bytes).map_err(|e| AssetError(e.to_string()))?;
+    let pixels = image.to_luma_alpha8();
+    let (w, h) = pixels.dimensions();
+    let mut luma = Vec::with_capacity((w * h) as usize);
+    let mut alpha = Vec::with_capacity((w * h) as usize);
+    for pixel in pixels.pixels() {
+        luma.push(pixel.0[0]);
+        alpha.push(pixel.0[1]);
+    }
+    Ok((luma, alpha, w, h))
+}
+
 /// Lädt die Metadaten eines Assets.
 pub fn asset_meta(store_dir: &Path, id: &AssetId) -> Result<AssetMeta, AssetError> {
     let path = store_dir.join(format!("{id}.meta.json"));
@@ -560,9 +629,9 @@ pub fn rendered_png(
     invert: bool,
 ) -> Result<Vec<u8>, AssetError> {
     let bytes = load_asset(store_dir, id)?;
-    let luma = image::load_from_memory(&bytes)
-        .map_err(|e| AssetError(e.to_string()))?
-        .to_luma8();
+    let decoded = image::load_from_memory(&bytes).map_err(|e| AssetError(e.to_string()))?;
+    let alpha = decoded.to_luma_alpha8();
+    let luma = decoded.to_luma8();
     let (w, h) = (luma.width(), luma.height());
     let mut processed = apply_params(luma.as_raw(), p, invert);
     // Dither-Modi: die Vorschau zeigt das Punktmuster (auf nativer Auflösung;
@@ -570,10 +639,12 @@ pub fn rendered_png(
     if crate::dither::is_dither(p.mode) {
         processed = crate::dither::dither(&processed, w as usize, h as usize, p.mode);
     }
-    let out_img = image::GrayImage::from_raw(w, h, processed)
-        .ok_or_else(|| AssetError("Pixelanzahl passt nicht zur Größe".into()))?;
+    let out_img = image::GrayAlphaImage::from_fn(w, h, |x, y| {
+        let index = (y * w + x) as usize;
+        image::LumaA([processed[index], alpha.get_pixel(x, y).0[1]])
+    });
     let mut out = Vec::new();
-    image::DynamicImage::ImageLuma8(out_img)
+    image::DynamicImage::ImageLumaA8(out_img)
         .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
         .map_err(|e| AssetError(e.to_string()))?;
     Ok(out)
@@ -750,6 +821,7 @@ mod tests {
             height: 0,
             import_at: String::new(),
             tags: vec!["werkstatt".into()],
+            derived: false,
         };
 
         store_asset(&dir, &meta, bytes).expect("gültiges Asset speichern");

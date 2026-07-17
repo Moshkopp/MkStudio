@@ -8,6 +8,7 @@
 //! verschwindet.
 
 use std::borrow::Cow;
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use crate::AppError;
@@ -34,14 +35,25 @@ pub struct PreparedAsset {
 /// UI-unabhängige Grenze für Asset-Katalog, Import und Persistenz.
 pub struct AssetService;
 
+#[derive(Clone, Copy, Debug)]
+pub enum CropGeometry {
+    Rect([f32; 4]),
+    /// Mittelpunkt und zwei Halbachsenpunkte, normalisiert aufs Quellbild.
+    Ellipse([[f32; 2]; 3]),
+}
+
 impl AssetService {
     pub fn list_visible() -> Result<Vec<luxifer_core::AssetMeta>, AppError> {
         let store = luxifer_core::assets_dir();
+        let saved_refs = Self::saved_project_asset_refs();
         luxifer_core::list_assets(&store)
             .map(|assets| {
                 assets
                     .into_iter()
-                    .filter(|asset| !luxifer_core::asset_hidden(&store, &asset.id))
+                    .filter(|asset| {
+                        !luxifer_core::asset_hidden(&store, &asset.id)
+                            && (!Self::is_derived(asset) || saved_refs.contains(&asset.id))
+                    })
                     .collect()
             })
             .map_err(|error| {
@@ -51,6 +63,58 @@ impl AssetService {
                     error.to_string(),
                 )
             })
+    }
+
+    fn saved_project_asset_refs() -> HashSet<String> {
+        let projects = luxifer_core::projects_dir();
+        let mut refs = HashSet::new();
+        for info in luxifer_core::list_projects(&projects) {
+            let Ok(project) = luxifer_core::ProjectFile::load_by_name(&projects, &info.name) else {
+                continue;
+            };
+            refs.extend(project.asset_refs.iter().cloned());
+            for version in &project.versions {
+                if let Ok(snapshot) =
+                    luxifer_core::ProjectFile::load_version(&projects, &project.name, &version.id)
+                {
+                    refs.extend(snapshot.asset_refs);
+                }
+            }
+        }
+        refs
+    }
+
+    /// Entfernt nur intern erzeugte Assets, die in keiner gespeicherten
+    /// Projektversion vorkommen. Beim Programmstart existiert noch keine
+    /// Undo-Historie, daher können temporäre Crop-Dateien sicher weg.
+    pub fn cleanup_orphan_derived() -> Result<usize, AppError> {
+        let store = luxifer_core::assets_dir();
+        let saved_refs = Self::saved_project_asset_refs();
+        let assets = luxifer_core::list_assets(&store).map_err(|error| {
+            AppError::wrap(
+                "asset_cleanup_list",
+                "Asset-Bereinigung konnte nicht gestartet werden.",
+                error.to_string(),
+            )
+        })?;
+        let mut removed = 0;
+        for asset in assets {
+            if Self::is_derived(&asset) && !saved_refs.contains(&asset.id) {
+                luxifer_core::delete_asset(&store, &asset.id).map_err(|error| {
+                    AppError::wrap(
+                        "asset_cleanup_delete",
+                        "Temporäres Crop-Asset konnte nicht entfernt werden.",
+                        error.to_string(),
+                    )
+                })?;
+                removed += 1;
+            }
+        }
+        Ok(removed)
+    }
+
+    fn is_derived(asset: &luxifer_core::AssetMeta) -> bool {
+        asset.derived || asset.original_name == "Bildausschnitt.png"
     }
 
     pub fn prepare_catalog(id: &str) -> Result<PreparedAsset, AppError> {
@@ -292,6 +356,60 @@ impl AssetService {
     /// unverändert und kann von Undo oder anderen Bildern weiter genutzt werden.
     pub fn crop_image(id: &str, crop: [f32; 4]) -> Result<luxifer_core::AssetMeta, AppError> {
         let cropped = Self::cropped_luma(id, crop)?;
+        Self::store_crop(cropped)
+    }
+
+    pub fn crop_image_geometry(
+        id: &str,
+        geometry: CropGeometry,
+    ) -> Result<(luxifer_core::AssetMeta, [f32; 4]), AppError> {
+        match geometry {
+            CropGeometry::Rect(crop) => Ok((Self::crop_image(id, crop)?, crop)),
+            CropGeometry::Ellipse(points) => {
+                let c = points[0];
+                let a = [points[1][0] - c[0], points[1][1] - c[1]];
+                let b = [points[2][0] - c[0], points[2][1] - c[1]];
+                let det = a[0] * b[1] - a[1] * b[0];
+                if !det.is_finite() || det.abs() < 0.0001 {
+                    return Err(AppError::new(
+                        "image_crop_ellipse",
+                        "Die Ellipse ist zu klein oder ungültig.",
+                    ));
+                }
+                let ex = (a[0] * a[0] + b[0] * b[0]).sqrt();
+                let ey = (a[1] * a[1] + b[1] * b[1]).sqrt();
+                let crop = [
+                    (c[0] - ex).max(0.0),
+                    (c[1] - ey).max(0.0),
+                    (c[0] + ex).min(1.0),
+                    (c[1] + ey).min(1.0),
+                ];
+                let luma = Self::cropped_luma(id, crop)?;
+                let mut image =
+                    image::GrayAlphaImage::from_fn(luma.width(), luma.height(), |x, y| {
+                        image::LumaA([luma.get_pixel(x, y).0[0], 255])
+                    });
+                let (width, height) = image.dimensions();
+                for y in 0..height {
+                    for x in 0..width {
+                        let source = [
+                            crop[0] + (x as f32 + 0.5) / width as f32 * (crop[2] - crop[0]),
+                            crop[1] + (y as f32 + 0.5) / height as f32 * (crop[3] - crop[1]),
+                        ];
+                        let d = [source[0] - c[0], source[1] - c[1]];
+                        let u = (d[0] * b[1] - d[1] * b[0]) / det;
+                        let v = (a[0] * d[1] - a[1] * d[0]) / det;
+                        if u * u + v * v > 1.0 {
+                            image.put_pixel(x, y, image::LumaA([255, 0]));
+                        }
+                    }
+                }
+                Ok((Self::store_crop_alpha(image)?, crop))
+            }
+        }
+    }
+
+    fn store_crop(cropped: image::GrayImage) -> Result<luxifer_core::AssetMeta, AppError> {
         let mut png = Vec::new();
         image::DynamicImage::ImageLuma8(cropped)
             .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
@@ -311,6 +429,33 @@ impl AssetService {
                 )
             },
         )
+    }
+
+    fn store_crop_alpha(
+        cropped: image::GrayAlphaImage,
+    ) -> Result<luxifer_core::AssetMeta, AppError> {
+        let mut png = Vec::new();
+        image::DynamicImage::ImageLumaA8(cropped)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .map_err(|error| {
+                AppError::wrap(
+                    "image_crop_encode",
+                    "Bildausschnitt konnte nicht gespeichert werden.",
+                    error.to_string(),
+                )
+            })?;
+        luxifer_core::import_image_preserve_alpha(
+            &luxifer_core::assets_dir(),
+            &png,
+            "Bildausschnitt.png",
+        )
+        .map_err(|error| {
+            AppError::wrap(
+                "image_crop_store",
+                "Bildausschnitt konnte nicht abgelegt werden.",
+                error.to_string(),
+            )
+        })
     }
 
     fn cropped_luma(id: &str, crop: [f32; 4]) -> Result<image::GrayImage, AppError> {
@@ -457,10 +602,17 @@ impl AssetService {
 
 /// Graustufen-Pixel (row-major `u8`) samt Pixelmaßen zu einer Asset-ID, im
 /// Format des `JobPlan::from_shapes_with_assets`-Resolvers.
-pub(crate) fn resolve_luma(id: &str) -> Option<(Cow<'static, [u8]>, usize, usize)> {
+type ResolvedRaster = (Cow<'static, [u8]>, Cow<'static, [u8]>, usize, usize);
+
+pub(crate) fn resolve_luma(id: &str) -> Option<ResolvedRaster> {
     let dir = luxifer_core::assets_dir();
-    match luxifer_core::load_asset_luma(&dir, &id.to_string()) {
-        Ok((pixels, w, h)) => Some((Cow::Owned(pixels), w as usize, h as usize)),
+    match luxifer_core::load_asset_luma_alpha(&dir, &id.to_string()) {
+        Ok((pixels, alpha, w, h)) => Some((
+            Cow::Owned(pixels),
+            Cow::Owned(alpha),
+            w as usize,
+            h as usize,
+        )),
         Err(e) => {
             eprintln!("Bild-Asset {id} für den Job nicht ladbar: {e}");
             None
@@ -471,6 +623,73 @@ pub(crate) fn resolve_luma(id: &str) -> Option<(Cow<'static, [u8]>, usize, usize
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn elliptischer_crop_maskiert_ecken_und_behaelt_mitte() {
+        let _guard = crate::test_env::with_temp_dir("ellipse_crop");
+        let source = image::GrayImage::from_pixel(20, 20, image::Luma([0]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageLuma8(source)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .expect("PNG");
+        let meta = luxifer_core::import_image(&luxifer_core::assets_dir(), &png, "Quelle.png")
+            .expect("Quellasset");
+
+        let (cropped, bounds) = AssetService::crop_image_geometry(
+            &meta.id,
+            CropGeometry::Ellipse([[0.5, 0.5], [0.9, 0.5], [0.5, 0.8]]),
+        )
+        .expect("elliptischer Crop");
+        let (pixels, width, height) =
+            luxifer_core::load_asset_luma(&luxifer_core::assets_dir(), &cropped.id)
+                .expect("Crop laden");
+        let (rgba, _, _) = luxifer_core::load_asset_rgba(&luxifer_core::assets_dir(), &cropped.id)
+            .expect("Crop mit Alpha laden");
+
+        for (actual, expected) in bounds.into_iter().zip([0.1, 0.2, 0.9, 0.8]) {
+            assert!((actual - expected).abs() < 0.00001);
+        }
+        assert_eq!(pixels[0], 255, "Ecke liegt außerhalb der Ellipse");
+        assert_eq!(rgba[3], 0, "Ecke muss transparent sein");
+        assert_eq!(pixels[(height / 2 * width + width / 2) as usize], 0);
+        assert_eq!(
+            rgba[((height / 2 * width + width / 2) * 4 + 3) as usize],
+            255
+        );
+    }
+
+    #[test]
+    fn crop_assets_erscheinen_nur_mit_gespeicherter_projektreferenz() {
+        let _guard = crate::test_env::with_temp_dir("crop_lifecycle");
+        let source = image::GrayImage::from_pixel(8, 8, image::Luma([40]));
+        let mut png = Vec::new();
+        image::DynamicImage::ImageLuma8(source)
+            .write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png)
+            .unwrap();
+        let original =
+            luxifer_core::import_image(&luxifer_core::assets_dir(), &png, "Original.png").unwrap();
+        let (crop, _) = AssetService::crop_image_geometry(
+            &original.id,
+            CropGeometry::Ellipse([[0.5, 0.5], [0.9, 0.5], [0.5, 0.9]]),
+        )
+        .unwrap();
+
+        let visible = AssetService::list_visible().unwrap();
+        assert!(visible.iter().any(|asset| asset.id == original.id));
+        assert!(!visible.iter().any(|asset| asset.id == crop.id));
+
+        let mut state = luxifer_core::AppState::new();
+        state.add_image(crop.id.clone(), 0.0, 0.0, 10.0, 10.0);
+        let project = luxifer_core::ProjectFile::from_state(&state, "Crop-Projekt", Vec::new());
+        project.save_to_dir(&luxifer_core::projects_dir()).unwrap();
+
+        assert!(AssetService::list_visible()
+            .unwrap()
+            .iter()
+            .any(|asset| asset.id == crop.id));
+        assert_eq!(AssetService::cleanup_orphan_derived().unwrap(), 0);
+        assert!(luxifer_core::asset_meta(&luxifer_core::assets_dir(), &crop.id).is_ok());
+    }
 
     #[test]
     fn unbekanntes_format_wird_stabil_abgewiesen() {

@@ -47,6 +47,7 @@ pub struct RasterTexture {
 #[derive(Debug, Clone, Copy)]
 pub struct RasterImage<'a> {
     pub pixels: &'a [u8],
+    pub alpha: Option<&'a [u8]>,
     pub px_w: usize,
     pub px_h: usize,
 }
@@ -76,7 +77,12 @@ fn rasterize(
     params: &ImageParams,
     invert: bool,
 ) -> Option<(Vec<u8>, usize, usize)> {
-    let RasterImage { pixels, px_w, px_h } = img;
+    let RasterImage {
+        pixels,
+        alpha,
+        px_w,
+        px_h,
+    } = img;
     let Placement { w, h, step_mm, .. } = place;
     if px_w == 0 || px_h == 0 || pixels.len() != px_w * px_h || w <= 0.0 || h <= 0.0 {
         return None;
@@ -86,13 +92,13 @@ fn rasterize(
     let th = ((h / step).round() as usize).max(1);
     let tw = ((w / step).round() as usize).max(1);
 
-    if crate::dither::is_dither(params.mode) {
+    let (mut result, tw, th) = if crate::dither::is_dither(params.mode) {
         // FOTO-Pfad (Dithering): erst die Tonwert-LUT als Graustufe, dann auf
         // die Zielauflösung skalieren, dann dithern — das Dithern MUSS auf der
         // Job-Auflösung laufen, sonst zerstört das Skalieren das Punktmuster.
         let gray = apply_params(pixels, params, invert);
         let scaled = scale_gray(&gray, px_w, px_h, tw, th);
-        Some((crate::dither::dither(&scaled, tw, th, params.mode), tw, th))
+        (crate::dither::dither(&scaled, tw, th, params.mode), tw, th)
     } else {
         // STRICHGRAFIK-Pfad (Schwellwert): auf Originalauflösung schwellen
         // (scharf), dann skalieren, dann erneut schwellen (Zwischengrau vom
@@ -104,8 +110,17 @@ fn rasterize(
         };
         let bw_src = apply_params(pixels, &tp, invert);
         let scaled = scale_gray(&bw_src, px_w, px_h, tw, th);
-        Some((threshold_128(&scaled), tw, th))
+        (threshold_128(&scaled), tw, th)
+    };
+    if let Some(alpha) = alpha.filter(|alpha| alpha.len() == px_w * px_h) {
+        let scaled_alpha = scale_gray(alpha, px_w, px_h, tw, th);
+        for (pixel, alpha) in result.iter_mut().zip(scaled_alpha) {
+            if alpha < 128 {
+                *pixel = 255;
+            }
+        }
     }
+    Some((result, tw, th))
 }
 
 /// Rastert ein Graustufenbild in die mm-Fläche der `Placement` zu **Job-Runs**:
@@ -233,7 +248,12 @@ mod tests {
         invert: bool,
     ) -> Vec<RasterRow> {
         raster_rows(
-            RasterImage { pixels, px_w, px_h },
+            RasterImage {
+                pixels,
+                alpha: None,
+                px_w,
+                px_h,
+            },
             Placement {
                 x,
                 y,
@@ -254,6 +274,7 @@ mod tests {
         let px = vec![128u8; 16 * 16];
         let img = RasterImage {
             pixels: &px,
+            alpha: None,
             px_w: 16,
             px_h: 16,
         };
@@ -320,6 +341,30 @@ mod tests {
         let rows = run(&[255u8; 4], 4, 1, 0.0, 0.0, 4.0, 1.0, 1.0, true);
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].runs.len(), 1);
+    }
+
+    #[test]
+    fn transparente_pixel_brennen_auch_invertiert_nicht() {
+        let pixels = [255, 255];
+        let alpha = [0, 255];
+        let rows = raster_rows(
+            RasterImage {
+                pixels: &pixels,
+                alpha: Some(&alpha),
+                px_w: 2,
+                px_h: 1,
+            },
+            Placement {
+                x: 0.0,
+                y: 0.0,
+                w: 2.0,
+                h: 1.0,
+                step_mm: 1.0,
+            },
+            &threshold_params(),
+            true,
+        );
+        assert_eq!(rows[0].runs, vec![(1.0, 2.0)]);
     }
 
     #[test]

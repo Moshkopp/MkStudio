@@ -181,6 +181,33 @@ rechteckigen `ImageCrop` und sind daher nicht Teil des ersten
 Implementierungsschnitts. Automatische Motiverkennung beziehungsweise
 `Auto-Zuschneiden` wird ebenfalls vertagt.
 
+#### Umsetzungsstand 2026-07-17: interaktive Crop-Geometrie
+
+Der zweite Ausbau hat mit dem elliptischen Crop begonnen. Der Crop-Dialog zeigt
+das vollständige Bild als stabile Zeichenfläche. Rechtecke werden direkt in der
+Vorschau aufgezogen und anschließend an ihren Eckgriffen verändert. Ein Kreis
+entsteht als Umkreis durch drei frei gesetzte Umfangspunkte. Nach der
+Konstruktion erhält er eine achsenparallele Bounding Box mit acht Griffen; über
+diese kann der Kreis anschließend auch zu einer Ellipse verzerrt werden.
+
+Beim Anwenden wird die Ellipse in ein abgeleitetes Rasterasset mit echtem
+Alpha-Kanal maskiert; Pixel außerhalb der Ellipse sind transparent und nicht
+weiß gefüllt. Das Ergebnis wird auf seine achsenparallele Begrenzung
+zugeschnitten. Die Application übergibt diese
+Begrenzung weiter an den vorhandenen atomaren Session-Crop, sodass Assetwechsel,
+Bildbox-Anpassung und Undo weiterhin ein gemeinsamer Schritt bleiben. Das
+Originalasset wird nicht verändert. Freie Polygonmasken bleiben offen.
+
+Crop-Ergebnisse sind im Asset-Metadatensatz als `derived` markiert. Sie werden
+im Asset-Katalog nur angezeigt, wenn mindestens eine gespeicherte
+Projektversion ihre ID referenziert. Dadurch tauchen verworfene oder nur in der
+Undo-Historie gehaltene Zwischenstände nicht als normale Bibliotheksassets auf.
+Beim Programmstart werden abgeleitete Assets ohne Referenz aus irgendeiner
+gespeicherten Projektversion physisch entfernt. Importierte Originale sind von
+dieser Bereinigung grundsätzlich ausgeschlossen. Der Legacy-Name
+`Bildausschnitt.png` wird für bereits vor Einführung des Markers erzeugte Crops
+einmalig wie ein abgeleitetes Asset behandelt.
+
 ### 5. Schichten und Zuständigkeiten
 
 - `luxifer-core` besitzt Crop-Datenmodell, Validierung, effektive Bildregion,

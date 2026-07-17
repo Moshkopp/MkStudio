@@ -155,6 +155,9 @@ impl App {
         let project_integration = project::ProjectIntegrationRuntime::new()?;
         let project = luxifer_application::ProjectService::new();
         let project_catalog = project.list();
+        if let Err(error) = luxifer_application::AssetService::cleanup_orphan_derived() {
+            log::error!("Temporäre Crop-Assets bereinigen: {error}");
+        }
         image::enrich_asset_tags_from_projects();
         let asset_catalog = luxifer_application::AssetService::list_visible()
             .unwrap_or_default()

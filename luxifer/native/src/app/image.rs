@@ -1,7 +1,7 @@
 use std::path::Path;
 use std::{collections::hash_map::DefaultHasher, hash::Hash, hash::Hasher};
 
-use luxifer_application::{AppError, AssetService, PreparedAsset};
+use luxifer_application::{AppError, AssetService, CropGeometry, PreparedAsset};
 use luxifer_core::Geo;
 
 use super::App;
@@ -331,10 +331,6 @@ impl App {
         if state.page == crate::ui::ImageDialogPage::Trace {
             state.trace_threshold.hash(&mut hasher);
             state.trace_invert.hash(&mut hasher);
-        } else if state.page == crate::ui::ImageDialogPage::Crop {
-            for value in state.crop_rect {
-                value.to_bits().hash(&mut hasher);
-            }
         }
         let key = hasher.finish();
         if state.preview_key == Some(key) {
@@ -348,9 +344,9 @@ impl App {
                 state.trace_threshold,
                 state.trace_invert,
             ),
-            crate::ui::ImageDialogPage::Crop => {
-                AssetService::crop_preview(&asset, &params, state.crop_rect)
-            }
+            // Die Crop-Seite braucht ein stabiles Vollbild als Zeichenfläche;
+            // die Maske zeichnet das UI darüber.
+            crate::ui::ImageDialogPage::Crop => AssetService::image_preview(&asset, &params),
             crate::ui::ImageDialogPage::Settings => AssetService::image_preview(&asset, &params),
         };
         let Some(state) = self.image_dialog.as_mut() else {
@@ -422,7 +418,17 @@ impl App {
         let Some(st) = self.image_dialog.as_ref() else {
             return false;
         };
-        let (index, crop) = (st.index, st.crop_rect);
+        let index = st.index;
+        let geometry = match st.crop_kind {
+            crate::ui::CropKind::Rect => CropGeometry::Rect(st.crop_rect),
+            crate::ui::CropKind::Ellipse if st.crop_ellipse_points == 3 => {
+                CropGeometry::Ellipse(st.crop_ellipse)
+            }
+            crate::ui::CropKind::Ellipse => {
+                self.toasts.error("Bitte alle drei Ellipsenpunkte setzen.");
+                return false;
+            }
+        };
         let Some(asset) =
             self.session
                 .state()
@@ -435,8 +441,8 @@ impl App {
         else {
             return false;
         };
-        let meta = match AssetService::crop_image(&asset, crop) {
-            Ok(meta) => meta,
+        let (meta, crop) = match AssetService::crop_image_geometry(&asset, geometry) {
+            Ok(result) => result,
             Err(error) => {
                 self.app_error = Some(error);
                 return false;

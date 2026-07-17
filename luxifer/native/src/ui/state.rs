@@ -55,6 +55,20 @@ pub struct ImageDialogState {
     pub page: ImageDialogPage,
     /// Normalisierte Schnittkanten im Quellbild: links, oben, rechts, unten.
     pub crop_rect: [f32; 4],
+    pub crop_kind: CropKind,
+    /// Während der Konstruktion: drei Umfangspunkte. Danach: Mittelpunkt,
+    /// rechter und unterer Halbachsenpunkt der achsenparallelen Ellipse.
+    pub crop_ellipse: [[f32; 2]; 3],
+    pub crop_ellipse_points: u8,
+    pub crop_ellipse_error: Option<String>,
+    pub crop_drag_handle: Option<usize>,
+    pub crop_drag_start: Option<[f32; 2]>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum CropKind {
+    Rect,
+    Ellipse,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -78,6 +92,12 @@ impl ImageDialogState {
             preview_pan: egui::Vec2::ZERO,
             page: ImageDialogPage::Settings,
             crop_rect: [0.0, 0.0, 1.0, 1.0],
+            crop_kind: CropKind::Rect,
+            crop_ellipse: [[0.5, 0.5], [0.85, 0.5], [0.5, 0.85]],
+            crop_ellipse_points: 0,
+            crop_ellipse_error: None,
+            crop_drag_handle: None,
+            crop_drag_start: None,
         }
     }
 }

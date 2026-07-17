@@ -28,7 +28,7 @@ pub use action::UiAction;
 pub(crate) use project::preview_from_state;
 pub use splash::Splash;
 pub use state::{
-    CachedProjectDetail, CharonTestStatus, GeoOpDialogState, GeoOpKind, ImageDialogPage,
+    CachedProjectDetail, CharonTestStatus, CropKind, GeoOpDialogState, GeoOpKind, ImageDialogPage,
     ImageDialogState, LaserManagerState, LaserManagerTab, LayerDialogState, PendingProjectAction,
     ProjectBrowserState, ProjectSaveDialogState, RevisionComparisonState, SelectionSizeState,
     SettingsDialogState, SettingsSection, TextDialogState,
