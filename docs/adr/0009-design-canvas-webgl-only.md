@@ -11,8 +11,7 @@ Form, sondern zerfällt in viele Konturen (Beispiel „Ich Kack Ab": **92 einzel
 Shapes**, je Buchstabe Außenkontur + Löcher).
 
 Ein zweiter, härterer Belastungsfall bestätigt die Größenordnung: ein reales
-**DXF im Azteken-/Star-Wars-Stil** (12,4 MB, `SW_acteken.dxf`), an dem selbst
-LightBurn hörbar arbeitet. **Gemessen** (Core-Import, Release):
+**DXF im Azteken-/Star-Wars-Stil** (12,4 MB, `SW_acteken.dxf`), **Gemessen** (Core-Import, Release):
 
 - **1.808 geschlossene Konturen, 125.305 Punkte**, alle auf **einem** Layer.
 - Import (Core) **254 ms einmalig** — unkritisch.

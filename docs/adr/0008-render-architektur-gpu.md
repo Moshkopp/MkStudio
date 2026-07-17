@@ -118,7 +118,7 @@ PixiJS — der Fallback; aber der Default ist rohes WebGL.)
 
 ### 2. Bild-Vorschau: Gesamtbild rausgezoomt → einzelne Rasterzeilen reingezoomt
 
-Das gewünschte Verhalten (Vorbild LightBurn) ist mit GPU das **natürliche**
+Das gewünschte Verhalten Vorbild  ist mit GPU das **natürliche**
 Ergebnis, nicht ein Extra-Feature:
 
 - **Rausgezoomt** verschmelzen die dichten Rasterzeilen optisch zu einer sauberen
