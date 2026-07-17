@@ -13,6 +13,8 @@ pub enum Tool {
     Bezier,
     Measure,
     Node,
+    /// Abschnitt einer Kontur zwischen den nächsten Schnittpunkten entfernen.
+    Trim,
     /// Haltesteg: Linie über eine Kontur ziehen, Breite einstellen, bestätigen
     /// → die Kontur wird im Steg-Band aufgetrennt und quer wieder geschlossen.
     Bridge,
@@ -75,6 +77,7 @@ impl Tool {
             Tool::Bezier => "Bézier",
             Tool::Measure => "Messen",
             Tool::Node => "Knoten",
+            Tool::Trim => "Trimmen",
             Tool::Bridge => "Haltesteg",
         }
     }
@@ -92,6 +95,7 @@ impl Tool {
             Tool::Bezier => "bezier",
             Tool::Measure => "measure",
             Tool::Node => "node",
+            Tool::Trim => "trim",
             Tool::Bridge => "bridge",
         }
     }
@@ -213,6 +217,11 @@ pub enum Drag {
     None,
     /// Canvas verschieben (mittlere Maustaste oder Leertaste+links).
     Pan,
+    /// Trimmen bei gehaltener linker Maustaste. Der Abstand zum letzten
+    /// Treffer verhindert ein sofortiges erneutes Trimmen desselben Restes.
+    TrimStroke {
+        last_trim: [f64; 2],
+    },
     /// Auswahl-Rechteck aufziehen (Welt-Startpunkt).
     Marquee {
         start: [f64; 2],

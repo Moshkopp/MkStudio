@@ -93,7 +93,7 @@ Quelle: `frontend/src-tauri/src/commands/shapes.rs`.
 | `boolean_op` | Core/Application | über `EditorSession::boolean` | Union/Schnitt/Differenz mit Parameterdialog (`dialogs/geo_op.rs`) |
 | `offset_op` | Core/Application | über `EditorSession::offset` | Distanzdialog; Core hält harte Miter-Ecken bei konvexen Konturen |
 | `bridge_op` | Core/Application | vorhanden | Canvas-Geste, Breite, stabile Fehler und Undo getestet |
-| `trim_op` | Core/Application | **offen** | derzeit nur ausgegrauter Native-Stub; Operation, Geste, Undo und Tests fehlen |
+| `trim_op` | Core/Application | vorhanden | sichtbare/entsperrte Vektoren schneiden; Core-Hovervorschau und ein Undo pro Klick |
 | `fillet_corners_op` | Core/Application | über `EditorSession::fillet` | Radiusgrenzen und Undo über Core |
 | `fillet_op` | Core/Application | über `EditorSession::fillet` | Radiusdialog über Session |
 | `nest_op` | Core/Application | über `EditorSession` | Auswahlvoraussetzung und Core-Undo |

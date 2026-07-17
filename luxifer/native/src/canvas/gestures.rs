@@ -18,6 +18,7 @@ pub struct PointerOutcome {
     pub shape_added: bool,
     /// Doppelklick traf diesen Shape-Index (Auswahlwerkzeug) → Editor öffnen.
     pub double_clicked: Option<usize>,
+    pub error: Option<luxifer_application::AppError>,
 }
 
 impl CanvasState {
@@ -33,6 +34,11 @@ impl CanvasState {
         }
         if self.space_down {
             return egui::CursorIcon::Grab;
+        }
+        if self.tool == Tool::Trim {
+            // Nach dem egui-Frame ersetzt App diesen sichtbaren Standardcursor
+            // durch den nativen Bitmap-Scheren-Cursor.
+            return egui::CursorIcon::Default;
         }
         if self.tool != Tool::Select {
             return egui::CursorIcon::Crosshair;
@@ -106,6 +112,16 @@ impl CanvasState {
                 }
                 match self.tool {
                     Tool::Select | Tool::Node => self.begin_select(session, w),
+                    Tool::Trim => {
+                        let tolerance = 6.0 / self.cam.scale as f64;
+                        session.begin_edit();
+                        session.trim_edit((w[0], w[1]), tolerance);
+                        self.drag = Drag::TrimStroke { last_trim: w };
+                        self.trim_preview = session
+                            .state()
+                            .trim_preview((w[0], w[1]), tolerance)
+                            .map(|preview| preview.removed);
+                    }
                     // Aufzieh-Werkzeuge (Zentrum/Ecke → Maus).
                     Tool::Rect | Tool::Ellipse | Tool::Polygon | Tool::Line | Tool::Measure => {
                         self.drag = Drag::DrawBox { start: w }
@@ -245,6 +261,30 @@ impl CanvasState {
         let dx = new[0] - self.cursor[0];
         let dy = new[1] - self.cursor[1];
         let w = self.cam.screen_to_world(new);
+        if self.tool == Tool::Trim && matches!(self.drag, Drag::None) {
+            let tolerance = 6.0 / self.cam.scale as f64;
+            self.trim_preview = session
+                .state()
+                .trim_preview((w[0], w[1]), tolerance)
+                .map(|preview| preview.removed);
+        }
+        if let Drag::TrimStroke { last_trim } = &self.drag {
+            let last_trim = *last_trim;
+            // Rund acht Bildschirmpixel Abstand vermeiden, dass ein nach dem
+            // Trim neu entstandener Rest im unmittelbar folgenden Maus-Event
+            // versehentlich ebenfalls verschwindet.
+            let step = 8.0 / self.cam.scale as f64;
+            if (w[0] - last_trim[0]).hypot(w[1] - last_trim[1]) >= step {
+                let tolerance = 6.0 / self.cam.scale as f64;
+                if session.trim_edit((w[0], w[1]), tolerance) {
+                    self.drag = Drag::TrimStroke { last_trim: w };
+                }
+                self.trim_preview = session
+                    .state()
+                    .trim_preview((w[0], w[1]), tolerance)
+                    .map(|preview| preview.removed);
+            }
+        }
         // Erst die reinen Kamera-/Move-Fälle (kein Snapshot nötig).
         match &mut self.drag {
             Drag::Pan => {
@@ -339,6 +379,10 @@ impl CanvasState {
             // Der Steg-Entwurf bleibt stehen — bestätigt wird über das
             // Eingabefeld am Linienende (App::commit_bridge).
             Drag::BridgeEnd { .. } => false,
+            Drag::TrimStroke { .. } => {
+                session.commit_edit();
+                false
+            }
             Drag::MoveShapes { .. } | Drag::Resize { .. } | Drag::Rotate { .. } => {
                 session.commit_edit();
                 false
@@ -403,6 +447,25 @@ mod tests {
     use super::*;
     use crate::camera::Camera;
     use winit::event::MouseButton;
+
+    #[test]
+    fn trim_stroke_entfernt_mehrere_ketten_in_einem_undo_schritt() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Trim;
+        let mut session = EditorSession::default();
+        session.add_line([0.0, 0.0], [20.0, 0.0]);
+        session.add_line([0.0, 30.0], [20.0, 30.0]);
+        let before = session.shapes.clone();
+
+        canvas.cursor = canvas.cam.world_to_screen([10.0, 0.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([10.0, 30.0]));
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+
+        assert!(session.shapes.is_empty());
+        assert!(session.undo(), "der gesamte Trim-Zug ist ein Undo-Schritt");
+        assert_eq!(session.shapes, before);
+    }
 
     #[test]
     fn bezier_drag_erzeugt_symmetrische_tangenten_und_fertigen_pfad() {

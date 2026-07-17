@@ -379,12 +379,8 @@ impl Shape {
         }
         closed
             && points.len() >= 2
-            && crate::geometry::point_segment_distance(
-                px,
-                py,
-                *points.last().unwrap(),
-                points[0],
-            ) <= tol
+            && crate::geometry::point_segment_distance(px, py, *points.last().unwrap(), points[0])
+                <= tol
     }
 }
 

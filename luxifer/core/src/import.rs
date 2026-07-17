@@ -46,12 +46,8 @@ pub fn import_vector_compounds(
 ) -> Result<Vec<ImportedCompound>, ImportError> {
     match ext.to_ascii_lowercase().as_str() {
         "svg" => import_svg_compounds(bytes),
-        "dxf" => import_dxf(bytes).map(|contours| {
-            contours
-                .into_iter()
-                .map(|contour| vec![contour])
-                .collect()
-        }),
+        "dxf" => import_dxf(bytes)
+            .map(|contours| contours.into_iter().map(|contour| vec![contour]).collect()),
         other => Err(ImportError(format!("Nicht unterstütztes Format: .{other}"))),
     }
 }
@@ -62,9 +58,7 @@ pub fn import_svg(bytes: &[u8]) -> Result<Vec<ImportedContour>, ImportError> {
     Ok(import_svg_compounds(bytes)?.into_iter().flatten().collect())
 }
 
-pub fn import_svg_compounds(
-    bytes: &[u8],
-) -> Result<Vec<ImportedCompound>, ImportError> {
+pub fn import_svg_compounds(bytes: &[u8]) -> Result<Vec<ImportedCompound>, ImportError> {
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(bytes, &opt)
         .map_err(|e| ImportError(format!("SVG unlesbar: {e}")))?;
@@ -104,9 +98,7 @@ fn is_laser_geometry(path: &usvg::Path) -> bool {
         return true;
     }
     match path.fill().map(usvg::Fill::paint) {
-        Some(usvg::Paint::Color(color)) => {
-            color.red < 250 || color.green < 250 || color.blue < 250
-        }
+        Some(usvg::Paint::Color(color)) => color.red < 250 || color.green < 250 || color.blue < 250,
         Some(_) => true,
         None => false,
     }
@@ -347,7 +339,11 @@ mod tests {
                      M 30 30 L 30 70 L 70 70 L 70 30 Z"/>
         </svg>"#;
         let out = import_svg(svg).unwrap();
-        assert_eq!(out.len(), 2, "nur die beiden Teilkonturen des schwarzen Pfads");
+        assert_eq!(
+            out.len(),
+            2,
+            "nur die beiden Teilkonturen des schwarzen Pfads"
+        );
         assert!(out.iter().all(|(_, closed)| *closed));
     }
 

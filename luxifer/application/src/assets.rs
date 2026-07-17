@@ -560,13 +560,15 @@ impl AssetService {
                     )
                 })?;
                 Some(
-                    luxifer_core::import::import_vector_compounds(&bytes, &meta.ext).map_err(|error| {
-                        AppError::wrap(
-                            "vector_import",
-                            "Vektordatei konnte nicht verarbeitet werden.",
-                            error.to_string(),
-                        )
-                    })?,
+                    luxifer_core::import::import_vector_compounds(&bytes, &meta.ext).map_err(
+                        |error| {
+                            AppError::wrap(
+                                "vector_import",
+                                "Vektordatei konnte nicht verarbeitet werden.",
+                                error.to_string(),
+                            )
+                        },
+                    )?,
                 )
             }
             _ => None,

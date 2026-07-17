@@ -33,6 +33,21 @@ fn load_window_icon() -> Option<winit::window::Icon> {
     winit::window::Icon::from_rgba(img.into_raw(), w, h).ok()
 }
 
+fn load_trim_cursor(el: &ActiveEventLoop) -> Option<winit::window::CustomCursor> {
+    let bytes = include_bytes!("../assets/cursors/trim-scissors.png");
+    let image = image::load_from_memory(bytes).ok()?.into_rgba8();
+    let (width, height) = image.dimensions();
+    let source = winit::window::CustomCursor::from_rgba(
+        image.into_raw(),
+        width.try_into().ok()?,
+        height.try_into().ok()?,
+        35,
+        3,
+    )
+    .ok()?;
+    Some(el.create_custom_cursor(source))
+}
+
 #[derive(Default)]
 struct Runner {
     app: Option<App>,
@@ -75,7 +90,8 @@ impl ApplicationHandler for Runner {
                 return;
             }
         };
-        let mut app = match App::new(window, gpu) {
+        let trim_cursor = load_trim_cursor(el);
+        let mut app = match App::new(window, gpu, trim_cursor) {
             Ok(app) => app,
             Err(error) => {
                 log::error!("Anwendung konnte nicht initialisiert werden: {error:?}");

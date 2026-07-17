@@ -30,6 +30,7 @@ mod text;
 
 pub struct App {
     pub window: Arc<Window>,
+    trim_cursor: Option<winit::window::CustomCursor>,
     pub session: EditorSession,
     /// Interaktions-/Kamerazustand des Canvas (Werkzeug, Geste, Cursor, Kamera).
     pub canvas: CanvasState,
@@ -126,7 +127,11 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(window: Arc<Window>, gpu: Gpu) -> Result<Self, AppError> {
+    pub fn new(
+        window: Arc<Window>,
+        gpu: Gpu,
+        trim_cursor: Option<winit::window::CustomCursor>,
+    ) -> Result<Self, AppError> {
         let egui_ctx = egui::Context::default();
         // Moderate, vom Monitor-DPI unabhängige Vergrößerung für lesbare
         // Beschriftungen und ausreichend große Trefferflächen.
@@ -173,6 +178,7 @@ impl App {
         let mut app = Self {
             splash: ui_settings.show_splash.then(crate::ui::Splash::new),
             window,
+            trim_cursor,
             session: EditorSession::new(state),
             canvas: {
                 let mut canvas = CanvasState::new(cam);
@@ -335,6 +341,9 @@ impl App {
                 }
                 if let Some(index) = out.double_clicked {
                     self.edit_shape(index);
+                }
+                if let Some(error) = out.error {
+                    self.app_error = Some(error);
                 }
             }
         }
@@ -654,6 +663,7 @@ impl App {
                 poly_pts: &self.canvas.poly_pts,
                 bezier_nodes: &self.canvas.bezier_nodes,
                 bridge: self.canvas.bridge,
+                trim_preview: self.canvas.trim_preview.as_deref(),
                 world_cursor: self.canvas.world(),
                 cam_scale: self.canvas.cam.scale,
                 invert_marquee_direction: self.canvas.invert_marquee_direction,
@@ -681,6 +691,15 @@ impl App {
             grid_mm: self.ui_settings.grid_size_mm as f32,
         };
         self.renderer.draw_frame(&self.window, scene, full, tris);
+        if self.canvas.cursor_over_canvas
+            && self.canvas.tool == crate::tools::Tool::Trim
+            && !self.canvas.space_down
+            && !matches!(self.canvas.drag, Drag::Pan)
+        {
+            if let Some(cursor) = &self.trim_cursor {
+                self.window.set_cursor(cursor.clone());
+            }
+        }
     }
 }
 

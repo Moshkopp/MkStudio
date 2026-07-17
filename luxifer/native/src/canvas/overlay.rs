@@ -29,6 +29,7 @@ pub struct OverlayInput<'a> {
     pub job_start: Option<[f64; 2]>,
     /// Schwebender Haltesteg-Entwurf (nur beim Bridge-Werkzeug sichtbar).
     pub bridge: Option<super::state::BridgeDraft>,
+    pub trim_preview: Option<&'a [(f64, f64)]>,
 }
 
 /// Halbe Handle-Kantenlänge in Welt-mm, damit die sichtbare Fläche am
@@ -66,10 +67,48 @@ fn dashed_seg(v: &mut Vec<Vertex>, a: [f32; 2], b: [f32; 2], color: [f32; 4], sc
     }
 }
 
+/// Bildschirmkonstanter tuerkiser Glow fuer die Trim-Vorschau. Mehrere
+/// transparente Parallellinien bilden den Hof, eine helle Kernlinie bleibt
+/// auch auf roten Konturen und dunklem Canvas klar erkennbar.
+fn trim_glow_seg(v: &mut Vec<Vertex>, a: [f32; 2], b: [f32; 2], scale: f32) {
+    let dx = b[0] - a[0];
+    let dy = b[1] - a[1];
+    let len = (dx * dx + dy * dy).sqrt();
+    if len < 1e-4 {
+        return;
+    }
+    let normal = [-dy / len / scale, dx / len / scale];
+    for (offset, alpha) in [(-4.0, 0.08), (-3.0, 0.12), (-2.0, 0.2), (-1.0, 0.35)] {
+        for sign in [1.0, -1.0] {
+            let d = offset * sign;
+            scene_geo::push_seg(
+                v,
+                [a[0] + normal[0] * d, a[1] + normal[1] * d],
+                [b[0] + normal[0] * d, b[1] + normal[1] * d],
+                [0.0, 0.95, 0.88, alpha],
+            );
+        }
+    }
+    scene_geo::push_seg(v, a, b, [0.55, 1.0, 0.96, 1.0]);
+}
+
 /// Baut die Overlay-Vertices (Auswahl, Handles, Live-Zeichenvorschau).
 pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
     let mut v = Vec::new();
     let cur = input.world_cursor;
+
+    if input.tool == Tool::Trim {
+        if let Some(points) = input.trim_preview {
+            for edge in points.windows(2) {
+                trim_glow_seg(
+                    &mut v,
+                    [edge[0].0 as f32, edge[0].1 as f32],
+                    [edge[1].0 as f32, edge[1].1 as f32],
+                    input.cam_scale,
+                );
+            }
+        }
+    }
 
     // Selektierte Shapes in Akzentfarbe über die (auswahlfreien) gecachten
     // Konturen legen — jeden Frame, damit der Vertex-Cache auswahlfrei bleibt.

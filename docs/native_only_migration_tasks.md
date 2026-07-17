@@ -68,7 +68,7 @@ Ziel: Keine weitere scheinbare Funktionsbreite; belastbare Migrationsmatrix.
       `docs/native_todo_bedienung.md`).
 - [x] Nicht implementierte Aktionen deaktivieren oder klar kennzeichnen
       (Pattern Fill/Bridge melden einen stabilen `not_migrated`-`AppError`;
-      Trim ist als Stub gedimmt).
+      Trim ist als klickbasiertes Werkzeug umgesetzt).
 - [x] Fehlerhafte Aktionen entweder reparieren oder bis zu ihrem Schnitt
       deaktivieren (P1-Regressionen A1/A4/B1/C1 sind behoben; Rest siehe
       Bedienungsliste).
@@ -384,8 +384,9 @@ Ziel: Alle produktiv benötigten Operationen mit expliziten Voraussetzungen.
 - [x] Bridge/Haltesteg als eigene Canvas-Geste mit Breitenentwurf, Endpunkt-
       Nachbearbeitung, Application-Fehlern und Undo; Ecken-Fillet läuft über
       den vorhandenen Fillet-Dialog/Core.
-- [ ] Trim ist nur ein ausgegrauter Native-Stub; Fachoperation, Canvas-Geste,
-      Undo und Tests fehlen.
+- [x] Trim entfernt den Core-berechneten Abschnitt zwischen den nächsten
+  Schnittpunkten; Native zeigt denselben Abschnitt beim Hover, jeder Klick ist
+  ein Undo-Schritt (ADR 0016).
 - [x] Nesting und Nest-Fill (über Session; feste 2 mm — Gap-Dialog optional).
 - [x] Pattern Fill (Parameterdialog über Session, validiert; leere Treffer
       melden einen Fehler statt stiller No-Op) und Coaster-Einfügen (über
@@ -640,7 +641,7 @@ Ausdrücklich **offen** (nicht als fertig behandeln):
   Versionen/Umbenennen/Live-Miniatur ist seit dem E4-Schnitt umgesetzt).
 - Laser Ping/Verbindungsstatus/Position.
 
-Aktuell folgt zuerst die Ruida-Hardwareabnahme, danach Trim, Bézier-Node-Editing
+Aktuell folgt zuerst die Ruida-Hardwareabnahme, danach Bézier-Node-Editing
 und Projekt-/Versions-Thumbnails. Nur die Preview-Simulation bleibt niedrige
 Priorität. Die GRBL-Hardwareabnahme folgt erst bei verfügbarem Gerät.
 Arbeitsgrundlage ist

@@ -75,9 +75,11 @@ fn additive_auswahl_toggelt_und_erweitert_gruppen() {
     state.shapes[1].group_id = Some(1);
     state.selected.clear();
     let mut session = EditorSession::new(state);
-    assert_eq!(session.select_at(5.0, 5.0, 0.0, false), Some(0));
+    // Die Auswahl trifft bewusst die Kontur; ein Klick in die leere
+    // Rechteckflaeche startet inzwischen die Rahmenauswahl.
+    assert_eq!(session.select_at(0.0, 5.0, 0.0, false), Some(0));
     assert_eq!(session.selected, vec![0, 1]);
-    session.select_at(5.0, 5.0, 0.0, true);
+    session.select_at(0.0, 5.0, 0.0, true);
     // Gruppen bleiben eine unteilbare Auswahl.
     assert_eq!(session.selected.len(), 2);
     assert!(session.selected.contains(&0));
@@ -892,7 +894,7 @@ fn muster_fuellung_wandert_beim_verschieben_der_quelle_mit() {
 
     // Klick auf die Quelle expandiert zur Gruppe …
     session.clear_selection();
-    session.select_at(5.0, 5.0, 0.5, false);
+    session.select_at(0.0, 5.0, 0.5, false);
     for &i in &muster {
         assert!(
             session.state().selected.contains(&i),

@@ -320,10 +320,10 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
     // den freien Canvas-Bereich meint. Vorschau/Projekt bleiben linealfrei.
     if matches!(app.view, View::Design | View::Laser) {
         let canvas_rect = ui.available_rect_before_wrap();
-        if ui
+        app.canvas.cursor_over_canvas = ui
             .input(|input| input.pointer.hover_pos())
-            .is_some_and(|pointer| canvas_rect.contains(pointer))
-        {
+            .is_some_and(|pointer| canvas_rect.contains(pointer));
+        if app.canvas.cursor_over_canvas {
             ui.ctx()
                 .set_cursor_icon(app.canvas.hover_cursor(&app.session));
         }

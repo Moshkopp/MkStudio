@@ -142,12 +142,21 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
             ui.end_row();
         });
     divider(ui);
-    // Gruppe 3: Operationen. `trim` bleibt Stub (wie Tauri).
+    // Gruppe 3: Operationen.
     group_label(ui, "BEARBEITEN");
     egui::Grid::new("tg_ops")
         .spacing([gap, gap])
         .show(ui, |ui| {
-            icon_button(ui, side, "trim", "Trimmen (Vorschau)", false, true);
+            if icon_button(
+                ui,
+                side,
+                "trim",
+                "Abschnitt zwischen Schnittpunkten trimmen",
+                cur == Tool::Trim,
+                false,
+            ) {
+                actions.push(UiAction::SelectTool(Tool::Trim));
+            }
             if icon_button(
                 ui,
                 side,

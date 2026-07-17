@@ -35,6 +35,7 @@ pub mod shapes;
 pub mod state;
 pub mod text;
 pub mod trace;
+pub mod trim;
 pub mod ui_settings;
 
 pub use arrange::{Align, Distribute};

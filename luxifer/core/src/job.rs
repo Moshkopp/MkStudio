@@ -283,8 +283,9 @@ impl JobPlan {
                 let mut grouped: Vec<(Option<u32>, Vec<&Path>)> = Vec::new();
                 for (fill_group_id, path) in &paths {
                     if let Some(id) = fill_group_id {
-                        if let Some((_, compound)) =
-                            grouped.iter_mut().find(|(candidate, _)| *candidate == Some(*id))
+                        if let Some((_, compound)) = grouped
+                            .iter_mut()
+                            .find(|(candidate, _)| *candidate == Some(*id))
                         {
                             compound.push(path);
                             continue;
@@ -807,8 +808,14 @@ mod tests {
                 .any(|segment| segment.y == y && segment.x0 <= x * mm && x * mm <= segment.x1)
         };
         assert!(filled(5.0), "Außenring bleibt gefüllt");
-        assert!(!filled(30.0), "implizit geschlossene Innenkontur bleibt Loch");
-        assert!(filled(50.0), "getrennter Schaftpfad wird mit dem Ring vereinigt");
+        assert!(
+            !filled(30.0),
+            "implizit geschlossene Innenkontur bleibt Loch"
+        );
+        assert!(
+            filled(50.0),
+            "getrennter Schaftpfad wird mit dem Ring vereinigt"
+        );
     }
 
     #[test]

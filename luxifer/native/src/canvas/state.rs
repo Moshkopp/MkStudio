@@ -25,6 +25,9 @@ pub struct CanvasState {
     pub drag: Drag,
     /// Cursor in Fensterpixeln (für Welt-Umrechnung).
     pub cursor: [f32; 2],
+    /// Wird beim UI-Aufbau gesetzt, damit native Werkzeugcursor nur innerhalb
+    /// des eigentlichen Canvas den egui-Cursor ersetzen.
+    pub cursor_over_canvas: bool,
     pub space_down: bool,
     pub ctrl_down: bool,
     pub shift_down: bool,
@@ -38,6 +41,8 @@ pub struct CanvasState {
     pub bridge_width: f64,
     /// Native Bézier-Feder: Anker samt beim Ziehen erzeugten Tangenten.
     pub bezier_nodes: Vec<luxifer_core::bezier::BezierNode>,
+    /// Core-berechneter Abschnitt unter dem Cursor, der beim Trim-Klick entfällt.
+    pub trim_preview: Option<Vec<(f64, f64)>>,
     /// Nur im Laser-Tab: Layer, deren Shapes vorübergehend transformierbar sind.
     /// `None` = normale Design-Bearbeitung, `Some` = Laser-Policy aktiv.
     pub laser_editable_layers: Option<std::collections::HashSet<usize>>,
@@ -53,6 +58,7 @@ impl CanvasState {
             active_shape: luxifer_core::PolyShape::Penta,
             drag: Drag::None,
             cursor: [0.0, 0.0],
+            cursor_over_canvas: false,
             space_down: false,
             ctrl_down: false,
             shift_down: false,
@@ -61,6 +67,7 @@ impl CanvasState {
             bridge: None,
             bridge_width: 2.0,
             bezier_nodes: Vec::new(),
+            trim_preview: None,
             laser_editable_layers: None,
             last_click: None,
         }

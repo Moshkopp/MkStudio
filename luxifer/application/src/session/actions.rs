@@ -3,6 +3,24 @@ use crate::AppError;
 use super::EditorSession;
 
 impl EditorSession {
+    pub fn trim(&mut self, point: (f64, f64), tolerance: f64) -> Result<(), AppError> {
+        if self.state.trim_at(point, tolerance) {
+            Ok(())
+        } else {
+            Err(AppError::new(
+                "trim_no_segment",
+                "Kein trimmbarer Abschnitt gefunden.",
+            ))
+        }
+    }
+
+    /// Trimmt innerhalb einer mit `begin_edit` gestarteten Pinsel-Geste, ohne
+    /// fuer jeden Abschnitt einen eigenen Undo-Schritt anzulegen.
+    pub fn trim_edit(&mut self, point: (f64, f64), tolerance: f64) -> bool {
+        debug_assert!(self.edit_active(), "trim_edit ohne begin_edit");
+        self.state.trim_at_in_edit(point, tolerance)
+    }
+
     pub fn activate_color(&mut self, color: [u8; 3]) {
         self.state.activate_color(color);
     }

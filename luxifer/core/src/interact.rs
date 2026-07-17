@@ -250,14 +250,7 @@ impl AppState {
     /// - links → rechts: alle Shapes, deren Bounding-Box den Kasten berührt.
     ///
     /// Unsichtbare/gesperrte Layer werden übersprungen, die Auswahl ersetzt.
-    pub fn select_in_rect(
-        &mut self,
-        x1: f64,
-        y1: f64,
-        x2: f64,
-        y2: f64,
-        crossing: bool,
-    ) {
+    pub fn select_in_rect(&mut self, x1: f64, y1: f64, x2: f64, y2: f64, crossing: bool) {
         let (lo_x, hi_x) = (x1.min(x2), x1.max(x2));
         let (lo_y, hi_y) = (y1.min(y2), y1.max(y2));
         self.selected.clear();
@@ -268,10 +261,8 @@ impl AppState {
                 }
             }
             let b = s.bbox();
-            let contained =
-                b.x >= lo_x && b.y >= lo_y && b.x + b.w <= hi_x && b.y + b.h <= hi_y;
-            let intersects =
-                b.x <= hi_x && b.x + b.w >= lo_x && b.y <= hi_y && b.y + b.h >= lo_y;
+            let contained = b.x >= lo_x && b.y >= lo_y && b.x + b.w <= hi_x && b.y + b.h <= hi_y;
+            let intersects = b.x <= hi_x && b.x + b.w >= lo_x && b.y <= hi_y && b.y + b.h >= lo_y;
             if contained || (crossing && intersects) {
                 self.selected.push(i);
             }

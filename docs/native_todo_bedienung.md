@@ -15,7 +15,7 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
 1. Ruida-Ausführungsspur und Geräteaktionen an der vorhandenen Hardware
    abnehmen.
-2. Trim als echte Geometrieoperation mit Canvas-Geste, Undo und Tests umsetzen.
+2. Trim-MVP praktisch mit komplexen importierten Konturen abnehmen.
 3. Bézier-Node-Editing in der nativen UI vervollständigen.
 4. Projekt-/Versions-Thumbnails erzeugen und speichern.
 5. Laser-Ping, Verbindungsstatus und Position vervollständigen.
@@ -45,7 +45,7 @@ und gehören nicht mehr zur Restliste.
 | B2 | ERLEDIGT | P2 | Muster-Füllung mit Parameterdialog (Linien/Kreise/Langlöcher/Waben, Abstände, Winkel, Elementgröße); Füllung landet auf eigenem Layer, ein Undo-Schritt. |
 | B3 | ERLEDIGT | P2 | Haltesteg besitzt eine eigene Canvas-Geste: Linie über Konturen ziehen, Endpunkte nachfassen, Breite live einstellen und atomar mit Undo anwenden. Auch Verbundkonturen und stabile Fehlerfälle sind getestet. |
 | B4 | ERLEDIGT | P1 | Muster-Füllung blieb beim Verschieben der Quellform stehen (Muster-Konturen sind eigenständige Shapes): Muster und Quellformen gruppieren sich jetzt automatisch — die Gruppenauswahl nimmt die Füllung beim Move mit. Der normale Scanline-Fill folgte nachweislich korrekt (frame-genauer Gesten-Test); falls dort weiter etwas hakt, bitte Schritte notieren. |
-| B5 | FEHLT | P2 | Trim ist bislang nur ein ausgegrauter Toolbar-Stub. Core-/Application-Operation, Canvas-Geste, Undo und Regressionstests fehlen. |
+| B5 | ERLEDIGT | P2 | Trim entfernt per Klick den Abschnitt zwischen den nächsten Schnittpunkten; Hover, Undo und Core-Tests vorhanden. |
 
 ## C. Bilder
 
