@@ -74,15 +74,24 @@ impl AppState {
         }
         // Ergebnis einfügen und selektieren.
         self.selected.clear();
+        let fill_group_id = self
+            .shapes
+            .iter()
+            .filter_map(|shape| shape.fill_group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
         for contour in result {
             let idx = self.shapes.len();
-            self.shapes.push(crate::model::Shape::new(
+            let mut shape = crate::model::Shape::new(
                 layer_id,
                 Geo::Polyline {
                     pts: contour,
                     closed: true,
                 },
-            ));
+            );
+            shape.fill_group_id = Some(fill_group_id);
+            self.shapes.push(shape);
             self.selected.push(idx);
         }
         self.remove_empty_layers();

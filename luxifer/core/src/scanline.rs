@@ -25,6 +25,13 @@ pub struct Contour<'a> {
 /// Überlappende Formen werden korrekt kombiniert. `step_mm` wird auf ein
 /// sinnvolles Minimum begrenzt.
 pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
+    fill_compound_segments(&[contours], step_mm)
+}
+
+/// Füllt zusammengesetzte Pfade korrekt: Even/Odd wird je Pfad ausgewertet,
+/// anschließend werden deren Intervalle vereinigt. Damit stanzen getrennte,
+/// überlappende SVG-Pfade einander nicht aus.
+pub fn fill_compound_segments(compounds: &[&[Contour]], step_mm: f64) -> Vec<FillSegment> {
     if !step_mm.is_finite() {
         return vec![];
     }
@@ -34,7 +41,7 @@ pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
     let mut min_y = f64::MAX;
     let mut max_y = f64::MIN;
     let mut any = false;
-    for c in contours {
+    for c in compounds.iter().flat_map(|compound| compound.iter()) {
         // Eine offene Polyline begrenzt keine Fläche. Sie darf weder den
         // Scanbereich erweitern noch Schnittpunkte zum Even-Odd-Paaren
         // beitragen; mehrere offene Pattern-Fill-Randstücke würden sonst
@@ -55,41 +62,49 @@ pub fn fill_segments(contours: &[Contour], step_mm: f64) -> Vec<FillSegment> {
         return vec![];
     }
 
-    let mut out = Vec::new();
+    let mut out: Vec<FillSegment> = Vec::new();
     let mut y = min_y;
     while y <= max_y {
-        // X-Schnittpunkte aller Kanten mit der Zeile y sammeln.
-        let mut xs: Vec<f64> = Vec::new();
-        for c in contours {
-            let n = c.points.len();
-            if !c.closed || n < 3 {
-                continue;
-            }
-            for i in 0..n {
-                let (x0, y0) = c.points[i];
-                let (x1, y1) = c.points[(i + 1) % n];
-                if ![x0, y0, x1, y1].into_iter().all(f64::is_finite) {
+        let mut intervals = Vec::new();
+        for compound in compounds {
+            // Even/Odd-Schnittpunkte nur innerhalb dieses Pfades paaren.
+            let mut xs: Vec<f64> = Vec::new();
+            for c in *compound {
+                let n = c.points.len();
+                if !c.closed || n < 3 {
                     continue;
                 }
-                // Halb-offenes Intervall: Kante zählt, wenn y genau eine
-                // Endpunktseite unterschreitet (verhindert Doppelkreuzung an
-                // Scheitelpunkten).
-                if (y0 <= y) != (y1 <= y) {
-                    let t = (y - y0) / (y1 - y0);
-                    xs.push(x0 + t * (x1 - x0));
+                for i in 0..n {
+                    let (x0, y0) = c.points[i];
+                    let (x1, y1) = c.points[(i + 1) % n];
+                    if ![x0, y0, x1, y1].into_iter().all(f64::is_finite) {
+                        continue;
+                    }
+                    // Halb-offenes Intervall: Kante zählt, wenn y genau eine
+                    // Endpunktseite unterschreitet (verhindert Doppelkreuzung
+                    // an Scheitelpunkten).
+                    if (y0 <= y) != (y1 <= y) {
+                        let t = (y - y0) / (y1 - y0);
+                        xs.push(x0 + t * (x1 - x0));
+                    }
+                }
+            }
+            xs.sort_by(f64::total_cmp);
+            for pair in xs.chunks_exact(2) {
+                if pair[1] > pair[0] {
+                    intervals.push((pair[0], pair[1]));
                 }
             }
         }
-        xs.sort_by(f64::total_cmp);
 
-        // Even-Odd: paarweise füllen.
-        let mut i = 0;
-        while i + 1 < xs.len() {
-            let (lo, hi) = (xs[i], xs[i + 1]);
-            if hi > lo {
+        // Getrennte gemalte Pfade werden flächig vereinigt.
+        intervals.sort_by(|a, b| a.0.total_cmp(&b.0));
+        for (lo, hi) in intervals {
+            if let Some(last) = out.last_mut().filter(|last| last.y == y && lo <= last.x1) {
+                last.x1 = last.x1.max(hi);
+            } else {
                 out.push(FillSegment { y, x0: lo, x1: hi });
             }
-            i += 2;
         }
         y += step;
     }
@@ -140,6 +155,27 @@ mod tests {
         // (links und rechts vom Loch), nicht eins durchgehend.
         let row: Vec<_> = segs.iter().filter(|s| (s.y - 10.0).abs() < 1e-9).collect();
         assert_eq!(row.len(), 2, "Loch muss ausgespart sein");
+    }
+
+    #[test]
+    fn getrennte_gefuellte_pfade_werden_vereinigt_statt_ausgestanzt() {
+        let left = rect_pts(0.0, 0.0, 10.0, 10.0);
+        let right = rect_pts(5.0, 0.0, 10.0, 10.0);
+        let a = [Contour {
+            points: &left,
+            closed: true,
+        }];
+        let b = [Contour {
+            points: &right,
+            closed: true,
+        }];
+        let segments = fill_compound_segments(&[&a, &b], 1.0);
+        let row: Vec<_> = segments
+            .iter()
+            .filter(|segment| (segment.y - 5.0).abs() < 1e-9)
+            .collect();
+        assert_eq!(row.len(), 1);
+        assert_eq!((row[0].x0, row[0].x1), (0.0, 15.0));
     }
 
     #[test]

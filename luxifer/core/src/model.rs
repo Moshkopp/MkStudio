@@ -213,6 +213,10 @@ pub struct Shape {
     /// Gruppen-ID — Shapes mit gleicher ID werden gemeinsam behandelt.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub group_id: Option<u32>,
+    /// Zusammengesetzter Füllpfad. Even/Odd gilt innerhalb derselben ID;
+    /// verschiedene Füllpfade werden anschließend flächig vereinigt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill_group_id: Option<u32>,
     /// Pro-Shape-Übersteuerung der Layer-Laserparameter.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub speed_override: Option<f64>,
@@ -237,6 +241,7 @@ impl Shape {
             fill_only: false,
             rotation: 0.0,
             group_id: None,
+            fill_group_id: None,
             speed_override: None,
             power_override: None,
             text_meta: None,

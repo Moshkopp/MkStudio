@@ -9,7 +9,7 @@ use crate::model::{Layer, LayerMode, Shape};
 use crate::raster::{
     raster_rows, raster_texture, Placement, RasterImage, RasterRow, RasterTexture,
 };
-use crate::scanline::{fill_segments, Contour, FillSegment};
+use crate::scanline::{fill_compound_segments, Contour, FillSegment};
 
 /// Ein zusammenhängender Pfad in mm (Polygonzug). `closed` = Kontur schließt sich.
 #[derive(Debug, Clone, PartialEq)]
@@ -266,28 +266,51 @@ impl JobPlan {
                 continue;
             }
 
-            let paths: Vec<Path> = shapes
+            let paths: Vec<(Option<u32>, Path)> = shapes
                 .iter()
                 .filter(|s| s.layer_id == li && (layer.mode.is_filled() || !s.fill_only))
-                .map(shape_to_path)
+                // `group_id` ist der Fallback für Projekte vor Einführung
+                // der expliziten Füllpfad-ID.
+                .map(|shape| (shape.fill_group_id.or(shape.group_id), shape_to_path(shape)))
                 .collect();
             if paths.is_empty() {
                 continue;
             }
 
             let work = if layer.mode.is_filled() {
-                // Fill: geschlossene Konturen des Layers gemeinsam füllen.
-                let contours: Vec<Contour> = paths
+                // Even/Odd gilt je zusammengesetztem Pfad; getrennte Pfade
+                // werden danach vereinigt. Shapes ohne ID sind Einzelpfade.
+                let mut grouped: Vec<(Option<u32>, Vec<&Path>)> = Vec::new();
+                for (fill_group_id, path) in &paths {
+                    if let Some(id) = fill_group_id {
+                        if let Some((_, compound)) =
+                            grouped.iter_mut().find(|(candidate, _)| *candidate == Some(*id))
+                        {
+                            compound.push(path);
+                            continue;
+                        }
+                    }
+                    grouped.push((*fill_group_id, vec![path]));
+                }
+                let contours: Vec<Vec<Contour>> = grouped
                     .iter()
-                    .map(|p| Contour {
-                        points: &p.points,
-                        closed: p.closed,
+                    .map(|(_, paths)| {
+                        paths
+                            .iter()
+                            .map(|path| Contour {
+                                points: &path.points,
+                                closed: path.closed,
+                            })
+                            .collect()
                     })
                     .collect();
-                let segments = fill_segments(&contours, layer.line_step_mm);
+                let compounds: Vec<&[Contour]> = contours.iter().map(Vec::as_slice).collect();
+                let segments = fill_compound_segments(&compounds, layer.line_step_mm);
                 LayerWork::Fill { segments }
             } else {
-                LayerWork::Cut { paths }
+                LayerWork::Cut {
+                    paths: paths.into_iter().map(|(_, path)| path).collect(),
+                }
             };
 
             job_layers.push(JobLayer {
@@ -725,6 +748,8 @@ mod tests {
             },
         );
         boundary.fill_only = true;
+        boundary.fill_group_id = Some(1);
+        s.shapes[0].fill_group_id = Some(1);
         s.shapes.insert(0, boundary);
 
         let cut = JobPlan::from_shapes(&s.shapes, &s.layers);
@@ -749,6 +774,41 @@ mod tests {
                 .any(|line| line.y == 5.0 && line.x0 < 5.0 && line.x1 > 5.0),
             "innere Musterkontur muss als Loch ausgespart bleiben"
         );
+    }
+
+    #[test]
+    fn svg_import_bis_jobfill_erhaelt_loch_und_vereinigt_getrennten_pfad() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <rect x="-10" y="-10" width="120" height="120" fill="white"/>
+            <path fill="black" fill-rule="evenodd"
+                  d="M 0 0 H 100 V 100 H 0 Z M 10 10 H 90 V 90 H 10"/>
+            <path fill="black" d="M 45 20 H 55 V 80 H 45"/>
+        </svg>"#;
+        let compounds = crate::import::import_vector_compounds(svg, "svg").unwrap();
+        assert_eq!(compounds.len(), 2);
+        let mut state = AppState::new();
+        state.add_compound_polylines(compounds);
+        state.layers[0].mode = LayerMode::Fill;
+        state.layers[0].line_step_mm = 0.1;
+
+        let plan = JobPlan::from_shapes(&state.shapes, &state.layers);
+        let LayerWork::Fill { segments } = &plan.layers[0].work else {
+            panic!("Fill erwartet")
+        };
+        let mm = 25.4 / 96.0;
+        let y = segments
+            .iter()
+            .min_by(|a, b| (a.y - 50.0 * mm).abs().total_cmp(&(b.y - 50.0 * mm).abs()))
+            .unwrap()
+            .y;
+        let filled = |x: f64| {
+            segments
+                .iter()
+                .any(|segment| segment.y == y && segment.x0 <= x * mm && x * mm <= segment.x1)
+        };
+        assert!(filled(5.0), "Außenring bleibt gefüllt");
+        assert!(!filled(30.0), "implizit geschlossene Innenkontur bleibt Loch");
+        assert!(filled(50.0), "getrennter Schaftpfad wird mit dem Ring vereinigt");
     }
 
     #[test]

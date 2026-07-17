@@ -26,23 +26,50 @@ impl super::AppState {
     /// sie (Trace-Ergebnis, Vektor-Import, Text→Pfad). Layer wie bei
     /// `add_shape` (pending_color bzw. aktiver Layer).
     pub fn add_polylines(&mut self, contours: Vec<(Vec<crate::geometry::Pt>, bool)>) -> Vec<usize> {
-        let contours: Vec<_> = contours
+        self.add_compound_polylines(vec![contours])
+    }
+
+    /// Fügt mehrere zusammengesetzte Pfade hinzu. Teilkonturen eines Pfads
+    /// teilen eine `fill_group_id`; zwischen Pfaden gilt Flächenvereinigung
+    /// statt globalem XOR. Ein gemeinsamer Undo-Punkt und Layer.
+    pub fn add_compound_polylines(
+        &mut self,
+        compounds: Vec<Vec<(Vec<crate::geometry::Pt>, bool)>>,
+    ) -> Vec<usize> {
+        let compounds: Vec<Vec<_>> = compounds
             .into_iter()
-            .filter(|(pts, _)| pts.len() >= 2)
+            .map(|contours| {
+                contours
+                    .into_iter()
+                    .filter(|(pts, _)| pts.len() >= 2)
+                    .collect()
+            })
+            .filter(|contours: &Vec<_>| !contours.is_empty())
             .collect();
-        if contours.is_empty() {
+        if compounds.is_empty() {
             return Vec::new();
         }
         self.push_undo();
         let layer_id = self.layer_for_new_shape();
         self.selected.clear();
-        let mut idxs = Vec::with_capacity(contours.len());
-        for (pts, closed) in contours {
-            let idx = self.shapes.len();
-            self.shapes
-                .push(Shape::new(layer_id, Geo::Polyline { pts, closed }));
-            self.selected.push(idx);
-            idxs.push(idx);
+        let first_fill_group = self
+            .shapes
+            .iter()
+            .filter_map(|shape| shape.fill_group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
+        let mut idxs = Vec::new();
+        for (offset, contours) in compounds.into_iter().enumerate() {
+            let fill_group_id = first_fill_group + offset as u32;
+            for (pts, closed) in contours {
+                let idx = self.shapes.len();
+                let mut shape = Shape::new(layer_id, Geo::Polyline { pts, closed });
+                shape.fill_group_id = Some(fill_group_id);
+                self.shapes.push(shape);
+                self.selected.push(idx);
+                idxs.push(idx);
+            }
         }
         self.pending_color = None;
         idxs

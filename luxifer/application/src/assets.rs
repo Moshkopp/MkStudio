@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use crate::AppError;
 
-pub type ImportedContours = Vec<(Vec<(f64, f64)>, bool)>;
+pub type ImportedContours = Vec<Vec<(Vec<(f64, f64)>, bool)>>;
 
 /// Für die Darstellung vorbereitete Graustufen-Textur. Die Umwandlung ist Teil
 /// des Import-Anwendungsfalls; Native muss das Assetformat nicht erneut kennen.
@@ -560,7 +560,7 @@ impl AssetService {
                     )
                 })?;
                 Some(
-                    luxifer_core::import::import_vector(&bytes, &meta.ext).map_err(|error| {
+                    luxifer_core::import::import_vector_compounds(&bytes, &meta.ext).map_err(|error| {
                         AppError::wrap(
                             "vector_import",
                             "Vektordatei konnte nicht verarbeitet werden.",

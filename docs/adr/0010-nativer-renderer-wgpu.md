@@ -92,8 +92,8 @@ Zeilenabstand zeigen.
 
 Der Design-Canvas verwendet deshalb eine GPU-basierte Even-Odd-Stencil-Füllung:
 
-- geschlossene Konturen eines Layers werden als einfache Dreiecksfächer in das
-  Stencil-Paritätsbit geschrieben;
+- geschlossene Konturen eines zusammengesetzten Pfads werden als
+  Dreiecksfächer in das Stencil-Paritätsbit geschrieben;
 - ein Farbpass füllt anschließend nur Pixel mit ungerader Parität;
 - Löcher, verschachtelte Konturen und die bisherige Even-Odd-Semantik bleiben
   erhalten, ohne die Konturen auf der CPU zu triangulieren;
@@ -105,6 +105,29 @@ Der Design-Canvas verwendet deshalb eine GPU-basierte Even-Odd-Stencil-Füllung:
 Der Frame ist dafür in drei kompatible GPU-Pässe getrennt: Untergrund/Bilder,
 Stencil-Flächen und zuletzt Konturen/Overlay/egui. Das reale Aztec-Asset startet
 im optimierten Vulkan-Pfad ohne wgpu-Validierungsfehler.
+
+Beim Gegencheck mit dem Anker-Asset zeigte sich außerdem ein Importfehler,
+nicht eine umgedrehte Even-Odd-Regel: Das SVG enthält ein vollflächiges weißes
+Hintergrund-Rechteck, das nach dem bisherigen Verlust der SVG-Farbe als normale
+Laserfläche im Layer landete. Der SVG-Import verwirft deshalb reine weiße
+Füllpfade ohne Stroke. Weiß gefüllte Formen mit Stroke bleiben als beabsichtigte
+Vektorkontur erhalten. Damit bleibt der Raum um den schwarzen Anker frei, ohne
+die korrekte Stencil-Füllung des Aztec-Stresstests zu verändern.
+
+Die vollständige Prüfung vom Import bis zum Job-Fill deckte zwei weitere
+Informationsverluste auf. Der Import zerlegte jeden SVG-Pfad in nackte
+Einzelkonturen; dadurch wurde Even/Odd später global über den ganzen Layer
+angewandt. SVG verlangt dagegen Even/Odd innerhalb eines zusammengesetzten
+Pfads und anschließend die Vereinigung getrennter gemalter Pfade. Außerdem sind
+Teilpfade eines gefüllten SVG-Pfads auch ohne abschließendes `Z` für die
+Füllauswertung implizit geschlossen. Genau diese Schlusskonturen fehlen im
+Anker-Asset explizit; der alte Import verwarf sie deshalb beim Fill.
+
+`fill_group_id` erhält nun die zusammengesetzten Pfade im Core-Modell. Import,
+GPU-Stencil und `JobPlan` verwenden dieselbe Gruppierung: Parität je
+Füllpfad, Union zwischen Füllpfaden. Der reale Anker ergibt damit in der
+Core-Scanline die erwarteten Stichproben: Auge frei, Schaft gefüllt, Raum um
+den Anker frei und Zahnkranz gefüllt. Reine Stroke-Pfade ohne `Z` bleiben offen.
 
 ## Offen (Reihenfolge im Branch)
 

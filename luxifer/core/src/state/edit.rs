@@ -144,12 +144,20 @@ impl super::AppState {
             .max()
             .unwrap_or(0)
             + 1;
+        let new_fill_gid = self
+            .shapes
+            .iter()
+            .filter_map(|shape| shape.fill_group_id)
+            .max()
+            .unwrap_or(0)
+            + 1;
         self.selected.clear();
         let mut first = None;
         for (pts, closed) in placed {
             let i = self.shapes.len();
             let mut sh = Shape::new(layer_id, Geo::Polyline { pts, closed });
             sh.group_id = Some(new_gid);
+            sh.fill_group_id = Some(new_fill_gid);
             self.shapes.push(sh);
             self.selected.push(i);
             first.get_or_insert(i);

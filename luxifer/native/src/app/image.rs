@@ -252,7 +252,7 @@ impl App {
             }
             luxifer_core::AssetKind::SvgSource | luxifer_core::AssetKind::DxfSource => {
                 if let Some(contours) = contours {
-                    self.session.add_polylines(contours);
+                    self.session.add_compound_polylines(contours);
                     self.refresh_accent();
                     self.fit_all();
                 }

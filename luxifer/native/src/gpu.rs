@@ -25,6 +25,8 @@ pub struct Gpu {
     pub config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     fill_stencil_pipeline: wgpu::RenderPipeline,
+    fill_union_pipeline: wgpu::RenderPipeline,
+    fill_temp_clear_pipeline: wgpu::RenderPipeline,
     fill_color_pipeline: wgpu::RenderPipeline,
     fill_clear_pipeline: wgpu::RenderPipeline,
     stencil_view: wgpu::TextureView,
@@ -168,7 +170,7 @@ impl Gpu {
             depth_fail_op: wgpu::StencilOperation::Keep,
             pass_op,
         };
-        let make_fill_pipeline = |label, color_write, compare, pass_op, write_mask| {
+        let make_fill_pipeline = |label, color_write, compare, pass_op, read_mask, write_mask| {
             device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                 label: Some(label),
                 layout: Some(&pl_layout),
@@ -203,7 +205,7 @@ impl Gpu {
                     stencil: wgpu::StencilState {
                         front: stencil_face(compare, pass_op),
                         back: stencil_face(compare, pass_op),
-                        read_mask: 0xff,
+                        read_mask,
                         write_mask,
                     },
                     bias: Default::default(),
@@ -218,13 +220,31 @@ impl Gpu {
             wgpu::ColorWrites::empty(),
             wgpu::CompareFunction::Always,
             wgpu::StencilOperation::Invert,
-            0xff,
+            0x01,
+            0x01,
+        );
+        let fill_union_pipeline = make_fill_pipeline(
+            "fill-union",
+            wgpu::ColorWrites::empty(),
+            wgpu::CompareFunction::NotEqual,
+            wgpu::StencilOperation::Replace,
+            0x01,
+            0x02,
+        );
+        let fill_temp_clear_pipeline = make_fill_pipeline(
+            "fill-temp-clear",
+            wgpu::ColorWrites::empty(),
+            wgpu::CompareFunction::Always,
+            wgpu::StencilOperation::Replace,
+            0x01,
+            0x01,
         );
         let fill_color_pipeline = make_fill_pipeline(
             "fill-color",
             wgpu::ColorWrites::ALL,
             wgpu::CompareFunction::NotEqual,
             wgpu::StencilOperation::Keep,
+            0x02,
             0,
         );
         let fill_clear_pipeline = make_fill_pipeline(
@@ -232,7 +252,8 @@ impl Gpu {
             wgpu::ColorWrites::empty(),
             wgpu::CompareFunction::Always,
             wgpu::StencilOperation::Zero,
-            0xff,
+            0x02,
+            0x02,
         );
         let stencil_view = stencil_view(&device, size.width.max(1), size.height.max(1));
 
@@ -272,6 +293,8 @@ impl Gpu {
             config,
             pipeline,
             fill_stencil_pipeline,
+            fill_union_pipeline,
+            fill_temp_clear_pipeline,
             fill_color_pipeline,
             fill_clear_pipeline,
             stencil_view,
@@ -416,10 +439,20 @@ impl Gpu {
         }
         pass.set_bind_group(0, &self.bind, &[]);
         pass.set_vertex_buffer(0, self.fill_vbuf.slice(..));
-        pass.set_stencil_reference(0);
         for batch in batches {
-            pass.set_pipeline(&self.fill_stencil_pipeline);
-            pass.draw(batch.stencil.clone(), 0..1);
+            for compound in &batch.compounds {
+                pass.set_stencil_reference(0);
+                pass.set_pipeline(&self.fill_stencil_pipeline);
+                pass.draw(compound.stencil.clone(), 0..1);
+                // Temp-Parität (Bit 0) in die Layer-Union (Bit 1) übernehmen.
+                pass.set_stencil_reference(0x02);
+                pass.set_pipeline(&self.fill_union_pipeline);
+                pass.draw(compound.cover.clone(), 0..1);
+                pass.set_stencil_reference(0);
+                pass.set_pipeline(&self.fill_temp_clear_pipeline);
+                pass.draw(compound.cover.clone(), 0..1);
+            }
+            pass.set_stencil_reference(0);
             pass.set_pipeline(&self.fill_color_pipeline);
             pass.draw(batch.cover.clone(), 0..1);
             pass.set_pipeline(&self.fill_clear_pipeline);

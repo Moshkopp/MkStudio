@@ -12,6 +12,9 @@
 
 use crate::geometry::Pt;
 
+pub type ImportedContour = (Vec<Pt>, bool);
+pub type ImportedCompound = Vec<ImportedContour>;
+
 /// Fehler beim Vektor-Import.
 #[derive(Debug)]
 pub struct ImportError(pub String);
@@ -27,17 +30,41 @@ impl std::error::Error for ImportError {}
 const MM_PER_PX: f64 = 25.4 / 96.0;
 
 /// Importiert eine Vektordatei anhand der Endung (`svg` oder `dxf`).
-pub fn import_vector(bytes: &[u8], ext: &str) -> Result<Vec<(Vec<Pt>, bool)>, ImportError> {
+pub fn import_vector(bytes: &[u8], ext: &str) -> Result<Vec<ImportedContour>, ImportError> {
+    Ok(import_vector_compounds(bytes, ext)?
+        .into_iter()
+        .flatten()
+        .collect())
+}
+
+/// Importiert Vektorgeometrie unter Erhalt zusammengesetzter Pfade. Innerhalb
+/// eines Eintrags gilt die SVG-Füllregel; verschiedene Einträge sind getrennte
+/// gemalte Flächen und dürfen einander nicht per globalem XOR ausstanzen.
+pub fn import_vector_compounds(
+    bytes: &[u8],
+    ext: &str,
+) -> Result<Vec<ImportedCompound>, ImportError> {
     match ext.to_ascii_lowercase().as_str() {
-        "svg" => import_svg(bytes),
-        "dxf" => import_dxf(bytes),
+        "svg" => import_svg_compounds(bytes),
+        "dxf" => import_dxf(bytes).map(|contours| {
+            contours
+                .into_iter()
+                .map(|contour| vec![contour])
+                .collect()
+        }),
         other => Err(ImportError(format!("Nicht unterstütztes Format: .{other}"))),
     }
 }
 
 /// SVG → Konturen. usvg löst Transformationen, `<use>`, Formen (rect/circle/…)
 /// bereits in absolute Pfade auf; hier nur noch flatten + Einheit umrechnen.
-pub fn import_svg(bytes: &[u8]) -> Result<Vec<(Vec<Pt>, bool)>, ImportError> {
+pub fn import_svg(bytes: &[u8]) -> Result<Vec<ImportedContour>, ImportError> {
+    Ok(import_svg_compounds(bytes)?.into_iter().flatten().collect())
+}
+
+pub fn import_svg_compounds(
+    bytes: &[u8],
+) -> Result<Vec<ImportedCompound>, ImportError> {
     let opt = usvg::Options::default();
     let tree = usvg::Tree::from_data(bytes, &opt)
         .map_err(|e| ImportError(format!("SVG unlesbar: {e}")))?;
@@ -49,11 +76,18 @@ pub fn import_svg(bytes: &[u8]) -> Result<Vec<(Vec<Pt>, bool)>, ImportError> {
     Ok(out)
 }
 
-fn collect_group(g: &usvg::Group, out: &mut Vec<(Vec<Pt>, bool)>) {
+fn collect_group(g: &usvg::Group, out: &mut Vec<ImportedCompound>) {
     for node in g.children() {
         match node {
             usvg::Node::Group(sub) => collect_group(sub, out),
-            usvg::Node::Path(p) => collect_path(p, out),
+            usvg::Node::Path(p) if is_laser_geometry(p) => {
+                let mut compound = Vec::new();
+                collect_path(p, &mut compound);
+                if !compound.is_empty() {
+                    out.push(compound);
+                }
+            }
+            usvg::Node::Path(_) => {}
             // Bilder/Text im SVG werden bewusst ignoriert (Bilder importiert
             // man als Bild; SVG-Text sollte als Pfad exportiert sein).
             usvg::Node::Image(_) | usvg::Node::Text(_) => {}
@@ -61,10 +95,27 @@ fn collect_group(g: &usvg::Group, out: &mut Vec<(Vec<Pt>, bool)>) {
     }
 }
 
+/// Weiße, reine Füllflächen sind in Grafik-SVGs typischerweise der
+/// exportierte Hintergrund und keine zu lasernde Geometrie. Ein vorhandener
+/// Stroke bleibt dagegen erhalten: eine weiß gefüllte, dunkel umrandete Form
+/// ist weiterhin ein absichtlicher Vektorpfad.
+fn is_laser_geometry(path: &usvg::Path) -> bool {
+    if path.stroke().is_some() {
+        return true;
+    }
+    match path.fill().map(usvg::Fill::paint) {
+        Some(usvg::Paint::Color(color)) => {
+            color.red < 250 || color.green < 250 || color.blue < 250
+        }
+        Some(_) => true,
+        None => false,
+    }
+}
+
 /// Unterteilungen je Bézier-Segment.
 const CURVE_SEGS: usize = 12;
 
-fn collect_path(p: &usvg::Path, out: &mut Vec<(Vec<Pt>, bool)>) {
+fn collect_path(p: &usvg::Path, out: &mut Vec<ImportedContour>) {
     let t = p.abs_transform();
     let map = |x: f32, y: f32| -> Pt {
         let mut pt = tiny_skia_path_point(x, y);
@@ -73,6 +124,10 @@ fn collect_path(p: &usvg::Path, out: &mut Vec<(Vec<Pt>, bool)>) {
     };
 
     let mut cur: Vec<Pt> = Vec::new();
+    // SVG schließt offene Teilpfade für die Füllauswertung implizit. Viele
+    // Exporter (auch das reale Anker-Asset) sparen das letzte `Z` deshalb aus.
+    // Reine Stroke-Pfade bleiben dagegen offen.
+    let implicit_fill_close = p.fill().is_some();
     let flush = |cur: &mut Vec<Pt>, closed: bool, out: &mut Vec<(Vec<Pt>, bool)>| {
         if cur.len() >= 2 {
             out.push((std::mem::take(cur), closed));
@@ -85,7 +140,7 @@ fn collect_path(p: &usvg::Path, out: &mut Vec<(Vec<Pt>, bool)>) {
         use usvg::tiny_skia_path::PathSegment::*;
         match seg {
             MoveTo(pt) => {
-                flush(&mut cur, false, out);
+                flush(&mut cur, implicit_fill_close, out);
                 cur.push(map(pt.x, pt.y));
             }
             LineTo(pt) => cur.push(map(pt.x, pt.y)),
@@ -125,7 +180,7 @@ fn collect_path(p: &usvg::Path, out: &mut Vec<(Vec<Pt>, bool)>) {
             Close => flush(&mut cur, true, out),
         }
     }
-    flush(&mut cur, false, out);
+    flush(&mut cur, implicit_fill_close, out);
 }
 
 fn tiny_skia_path_point(x: f32, y: f32) -> usvg::tiny_skia_path::Point {
@@ -257,6 +312,53 @@ mod tests {
         let out = import_svg(svg).unwrap();
         assert_eq!(out.len(), 2);
         assert!(out.iter().all(|(_, closed)| *closed));
+    }
+
+    #[test]
+    fn svg_teilkonturen_bleiben_beim_ursprungspfad() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <path fill="black" fill-rule="evenodd"
+                  d="M 0 0 H 40 V 40 H 0 Z M 10 10 H 30 V 30 H 10 Z"/>
+            <path fill="black" d="M 20 20 H 60 V 60 H 20 Z"/>
+        </svg>"#;
+        let compounds = import_svg_compounds(svg).unwrap();
+        assert_eq!(compounds.len(), 2, "zwei gemalte SVG-Pfade");
+        assert_eq!(compounds[0].len(), 2, "Außenkontur plus Loch");
+        assert_eq!(compounds[1].len(), 1);
+    }
+
+    #[test]
+    fn svg_fill_schliesst_teilpfad_auch_ohne_z_implizit() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <path fill="black" d="M 0 0 H 40 V 40 H 0"/>
+            <path fill="none" stroke="black" d="M 50 0 H 90 V 40 H 50"/>
+        </svg>"#;
+        let compounds = import_svg_compounds(svg).unwrap();
+        assert!(compounds[0][0].1, "Füllpfad wird implizit geschlossen");
+        assert!(!compounds[1][0].1, "reiner Stroke-Pfad bleibt offen");
+    }
+
+    #[test]
+    fn svg_weisser_hintergrund_wird_nicht_zur_laserflaeche() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <rect x="-10" y="-10" width="120" height="120" fill="white"/>
+            <path fill="black" fill-rule="evenodd"
+                  d="M 10 10 L 90 10 L 90 90 L 10 90 Z
+                     M 30 30 L 30 70 L 70 70 L 70 30 Z"/>
+        </svg>"#;
+        let out = import_svg(svg).unwrap();
+        assert_eq!(out.len(), 2, "nur die beiden Teilkonturen des schwarzen Pfads");
+        assert!(out.iter().all(|(_, closed)| *closed));
+    }
+
+    #[test]
+    fn svg_weiss_gefuellte_form_mit_stroke_bleibt_erhalten() {
+        let svg = br#"<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+            <circle cx="50" cy="50" r="20" fill="white" stroke="black"/>
+        </svg>"#;
+        let out = import_svg(svg).unwrap();
+        assert_eq!(out.len(), 1);
+        assert!(out[0].1);
     }
 
     #[test]
