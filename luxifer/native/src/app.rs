@@ -616,12 +616,13 @@ impl App {
         let image_dirty = std::mem::take(&mut self.image_dirty);
         if self.view == crate::tools::View::Preview {
             let trace_key = format!(
-                "{}:{}:{:?}:{}:{:?}",
+                "{}:{}:{:?}:{}:{:?}:{}",
                 self.session.render_rev(),
                 self.laser.selection_only,
                 self.laser.start_mode,
                 self.laser.anchor,
-                self.laser_backend.active_profile()
+                self.laser_backend.active_profile(),
+                self.laser_backend.is_connected()
             );
             if self.preview_trace_key.as_deref() != Some(trace_key.as_str()) {
                 let shapes: Vec<_> = if self.laser.selection_only {

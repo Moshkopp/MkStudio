@@ -6,6 +6,28 @@ use luxifer_core::{Connection, DriverKind, JobAction, LaserProfile, LaserRegistr
 
 use super::LaserService;
 
+#[test]
+fn benutzerursprung_verschiebt_alle_preview_koordinaten() {
+    let mut builder = luxifer_core::TraceBuilder::new(false);
+    builder.work(
+        (1.0, 2.0),
+        (3.0, 4.0),
+        (0.9, 2.1),
+        (2.9, 4.1),
+        luxifer_core::ExecutionKind::Cut,
+        0,
+    );
+    let mut trace = builder.finish();
+
+    super::translate_trace(&mut trace, (100.0, 50.0));
+
+    let movement = trace.moves[0];
+    assert_eq!(movement.ideal_from, (101.0, 52.0));
+    assert_eq!(movement.ideal_to, (103.0, 54.0));
+    assert_eq!(movement.from, (100.9, 52.1));
+    assert_eq!(movement.to, (102.9, 54.1));
+}
+
 fn service_with_ruida() -> LaserService {
     service_with_ruida_at("192.168.1.100")
 }
