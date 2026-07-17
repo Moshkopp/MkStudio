@@ -139,6 +139,10 @@ fn ui_section(ui: &mut egui::Ui, st: &mut SettingsDialogState) {
             )
             .on_hover_text("Vertauscht rechts→links und links→rechts samt grüner/roter Anzeige.");
             ui.end_row();
+            ui.label("Fensterstart");
+            ui.checkbox(&mut s.open_maximized, "Maximiert öffnen")
+                .on_hover_text("Wird beim nächsten Programmstart angewendet.");
+            ui.end_row();
             ui.label("Akzentfarbe");
             theme_color_row(ui, &mut s.theme.accent);
             ui.end_row();

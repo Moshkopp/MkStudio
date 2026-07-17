@@ -132,6 +132,9 @@ pub struct UiSettings {
     /// Vertauscht Fenster- und Kreuz-Auswahlrichtung des Marquee-Werkzeugs.
     #[serde(default)]
     pub invert_marquee_direction: bool,
+    /// Hauptfenster beim Programmstart maximiert oeffnen.
+    #[serde(default)]
+    pub open_maximized: bool,
     /// Splash-Screen beim Start anzeigen (Logo + Version). Default an.
     #[serde(default = "default_true")]
     pub show_splash: bool,
@@ -196,6 +199,7 @@ impl Default for UiSettings {
             last_project: String::new(),
             grid_size_mm: default_grid_size(),
             invert_marquee_direction: false,
+            open_maximized: false,
             show_splash: true,
             splash_ms: default_splash_ms(),
             modal_backdrop_alpha: default_modal_backdrop_alpha(),
@@ -326,6 +330,7 @@ mod tests {
         // Fehlende neue Felder fallen auf ihre Defaults zurück.
         assert_eq!(back.grid_size_mm, default_grid_size());
         assert!(!back.invert_marquee_direction);
+        assert!(!back.open_maximized);
         assert!(back.show_splash);
         assert_eq!(back.splash_ms, default_splash_ms());
         assert_eq!(back.modal_backdrop_alpha, default_modal_backdrop_alpha());

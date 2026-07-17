@@ -58,9 +58,11 @@ impl ApplicationHandler for Runner {
         if self.app.is_some() {
             return;
         }
+        let open_maximized = luxifer_core::UiSettings::load().open_maximized;
         let mut attrs = Window::default_attributes()
             .with_title("LuxiFer")
             .with_inner_size(winit::dpi::LogicalSize::new(1400, 880))
+            .with_maximized(open_maximized)
             .with_active(true)
             .with_window_icon(load_window_icon());
         #[cfg(target_os = "linux")]
