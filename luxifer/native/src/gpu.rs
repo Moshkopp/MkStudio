@@ -3,7 +3,9 @@
 //! (siehe `App::render`).
 
 use crate::camera::Camera;
-use crate::scene_geo::Vertex;
+use crate::scene_geo::{FillBatch, Vertex};
+
+const STENCIL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
@@ -22,11 +24,17 @@ pub struct Gpu {
     pub surface: wgpu::Surface<'static>,
     pub config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    fill_stencil_pipeline: wgpu::RenderPipeline,
+    fill_color_pipeline: wgpu::RenderPipeline,
+    fill_clear_pipeline: wgpu::RenderPipeline,
+    stencil_view: wgpu::TextureView,
     uniform_buf: wgpu::Buffer,
     bind: wgpu::BindGroup,
     // Dynamischer Vertex-Buffer (gecachte Szene); wächst bei Bedarf.
     vbuf: wgpu::Buffer,
     vbuf_cap: u64,
+    fill_vbuf: wgpu::Buffer,
+    fill_vbuf_cap: u64,
     // Overlay-Buffer (Transform-Handles, Marquee): jeden Frame neu, klein,
     // kamera-abhängig — bleibt aus dem Szene-Cache heraus.
     obuf: wgpu::Buffer,
@@ -154,11 +162,91 @@ impl Gpu {
             multiview_mask: None,
             cache: None,
         });
+        let stencil_face = |compare, pass_op| wgpu::StencilFaceState {
+            compare,
+            fail_op: wgpu::StencilOperation::Keep,
+            depth_fail_op: wgpu::StencilOperation::Keep,
+            pass_op,
+        };
+        let make_fill_pipeline = |label, color_write, compare, pass_op, write_mask| {
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some(label),
+                layout: Some(&pl_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vs"),
+                    buffers: &[wgpu::VertexBufferLayout {
+                        array_stride: std::mem::size_of::<Vertex>() as u64,
+                        step_mode: wgpu::VertexStepMode::Vertex,
+                        attributes: &wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32, 3 => Float32x4],
+                    }],
+                    compilation_options: Default::default(),
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some("fs"),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                        write_mask: color_write,
+                    })],
+                    compilation_options: Default::default(),
+                }),
+                primitive: wgpu::PrimitiveState {
+                    topology: wgpu::PrimitiveTopology::TriangleList,
+                    ..Default::default()
+                },
+                depth_stencil: Some(wgpu::DepthStencilState {
+                    format: STENCIL_FORMAT,
+                    depth_write_enabled: Some(false),
+                    depth_compare: Some(wgpu::CompareFunction::Always),
+                    stencil: wgpu::StencilState {
+                        front: stencil_face(compare, pass_op),
+                        back: stencil_face(compare, pass_op),
+                        read_mask: 0xff,
+                        write_mask,
+                    },
+                    bias: Default::default(),
+                }),
+                multisample: wgpu::MultisampleState::default(),
+                multiview_mask: None,
+                cache: None,
+            })
+        };
+        let fill_stencil_pipeline = make_fill_pipeline(
+            "fill-stencil",
+            wgpu::ColorWrites::empty(),
+            wgpu::CompareFunction::Always,
+            wgpu::StencilOperation::Invert,
+            0xff,
+        );
+        let fill_color_pipeline = make_fill_pipeline(
+            "fill-color",
+            wgpu::ColorWrites::ALL,
+            wgpu::CompareFunction::NotEqual,
+            wgpu::StencilOperation::Keep,
+            0,
+        );
+        let fill_clear_pipeline = make_fill_pipeline(
+            "fill-clear",
+            wgpu::ColorWrites::empty(),
+            wgpu::CompareFunction::Always,
+            wgpu::StencilOperation::Zero,
+            0xff,
+        );
+        let stencil_view = stencil_view(&device, size.width.max(1), size.height.max(1));
 
         let vbuf_cap = 1 << 16;
         let vbuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("vertices"),
             size: vbuf_cap * std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let fill_vbuf_cap = 1 << 16;
+        let fill_vbuf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("fill-vertices"),
+            size: fill_vbuf_cap * std::mem::size_of::<Vertex>() as u64,
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -183,10 +271,16 @@ impl Gpu {
             surface,
             config,
             pipeline,
+            fill_stencil_pipeline,
+            fill_color_pipeline,
+            fill_clear_pipeline,
+            stencil_view,
             uniform_buf,
             bind,
             vbuf,
             vbuf_cap,
+            fill_vbuf,
+            fill_vbuf_cap,
             obuf,
             obuf_cap,
             ocount: 0,
@@ -260,6 +354,7 @@ impl Gpu {
         self.config.width = w.max(1);
         self.config.height = h.max(1);
         self.surface.configure(&self.device, &self.config);
+        self.stencil_view = stencil_view(&self.device, self.config.width, self.config.height);
     }
 
     /// Schreibt die Kamera-Uniforms (jeden Frame — billig, ein kleiner Buffer).
@@ -294,6 +389,44 @@ impl Gpu {
         }
     }
 
+    pub fn upload_fill_verts(&mut self, verts: &[Vertex]) {
+        let need = verts.len() as u64;
+        if need > self.fill_vbuf_cap {
+            self.fill_vbuf_cap = need.next_power_of_two().max(1);
+            self.fill_vbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("fill-vertices"),
+                size: self.fill_vbuf_cap * std::mem::size_of::<Vertex>() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !verts.is_empty() {
+            self.queue
+                .write_buffer(&self.fill_vbuf, 0, bytemuck::cast_slice(verts));
+        }
+    }
+
+    pub fn stencil_view(&self) -> &wgpu::TextureView {
+        &self.stencil_view
+    }
+
+    pub fn draw_solid_fills<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, batches: &[FillBatch]) {
+        if batches.is_empty() {
+            return;
+        }
+        pass.set_bind_group(0, &self.bind, &[]);
+        pass.set_vertex_buffer(0, self.fill_vbuf.slice(..));
+        pass.set_stencil_reference(0);
+        for batch in batches {
+            pass.set_pipeline(&self.fill_stencil_pipeline);
+            pass.draw(batch.stencil.clone(), 0..1);
+            pass.set_pipeline(&self.fill_color_pipeline);
+            pass.draw(batch.cover.clone(), 0..1);
+            pass.set_pipeline(&self.fill_clear_pipeline);
+            pass.draw(batch.cover.clone(), 0..1);
+        }
+    }
+
     /// Zeichnet die hochgeladenen Linien in den Render-Pass (Clear + Canvas).
     /// egui zeichnet danach in denselben Encoder (siehe App).
     pub fn draw_canvas_range<'a>(
@@ -309,6 +442,25 @@ impl Gpu {
         rp.set_vertex_buffer(0, self.vbuf.slice(..));
         rp.draw(range, 0..1);
     }
+}
+
+fn stencil_view(device: &wgpu::Device, width: u32, height: u32) -> wgpu::TextureView {
+    device
+        .create_texture(&wgpu::TextureDescriptor {
+            label: Some("canvas-stencil"),
+            size: wgpu::Extent3d {
+                width,
+                height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: STENCIL_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[],
+        })
+        .create_view(&Default::default())
 }
 
 const SHADER: &str = r#"

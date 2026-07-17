@@ -8,6 +8,8 @@ use crate::scene_geo::{self, Vertex};
 
 pub struct BaseGeometry {
     pub vertices: Vec<Vertex>,
+    pub fill_vertices: Vec<Vertex>,
+    pub fill_batches: Vec<scene_geo::FillBatch>,
     /// Ende des Bett-/Gitter-Bereichs im gemeinsamen Vertexpuffer.
     pub background_end: u32,
 }
@@ -18,13 +20,14 @@ pub struct BaseGeometry {
 pub fn base_vertices(session: &EditorSession, origin: luxifer_core::BedOrigin) -> BaseGeometry {
     let mut v = scene_geo::bed_base(session.bed_w_mm as f32, session.bed_h_mm as f32, origin);
     let background_end = v.len() as u32;
-    // Füllung zuerst (liegt unter den Konturen), dann die Umrisse.
-    v.extend(scene_geo::fill_lines(session));
+    let (fill_vertices, fill_batches) = scene_geo::solid_fills(session);
     v.extend(scene_geo::shape_lines(session));
     // Der laufende Punkt-Zug (Polyline/Spline/Bézier/Polygon) wird im Overlay
     // gezeichnet (jeden Frame, damit das Gummiband der Maus folgt).
     BaseGeometry {
         vertices: v,
+        fill_vertices,
+        fill_batches,
         background_end,
     }
 }
@@ -254,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn fill_scanlines_folgen_dem_verschieben() {
+    fn solid_fill_folgt_dem_verschieben() {
         // Reproduktion Nutzerbefund: „Objekt mit Fill verschieben — Füllung
         // bleibt stehen". Die Szene muss nach der Move-Geste neue Vertices
         // liefern, deren Fill-Bereich mitgewandert ist.
@@ -282,21 +285,24 @@ mod tests {
         assert_ne!(session.render_rev(), rev_before);
 
         let after = base_vertices(&session, Default::default());
-        // Alle Szenen-Vertices (nach dem Bett) liegen jetzt bei x >= 45 —
-        // Kontur UND Scanlines sind mitgewandert.
+        // Kontur und feste Flächenfüllung sind mitgewandert.
         let scene_after = &after.vertices[after.background_end as usize..];
         assert!(!scene_after.is_empty());
         assert!(
             scene_after.iter().all(|v| v.pos[0] >= 45.0),
             "Füllung/Kontur muss der Verschiebung folgen"
         );
+        assert!(after
+            .fill_vertices
+            .iter()
+            .all(|vertex| vertex.pos[0] >= 45.0));
         // Und vorher lagen sie links.
         let scene_before = &before.vertices[before.background_end as usize..];
         assert!(scene_before.iter().all(|v| v.pos[0] <= 15.0));
     }
 
     #[test]
-    fn fill_folgt_der_echten_move_geste_frame_fuer_frame() {
+    fn solid_fill_folgt_der_echten_move_geste_frame_fuer_frame() {
         // Stellt den echten App-Ablauf nach: Klick auf ein Fill-Objekt,
         // Cursor-Moves, pro „Frame" der Renderer-Vergleich über render_rev.
         use crate::camera::Camera;
@@ -344,6 +350,12 @@ mod tests {
                 "Frame {step}: Szene (inkl. Fill) muss bei x≈{} beginnen, ist {min_x}",
                 10.0 + step as f32 * 10.0
             );
+            let fill_min_x = g
+                .fill_vertices
+                .iter()
+                .map(|vertex| vertex.pos[0])
+                .fold(f32::MAX, f32::min);
+            assert!((fill_min_x - (10.0 + step as f32 * 10.0)).abs() < 1.0);
         }
         canvas.on_mouse(&mut session, winit::event::MouseButton::Left, false);
     }

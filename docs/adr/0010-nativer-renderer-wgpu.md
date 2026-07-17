@@ -80,6 +80,32 @@ diesen Wechsel bezahlbar: migriert wird nur die dünne Zeichenschicht.
   übersetzt werden (Layout-Ideen bleiben, Code nicht).
 - `main` bleibt lauffähig (Tauri), bis der Branch trägt — kein Big-Bang.
 
+## Nachtrag 2026-07-17: Design-Fill ist keine Laser-Rasterung
+
+Ein gefülltes großes SVG – reproduziert mit dem realen `Aztec.svg` mit 1.808
+Konturen – wurde bei Transform-Gesten erneut unbedienbar. Der Design-Canvas
+erzeugte bei jeder Geometriemutation die vollständigen Laser-Scanlines neu und
+lud für den Stresstest rund 73.420 Liniensegmente als dicke Quads hoch. Diese
+Kopplung war auch fachlich falsch: Im Editor soll ein gefülltes SVG als normale
+Fläche erscheinen; erst Jobplanung und Laserpreview müssen den realen
+Zeilenabstand zeigen.
+
+Der Design-Canvas verwendet deshalb eine GPU-basierte Even-Odd-Stencil-Füllung:
+
+- geschlossene Konturen eines Layers werden als einfache Dreiecksfächer in das
+  Stencil-Paritätsbit geschrieben;
+- ein Farbpass füllt anschließend nur Pixel mit ungerader Parität;
+- Löcher, verschachtelte Konturen und die bisherige Even-Odd-Semantik bleiben
+  erhalten, ohne die Konturen auf der CPU zu triangulieren;
+- der Design-Fill ist unabhängig von `line_step_mm`;
+- offene Konturen und Bildlayer erzeugen keine Designfläche;
+- Scanlines bleiben unverändert im `JobPlan`, in der treiberautoritativen
+  Ausführungsspur und in der Laserpreview.
+
+Der Frame ist dafür in drei kompatible GPU-Pässe getrennt: Untergrund/Bilder,
+Stencil-Flächen und zuletzt Konturen/Overlay/egui. Das reale Aztec-Asset startet
+im optimierten Vulkan-Pfad ohne wgpu-Validierungsfehler.
+
 ## Offen (Reihenfolge im Branch)
 
 Die funktionale Migration und der vollständige Tauri-Abbau werden durch

@@ -59,7 +59,7 @@ und gehören nicht mehr zur Restliste.
 
 | ID | Klasse | Prio | Beschreibung |
 |----|--------|------|--------------|
-| D1 | ENTSCHIEDEN | — | Scanlines bleiben bewusst im Design-Tab: direkte Kontrolle des Fill-Ergebnisses; der native Vertex-Cache zeigt aktuell keinen spürbaren Performance-Einbruch. |
+| D1 | ERLEDIGT | P1 | Der Design-Tab zeigt gefüllte Vektoren als normale GPU-Even-Odd-Fläche. Laser-Scanlines bleiben ausschließlich in Job und Laserpreview; dadurch bleibt auch das große Aztec-SVG bei Transform-Gesten handhabbar. |
 | D2 | ERLEDIGT | P1 | Vorschau zeigt Cut/Fill/Travel, **verarbeitete** Bild-Rasterungen (dieselbe Rasterung wie der echte Job) und eine Legende mit Kennzahlen (Arbeitsweg, Leerfahrt, Job-Fläche). Simulation/Scrubber bleibt offen. |
 | D3 | ERLEDIGT | P1 | Vorschau ist eine Material-Bühne: rechts Vorlage wählen (Holz hell, Holz dunkel, Schiefer). Untergrund = Materialfarbe; Brennwege und Rasterbilder in Brennfarbe (weiß auf Schiefer, dunkel auf Holz). Leerfahrten per Schalter (Standard aus), zählen aber immer in die Kennzahlen. |
 

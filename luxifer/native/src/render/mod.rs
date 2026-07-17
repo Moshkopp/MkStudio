@@ -60,6 +60,7 @@ pub struct Renderer {
     // der Zustand ändert — nicht pro Frame. Pan/Zoom lassen die Vertices
     // unberührt (die Projektion macht der Shader), daher bleiben sie gecacht.
     verts: Vec<crate::scene_geo::Vertex>,
+    fill_batches: Vec<crate::scene_geo::FillBatch>,
     background_end: u32,
     /// Render-Revision (aus dem Core) beim letzten Vertex-Aufbau.
     last_render_rev: u64,
@@ -106,6 +107,7 @@ impl Renderer {
             egui_renderer,
             images: ImageStore::default(),
             verts: Vec::new(),
+            fill_batches: Vec::new(),
             background_end: 0,
             // MAX erzwingt den Aufbau im ersten Frame (Core startet bei 0).
             last_render_rev: u64::MAX,
@@ -238,6 +240,8 @@ impl Renderer {
                         crate::canvas::scene::srgb_to_linear(key.material.bed()),
                     );
                     self.background_end = self.verts.len() as u32;
+                    self.fill_batches.clear();
+                    self.gpu.upload_fill_verts(&[]);
                     self.images.set_rasters(
                         &self.gpu.device,
                         &self.gpu.queue,
@@ -261,6 +265,8 @@ impl Renderer {
                 self.preview_key = Some(key);
                 self.background_end = geometry.background_end;
                 self.verts = geometry.vertices;
+                self.fill_batches.clear();
+                self.gpu.upload_fill_verts(&[]);
                 self.images.set_rasters(
                     &self.gpu.device,
                     &self.gpu.queue,
@@ -283,6 +289,8 @@ impl Renderer {
             let geometry = base_vertices(scene.session, scene.bed_origin);
             self.background_end = geometry.background_end;
             self.verts = geometry.vertices;
+            self.fill_batches = geometry.fill_batches;
+            self.gpu.upload_fill_verts(&geometry.fill_vertices);
             self.preview_legend = None;
             let verts = std::mem::take(&mut self.verts);
             self.gpu.upload_verts(&verts);
@@ -362,7 +370,7 @@ impl Renderer {
         let mut img_scratch: Option<wgpu::Buffer> = None;
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("frame"),
+                label: Some("background-images"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
@@ -383,10 +391,7 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            // Bettrahmen zuerst, darüber das viewportfüllende Gitter. Danach
-            // Bildtexturen — im Preview die verarbeiteten
-            // Job-Rasterungen, sonst die Design-Originale —, anschließend
-            // Vektor-Fills und Konturen; Handles bleiben ganz oben.
+            // Untergrund, Gitter und Bilder liegen unter den Vektorflächen.
             self.gpu.draw_canvas_range(&mut rp, 0..self.background_end);
             self.gpu.draw_grid(&mut rp);
             if scene.preview {
@@ -401,6 +406,50 @@ impl Renderer {
                     &mut img_scratch,
                 );
             }
+        }
+        if !scene.preview && !self.fill_batches.is_empty() {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("solid-fills"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: self.gpu.stencil_view(),
+                    depth_ops: None,
+                    stencil_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(0),
+                        store: wgpu::StoreOp::Discard,
+                    }),
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+            self.gpu.draw_solid_fills(&mut rp, &self.fill_batches);
+        }
+        {
+            let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("outlines-overlay-ui"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
             self.gpu
                 .draw_canvas_range(&mut rp, self.background_end..count);
             self.gpu.draw_overlay(&mut rp);

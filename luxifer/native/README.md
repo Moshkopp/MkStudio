@@ -42,12 +42,11 @@ Das Ergebnis liegt unter `dist/LuxiFer-<version>-<architektur>.AppImage`.
 - **Canvas** (wgpu): Shapes aus dem echten `AppState`, Tisch-Rahmen, Auswahl-
   Hervorhebung + BBox, **Transform-Handles** (8 Skalier + Rotate). Pan (mittlere
   Maus / Leertaste+links), Zoom (Mausrad, auf den Cursor).
-- **Dicke Linien**: Konturen/Fill/Handles als bildschirm-konstant dicke Linien
+- **Dicke Linien**: Konturen/Handles als bildschirm-konstant dicke Linien
   (Segment→Quad, Dicke im Screen-Space-Shader), nicht mehr 1px-aliast.
-- **Flächen-Fill** über `scanline::fill_segments` (derselbe Even-Odd-Fill wie die
-  Laser-Vorschau). **Vertex-Cache** (Fingerprint): nur bei Szenen-Änderung neu,
-  Pan/Zoom projiziert allein der Shader → Aztec (1810 Shapes, ~73k Segmente)
-  lief mit **146 fps** (vor der Linien-Verdickung; die verdoppelt die Vertexzahl).
+- **Design-Flächen-Fill** als GPU-Even-Odd-Stencil-Fläche, unabhängig vom
+  Laser-Zeilenabstand. Scanlines entstehen nur für Job und Laserpreview;
+  Pan/Zoom und Transform des Aztec-Stresstests bleiben dadurch leichtgewichtig.
 - **Import**: SVG/DXF (`import_vector`) + **Bilder** (`import_image`, als
   GPU-Textur gerendert) + **Text→Pfad** (`text_to_contours`, System-Font-Wahl).
 - **Interaktion** über den Core: Rechteck/Ellipse/Polygon zeichnen, Auswahl +

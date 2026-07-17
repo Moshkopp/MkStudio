@@ -3,7 +3,6 @@
 //! Rotation wird wie im Core (`rotate_point`) angewendet.
 
 use luxifer_core::geometry::{rotate_point, Pt};
-use luxifer_core::scanline::{fill_segments, Contour};
 use luxifer_core::state::AppState;
 
 /// Ein Vertex für dicke Linien im Welt-Raum (mm). `pos` = Punkt auf der
@@ -12,7 +11,7 @@ use luxifer_core::state::AppState;
 /// `dir` um die halbe Linienbreite in PIXELN — so ist die Dicke zoom-unabhängig
 /// konstant und die Geometrie bleibt cache-fähig (Kamera nur im Shader).
 #[repr(C)]
-#[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
+#[derive(Clone, Copy, Debug, PartialEq, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct Vertex {
     pub pos: [f32; 2],
     pub dir: [f32; 2],
@@ -95,12 +94,19 @@ pub fn selected_outlines(state: &AppState, accent: [u8; 3]) -> Vec<Vertex> {
     v
 }
 
-/// Baut die Füll-Vertices für alle fillbaren, sichtbaren Layer: der Core rechnet
-/// die Even-Odd-Scanline-Segmente (`fill_segments`), wir zeichnen sie als
-/// horizontale Linien in Layer-Farbe. Das ist der Aztec-Stresstest (73k Segmente)
-/// — und derselbe Fill wie in der Laser-Vorschau, kein neuer Algorithmus.
-pub fn fill_lines(state: &AppState) -> Vec<Vertex> {
-    let mut v = Vec::new();
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FillBatch {
+    pub stencil: std::ops::Range<u32>,
+    pub cover: std::ops::Range<u32>,
+}
+
+/// Normale Design-Flächenfüllung. Jede geschlossene Kontur wird als
+/// Dreiecksfächer in den GPU-Stencil geschrieben. Das Paritätsbit bildet über
+/// alle Konturen eines Layers dieselbe Even-Odd-Semantik wie der Laser-Fill,
+/// ohne dessen Scanlinien im Design-Canvas zu erzeugen oder zu zeigen.
+pub fn solid_fills(state: &AppState) -> (Vec<Vertex>, Vec<FillBatch>) {
+    let mut vertices = Vec::new();
+    let mut batches = Vec::new();
     for (li, layer) in state.layers.iter().enumerate() {
         // Image-Shapes werden von `image_gpu` als echte Texturen gezeichnet.
         // Ihre rechteckige Outline darf hier nicht mit Scanlines in der
@@ -109,36 +115,69 @@ pub fn fill_lines(state: &AppState) -> Vec<Vertex> {
         {
             continue;
         }
-        // Alle (rotierten) Welt-Konturen dieses Layers gemeinsam füllen, damit
-        // überlappende Formen und Löcher korrekt kombiniert werden.
-        let rings: Vec<(Vec<Pt>, bool)> = state
+        let rings: Vec<Vec<Pt>> = state
             .shapes
             .iter()
             .filter(|s| s.layer_id == li)
             .map(world_outline)
+            .filter_map(|(points, closed)| (closed && points.len() >= 3).then_some(points))
             .collect();
-        let contours: Vec<Contour> = rings
-            .iter()
-            .map(|(pts, closed)| Contour {
-                points: pts,
-                closed: *closed,
-            })
-            .collect();
-        if contours.is_empty() {
+        if rings.is_empty() {
             continue;
         }
-        let step = layer.line_step_mm.max(0.05);
-        let color = col(layer.color, 0.9);
-        for seg in fill_segments(&contours, step) {
-            push_seg(
-                &mut v,
-                [seg.x0 as f32, seg.y as f32],
-                [seg.x1 as f32, seg.y as f32],
-                color,
-            );
+
+        let stencil_start = vertices.len() as u32;
+        let mut bounds = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
+        for points in &rings {
+            let anchor = points[0];
+            for triangle in points[1..].windows(2) {
+                for point in [anchor, triangle[0], triangle[1]] {
+                    bounds.0 = bounds.0.min(point.0);
+                    bounds.1 = bounds.1.min(point.1);
+                    bounds.2 = bounds.2.max(point.0);
+                    bounds.3 = bounds.3.max(point.1);
+                    vertices.push(raw_vertex(point, [0.0; 4]));
+                }
+            }
         }
+        let stencil_end = vertices.len() as u32;
+        let cover_start = stencil_end;
+        push_solid_rect(
+            &mut vertices,
+            bounds.0,
+            bounds.1,
+            bounds.2,
+            bounds.3,
+            col(layer.color, 0.32),
+        );
+        batches.push(FillBatch {
+            stencil: stencil_start..stencil_end,
+            cover: cover_start..vertices.len() as u32,
+        });
     }
-    v
+    (vertices, batches)
+}
+
+fn raw_vertex(point: Pt, color: [f32; 4]) -> Vertex {
+    Vertex {
+        pos: [point.0 as f32, point.1 as f32],
+        dir: [0.0, 0.0],
+        side: 0.0,
+        color,
+    }
+}
+
+fn push_solid_rect(
+    vertices: &mut Vec<Vertex>,
+    x0: f64,
+    y0: f64,
+    x1: f64,
+    y1: f64,
+    color: [f32; 4],
+) {
+    for point in [(x0, y0), (x1, y0), (x1, y1), (x0, y0), (x1, y1), (x0, y1)] {
+        vertices.push(raw_vertex(point, color));
+    }
 }
 
 /// Ein Liniensegment als dickes Quad (2 Dreiecke = 6 Vertices). Die Dicke trägt
@@ -423,7 +462,44 @@ mod tests {
         let mut state = AppState::new();
         state.add_image("asset".into(), 0.0, 0.0, 20.0, 10.0);
 
-        assert!(fill_lines(&state).is_empty());
+        let (vertices, batches) = solid_fills(&state);
+        assert!(vertices.is_empty());
+        assert!(batches.is_empty());
+    }
+
+    #[test]
+    fn design_fill_ist_feste_flaeche_und_unabhaengig_vom_laser_zeilenabstand() {
+        let mut state = AppState::new();
+        state.add_shape(luxifer_core::Geo::Rect {
+            x: 10.0,
+            y: 20.0,
+            w: 30.0,
+            h: 40.0,
+        });
+        state.layers[0].mode = luxifer_core::LayerMode::Fill;
+        state.layers[0].line_step_mm = 0.1;
+        let fine = solid_fills(&state);
+        state.layers[0].line_step_mm = 10.0;
+        let coarse = solid_fills(&state);
+
+        assert_eq!(fine, coarse);
+        assert_eq!(fine.1.len(), 1);
+        assert_eq!(fine.1[0].stencil, 0..6);
+        assert_eq!(fine.1[0].cover, 6..12);
+    }
+
+    #[test]
+    fn offene_kontur_erzeugt_keine_design_flaeche() {
+        let mut state = AppState::new();
+        state.add_shape(luxifer_core::Geo::Polyline {
+            pts: vec![(0.0, 0.0), (10.0, 0.0), (10.0, 10.0)],
+            closed: false,
+        });
+        state.layers[0].mode = luxifer_core::LayerMode::Fill;
+
+        let (vertices, batches) = solid_fills(&state);
+        assert!(vertices.is_empty());
+        assert!(batches.is_empty());
     }
 
     /// Beim Arbeitszoom bleibt der Schritt exakt die Settings-Rasterweite;
