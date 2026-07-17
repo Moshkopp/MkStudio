@@ -29,7 +29,7 @@ Sammelmodul werden; Projekt-, Asset- und Laserabläufe erhalten eigene Services.
 | `get_scene` | Core/Application | `EditorSession`, Übergangszugriff | Session besitzt `AppState`; read-only Renderer-View später verengen |
 | `swatch_colors` | Core | vorhanden | direkt aus Core, kein UI-Duplikat |
 | `app_version` | Application | fehlt | Cargo-Paketversion ohne Tauri liefern |
-| `job_preview` | Core/Application | nativ vollständig | Cut/Fill/Travel + verarbeitete Bild-Rasterungen + Legende; gleicher Asset-Resolver wie der echte Job; **offen:** Simulation/Scrubber |
+| `job_preview` | Core/Application/Driver | nativ vollständig | Treiberautoritative Cut/Fill/Raster/Travel-Spur + Legende; **niedrige Priorität:** Simulation/Scrubber |
 | `get_ui_settings` | Core/Native | nativ vollständig | plattformneutral laden, Defaults bei fehlender/alter Datei |
 | `save_ui_settings` | Core/Native | nativ vollständig | sanitizen, fehlersicher speichern und Theme/Raster/Dialogdarstellung anwenden |
 | `undo` | Core/Application | über `EditorSession` | Strg+Z; Gesten erzeugen genau einen Undo-Schritt; Shortcut-Zuordnung getestet |
@@ -93,6 +93,7 @@ Quelle: `frontend/src-tauri/src/commands/shapes.rs`.
 | `boolean_op` | Core/Application | über `EditorSession::boolean` | Union/Schnitt/Differenz mit Parameterdialog (`dialogs/geo_op.rs`) |
 | `offset_op` | Core/Application | über `EditorSession::offset` | Distanzdialog; Core hält harte Miter-Ecken bei konvexen Konturen |
 | `bridge_op` | Core/Application | vorhanden | Canvas-Geste, Breite, stabile Fehler und Undo getestet |
+| `trim_op` | Core/Application | **offen** | derzeit nur ausgegrauter Native-Stub; Operation, Geste, Undo und Tests fehlen |
 | `fillet_corners_op` | Core/Application | über `EditorSession::fillet` | Radiusgrenzen und Undo über Core |
 | `fillet_op` | Core/Application | über `EditorSession::fillet` | Radiusdialog über Session |
 | `nest_op` | Core/Application | über `EditorSession` | Auswahlvoraussetzung und Core-Undo |
@@ -183,8 +184,8 @@ Zusätzlich, obwohl es keine separaten Commands sind:
 | Drag-/Marquee-/Handle-Vorschau | Native | vorhanden | Marquee als gestricheltes Overlay; nur Präsentationszustand, Commit über Session |
 | FPS-/Statuszeile | Native | vorhanden | Dev-Metrik optional; Fehler/Projektstatus klar |
 | Laser-Verwaltung | Native + Application | vorhanden | Master-Detail aus dem Laser-Tab: Grunddaten, Scan-Offset und Ruida-Controller; UI hält nur Draft/Livewerte |
-| Text-Dialog | Native + Application | vorhanden | Anlegen + Editieren (Doppelklick); **offen:** Vorschau (G1), eigene Fonts (G2) |
-| Bildparameter-Dialog | Native + Application | vorhanden | Doppelklick aufs Bild; **offen:** Live-Vorschau (C2) |
+| Text-Dialog | Native + Application | vollständig | Anlegen + Editieren (Doppelklick), Core-basierte Live-Vorschau und Import eigener TTF-/OTF-Fonts |
+| Bildparameter-Dialog | Native + Application | vollständig | Doppelklick, Live-Vorschau, Trace und Crop in getrennten Arbeitsbereichen |
 | Rechtes Panel (Inspector) | Native | resizierbar 300–460 px | Panelbreite ist Layout-Zustand des Roots, kein Fachzustand |
 
 ## Befund für den ersten Umsetzungsschnitt (historisch, umgesetzt)

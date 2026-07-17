@@ -147,22 +147,16 @@ Design-Interaktion (Auswahl/Resize) mit der reinen Betrachtung.
   Vorschau-Zustand als eigene Wahrheit im Frontend; die Segmente sind Cache
   der aktuellen `AppState`.
 
-### 3. Umfang: Cut + Fill + Raster — Architektur komplett, Umsetzung gestaffelt
+### 3. Umfang: Cut + Fill + Raster — umgesetzt
 
-Die Preview-**Architektur** deckt alle drei Arbeitsarten ab (`MoveKind::Cut`,
-`Fill`, `Raster`). **Implementiert** wird nach Verfügbarkeit im `JobPlan`:
+Die Preview deckt alle drei Arbeitsarten ab (`Cut`, `Fill`, `Raster`):
 
-- **Cut** — `LayerWork::Cut` existiert → **jetzt**.
-- **Fill** — `LayerWork::Fill` (Scanline) existiert → **jetzt**.
-- **Raster** — `LayerWork::Raster` existiert **noch nicht** (an den Bild-Job aus
-  ADR 0004 §5 gekoppelt). `MoveKind::Raster` wird im Typ **angelegt**; die
-  Ableitung füllt es, **sobald** der JobPlan Rasterzeilen liefert. Bis dahin
-  erscheinen Bild-Layer in der Preview über ihre Kontur (wie im JobPlan heute:
-  Bild-Box als geschlossener Pfad).
+- **Cut** — Konturbewegungen aus `LayerWork::Cut`.
+- **Fill** — Scanlinien aus `LayerWork::Fill`.
+- **Raster** — tatsächlich geplante Bild-Runs aus `LayerWork::Raster`.
 
-So ist die Preview **jetzt** für den realen Funktionsumfang (Cut+Fill) baubar,
-ohne Raster-Geometrie zu erfinden, die es noch nicht gibt — und wächst ohne
-Umbau mit, wenn der Bild-Job kommt.
+Seit ADR 0015 liefert der aktive Treiber die autoritative Ausführungsspur;
+Preview und Serialisierung konsumieren dieselbe interne Bewegungsquelle.
 
 ### 4. Wiedergabe: statisch + Reihenfolge jetzt, Play/Scrubber vorgesehen
 

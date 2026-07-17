@@ -381,7 +381,11 @@ Ziel: Alle produktiv benötigten Operationen mit expliziten Voraussetzungen.
 - [x] Gruppieren/Aufheben und Spiegeln über Application/Core.
 - [x] Boolean: Vereinigung, Schnitt und Differenz (Parameterdialog über Session).
 - [x] Offset und Fillet (Distanz-/Radiusdialog über Session).
-- [ ] Bridge und Ecken-Fillet (eigene Operationen; „nicht migriert").
+- [x] Bridge/Haltesteg als eigene Canvas-Geste mit Breitenentwurf, Endpunkt-
+      Nachbearbeitung, Application-Fehlern und Undo; Ecken-Fillet läuft über
+      den vorhandenen Fillet-Dialog/Core.
+- [ ] Trim ist nur ein ausgegrauter Native-Stub; Fachoperation, Canvas-Geste,
+      Undo und Tests fehlen.
 - [x] Nesting und Nest-Fill (über Session; feste 2 mm — Gap-Dialog optional).
 - [x] Pattern Fill (Parameterdialog über Session, validiert; leere Treffer
       melden einen Fehler statt stiller No-Op) und Coaster-Einfügen (über
@@ -406,7 +410,8 @@ Ziel: Sicherer durchgängiger Weg vom Design zur Maschine.
 - [x] Native GPU-Vorschau für Cut/Fill/Raster/Image implementieren
       (Cut/Fill/Travel als Linien, Bilder als verarbeitete Rastertextur,
       Legende mit Kennzahlen; D2-Schnitt).
-- [ ] Vorschau-Simulation und Monitorzustand festlegen und umsetzen.
+- [ ] Vorschau-Simulation und Monitorzustand festlegen und umsetzen
+      (bewusst niedrige Priorität).
 - [x] Tauri-Lasercommands und `native/src/laser.rs` inventarisiert.
 - [x] Ein kanonischer `LaserService` in Application:
   - [x] Registry laden/speichern;
@@ -425,7 +430,8 @@ Abnahme Phase 6:
 - [x] Export erzeugt mit Fake-Ruida nicht-leere Bytes (Test).
 - [x] Fehlerpfad ohne aktiven Laser liefert stabilen `AppError` (Test).
       Start/Stop gegen echte HW bleiben manuelle Hardwaretests.
-- [ ] Manuelle Hardwaretests sind separat protokolliert (offen).
+- [ ] Manuelle Hardwaretests separat protokollieren: Ruida kann aktuell geprüft
+      werden; GRBL bleibt mangels Hardware zurückgestellt.
 - [x] `native/src/laser.rs` gelöscht — keine konkurrierende Service-Logik mehr.
 
 Service-Schnitte 2026-07-12 (Phasen 3/4/5/6 im Kern): Die zwei fehlplatzierten
@@ -626,7 +632,7 @@ Ausdrücklich **offen** (nicht als fertig behandeln):
 
 - Preview-Simulation (Scrubber/Abspielen): der Reiter selbst ist fertig
   (Cut/Fill/Travel, verarbeitete Rastertexturen, Legende — D2 abgeschlossen).
-- Bridge/Haltesteg (Stub) und Ecken-Fillet.
+- [x] Bridge/Haltesteg einschließlich Canvas-Geste, Breitenentwurf und Undo.
 - [x] Bild-Zuschneiden als eigener Dialog mit abgeleitetem Asset und Undo.
 - Bézier-Node-Editing: Knoten löschen und glatt/eckig umschalten bleiben offen;
   Hit-Test, Ziehen und Teilen sind bereits im Core vorhanden.
@@ -634,8 +640,10 @@ Ausdrücklich **offen** (nicht als fertig behandeln):
   Versionen/Umbenennen/Live-Miniatur ist seit dem E4-Schnitt umgesetzt).
 - Laser Ping/Verbindungsstatus/Position.
 
-Nächste sinnvolle Schnitte in dieser Reihenfolge: Bridge (eigene Geste),
-dann Bézier-Node-Editing. Arbeitsgrundlage ist
+Aktuell folgt zuerst die Ruida-Hardwareabnahme, danach Trim, Bézier-Node-Editing
+und Projekt-/Versions-Thumbnails. Nur die Preview-Simulation bleibt niedrige
+Priorität. Die GRBL-Hardwareabnahme folgt erst bei verfügbarem Gerät.
+Arbeitsgrundlage ist
 `docs/native_todo_bedienung.md`; nach jedem Schnitt diese Liste, die
 Bedienungsliste und die Funktionsmatrix pflegen.
 

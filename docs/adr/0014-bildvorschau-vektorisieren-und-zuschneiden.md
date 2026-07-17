@@ -2,8 +2,9 @@
 
 ## Status
 
-Vorgeschlagen — 2026-07-13. Fachlicher Umfang festgelegt; Umsetzung und
-visuelle Abnahme stehen aus.
+Umgesetzt — 2026-07-17. Bildparameter, Vektorisieren, rechteckiger Crop sowie
+Kreis-/Ellipsen-Crop besitzen getrennte Live-Vorschauen. Abgeleitete Crop-
+Assets werden referenzabhängig sichtbar gehalten und unreferenziert bereinigt.
 
 Ergänzt und präzisiert
 [ADR 0004](0004-asset-store-und-bild-import.md). Dessen Invarianten zum
@@ -230,8 +231,8 @@ einmalig wie ein abgeleitetes Asset behandelt.
 4. Jede bestätigte Aktion ist genau ein Undo-Schritt.
 5. Vektorisieren erzeugt neue Vektorgeometrie; es wandelt das Bildobjekt nicht
    in-place in einen anderen Typ um.
-6. Zuschneiden erzeugt im ersten Schnitt keine neue Bilddatei und keine
-   duplizierten Asset-Bytes.
+6. Zuschneiden erzeugt ein abgeleitetes, per Metadatum markiertes Asset; das
+   Original bleibt unverändert und unreferenzierte Ableitungen werden bereinigt.
 7. Bildbearbeitung, Vektorisieren und Zuschneiden bleiben getrennte
    Application-Aktionen, auch wenn sie UI-Bausteine teilen.
 
@@ -244,7 +245,7 @@ einmalig wie ein abgeleitetes Asset behandelt.
 - OCR oder Erkennung semantischer Bildinhalte;
 - perspektivische Entzerrung und freie Bildtransformation;
 - destruktives Exportieren eines Crops als neues Asset;
-- elliptische und freie Crop-Masken im ersten Umsetzungsschnitt;
+- freie Polygon-Crop-Masken;
 - automatische Motiv- beziehungsweise Rand-Erkennung im ersten Schnitt.
 
 ## Abnahmekriterien

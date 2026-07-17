@@ -11,6 +11,20 @@ analysiert, priorisiert und abgearbeitet. Klassifizierung:
 
 Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
+## Aktuelle Restpriorität (2026-07-17)
+
+1. Ruida-Ausführungsspur und Geräteaktionen an der vorhandenen Hardware
+   abnehmen.
+2. Trim als echte Geometrieoperation mit Canvas-Geste, Undo und Tests umsetzen.
+3. Bézier-Node-Editing in der nativen UI vervollständigen.
+4. Projekt-/Versions-Thumbnails erzeugen und speichern.
+5. Laser-Ping, Verbindungsstatus und Position vervollständigen.
+6. Preview-Simulation/Scrubber bleibt bewusst niedrige Priorität.
+7. Manuelle GRBL-Abnahme folgt erst, wenn GRBL-Hardware verfügbar ist.
+
+Haltesteg/Bridge, Text-Live-Vorschau und Import eigener Fonts sind umgesetzt
+und gehören nicht mehr zur Restliste.
+
 ---
 
 ## A. Canvas / Zeichnen / Auswahl
@@ -29,8 +43,9 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 |----|--------|------|--------------|
 | B1 | ERLEDIGT | P1 | Geschlossene konvexe Linienkonturen behalten beim Offset harte Miter-Ecken statt verrundeter Übergänge. |
 | B2 | ERLEDIGT | P2 | Muster-Füllung mit Parameterdialog (Linien/Kreise/Langlöcher/Waben, Abstände, Winkel, Elementgröße); Füllung landet auf eigenem Layer, ein Undo-Schritt. |
-| B3 | FEHLT | P2 | Haltesteg ist nur Stub. |
+| B3 | ERLEDIGT | P2 | Haltesteg besitzt eine eigene Canvas-Geste: Linie über Konturen ziehen, Endpunkte nachfassen, Breite live einstellen und atomar mit Undo anwenden. Auch Verbundkonturen und stabile Fehlerfälle sind getestet. |
 | B4 | ERLEDIGT | P1 | Muster-Füllung blieb beim Verschieben der Quellform stehen (Muster-Konturen sind eigenständige Shapes): Muster und Quellformen gruppieren sich jetzt automatisch — die Gruppenauswahl nimmt die Füllung beim Move mit. Der normale Scanline-Fill folgte nachweislich korrekt (frame-genauer Gesten-Test); falls dort weiter etwas hakt, bitte Schritte notieren. |
+| B5 | FEHLT | P2 | Trim ist bislang nur ein ausgegrauter Toolbar-Stub. Core-/Application-Operation, Canvas-Geste, Undo und Regressionstests fehlen. |
 
 ## C. Bilder
 
@@ -73,8 +88,8 @@ Priorität: P1 = blockiert normales Arbeiten, P2 = wichtig, P3 = Politur.
 
 | ID | Klasse | Prio | Beschreibung |
 |----|--------|------|--------------|
-| G1 | FEHLT | P2 | Text-Tool: keine Vorschau. |
-| G2 | FEHLT | P2 | Text-Tool: kein Upload eigener Fonts. |
+| G1 | ERLEDIGT | P2 | Der Textdialog zeigt eine live aktualisierte, aus den Core-Konturen berechnete Vorschau. |
+| G2 | ERLEDIGT | P2 | Eigene TTF-/OTF-Fonts können im Textdialog importiert werden, liegen im Asset-Katalog und werden vor den Systemfonts angeboten. |
 
 ## H. Canvas-Grid / Lineale
 

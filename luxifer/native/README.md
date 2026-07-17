@@ -67,11 +67,14 @@ Das Ergebnis liegt unter `dist/LuxiFer-<version>-<architektur>.AppImage`.
   vom Nutzer als funktionierend bestätigt. Falls das Fenster mal leer bleibt,
   hilft `WGPU_BACKEND=vulkan`.
 - **Echtes MSAA** (aktuell dicke Quads statt Anti-Aliasing der Kanten).
-- **Laser-Vorschau-Reiter** (Bahnen-Simulation) und **Monitor-Reiter** — in der
-  Tauri-App vorhanden, hier noch nicht.
-- **Bild-Parameter-Dialog** (Dithering/Schwellwert), **Geometrie-Ops**
-  (Boolean/Offset/Fillet/Trace/Hatch/Nesting) — alles im Core, UI fehlt nativ.
-- **Version-Thumbnails / Versionsliste** im Projekt-Browser (nur Basis da).
+- **Vorschau-Simulation/Scrubber** und ein **Monitor-Reiter** (niedrige
+  Priorität); die statische treiberautoritative Laser-Vorschau ist vorhanden.
+- **Bézier-Node-Editing** in der nativen UI vervollständigen.
+- **Trim-Werkzeug** als echte Geometrieoperation; derzeit nur ausgegrauter Stub.
+- **Gespeicherte Projekt-/Version-Thumbnails**; Browser, Versionsliste und
+  Live-Vektor-Miniatur sind vorhanden.
+- **Laser-Ping/Position** und Ruida-Geräteabnahme. Die GRBL-Abnahme bleibt bis
+  zur Verfügbarkeit passender Hardware zurückgestellt.
 
 ## Architektur (Module)
 
