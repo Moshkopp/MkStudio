@@ -718,7 +718,7 @@ impl App {
             preview_trace: self.preview_trace.as_ref(),
             grid_mm: self.ui_settings.grid_size_mm as f32,
             selection_transform: self.canvas.selection_transform(),
-            move_all_fills: self.canvas.live_move_offset() != [0.0, 0.0]
+            transform_all_fills: self.canvas.selection_transform() != Default::default()
                 && self.session.shapes.iter().enumerate().all(|(i, shape)| {
                     let visible_fill = shape.geo.outline_points().1
                         && self

@@ -268,8 +268,28 @@ Der erste GPU-Live-Rotate-Gegencheck zeigte drei getrennte Darstellungsfehler:
 
 Der Shader transformiert jetzt neben der Position auch `dir` mit der affinen
 2×2-Matrix und normalisiert die Richtung vor der Linienextrusion. Release-
-Gegenchecks bestätigten den SVG-GPU-Pfad ohne Zwischen-Rebuilds und den
-korrekten Image-Fallback bei rund 0,01 ms Image-Draw-Zeit pro Frame.
+Gegenchecks bestätigten den SVG-GPU-Pfad ohne Zwischen-Rebuilds und zunächst
+den korrekten Image-Rebuild-Pfad bei rund 0,01 ms Image-Draw-Zeit pro Frame.
+
+### GPU-Live-Transformation für Bilder und vollständige Fill-Auswahlen
+
+Die Bild-Pipeline besitzt nun wie die Vektor-Pipeline getrennte Kamera- und
+Selection-Uniforms. Der gecachte Quad-Buffer bleibt während Move, Resize und
+Rotate unverändert; nur ausgewählte Bild-Ranges binden die affine
+Selection-Uniform. Beim Loslassen übernimmt weiterhin genau ein Core-Commit
+die endgültige Geometrie. Ein Release-Lauf mit echtem PNG validierte die
+WGSL-Pipeline und den Texturpfad bei rund 0,01 ms Image-Draw-Zeit pro Frame.
+
+Der Stencil-Fill-Pfad konnte dieselbe affine Uniform bereits anwenden, war aber
+auf reine Translation beschränkt. Resize und Rotate nutzen sie jetzt ebenfalls,
+wenn alle sichtbaren Vektor-Fill-Konturen ausgewählt sind. Nur dann darf der
+gemeinsame Fill-Buffer vollständig transformiert werden. Sobald lediglich ein
+Teil der sichtbaren Fills ausgewählt ist, bleibt der Snapshot-/Core-Pfad aktiv,
+damit unselektierte Compounds nicht mitbewegt werden.
+
+Regressionstests sichern für Bild-Rotate und vollständiges Fill-Resize: keine
+Core-Revision und keine Geometriemutation während der Vorschau, affine
+GPU-Matrix während der Geste und genau ein finaler Commit.
 
 ### Fill-Compound-Stresstest nach dem Transform-Checkpoint
 

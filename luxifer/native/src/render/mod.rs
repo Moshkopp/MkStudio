@@ -157,7 +157,7 @@ pub struct FrameScene<'a> {
     /// Maschinen-Nullpunkt des aktiven Laserprofils.
     pub bed_origin: luxifer_core::BedOrigin,
     pub selection_transform: crate::gpu::SelectionTransform,
-    pub move_all_fills: bool,
+    pub transform_all_fills: bool,
 }
 
 pub struct Renderer {
@@ -562,7 +562,8 @@ impl Renderer {
                 self.images
                     .draw_rasters(&mut rp, &self.gpu, scene.cam, &mut img_scratch);
             } else {
-                self.images.draw(&mut rp, &self.gpu, scene.cam);
+                self.images
+                    .draw(&mut rp, &self.gpu, scene.cam, scene.selection_transform);
             }
         }
         perf.image_ms = image_started.elapsed().as_secs_f64() * 1_000.0;
@@ -591,7 +592,7 @@ impl Renderer {
                 multiview_mask: None,
             });
             self.gpu
-                .draw_solid_fills(&mut rp, &self.fill_batches, scene.move_all_fills);
+                .draw_solid_fills(&mut rp, &self.fill_batches, scene.transform_all_fills);
         }
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {

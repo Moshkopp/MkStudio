@@ -592,14 +592,14 @@ impl Gpu {
         &'a self,
         pass: &mut wgpu::RenderPass<'a>,
         batches: &[FillBatch],
-        use_selection_offset: bool,
+        use_selection_transform: bool,
     ) {
         if batches.is_empty() {
             return;
         }
         pass.set_bind_group(
             0,
-            if use_selection_offset {
+            if use_selection_transform {
                 &self.selection_bind
             } else {
                 &self.bind

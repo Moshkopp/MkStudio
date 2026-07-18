@@ -209,6 +209,31 @@ impl CanvasState {
         }
     }
 
+    fn selection_can_gpu_transform(session: &EditorSession) -> bool {
+        let is_visible_fill = |shape: &luxifer_core::Shape| {
+            shape.geo.outline_points().1
+                && session.layers.get(shape.layer_id).is_some_and(|layer| {
+                    layer.visible
+                        && layer.mode.is_filled()
+                        && layer.mode != luxifer_core::LayerMode::Image
+                })
+        };
+        let selected_has_fill = session
+            .selected
+            .iter()
+            .any(|&i| session.shapes.get(i).is_some_and(&is_visible_fill));
+        let all_fills_selected = session
+            .shapes
+            .iter()
+            .enumerate()
+            .all(|(i, shape)| !is_visible_fill(shape) || session.selected.contains(&i));
+        session
+            .selected
+            .iter()
+            .all(|&i| session.shapes.get(i).is_some())
+            && (!selected_has_fill || all_fills_selected)
+    }
+
     fn begin_select(&mut self, session: &mut EditorSession, w: [f64; 2]) {
         let selection_editable =
             |session: &EditorSession, allowed: &Option<std::collections::HashSet<usize>>| {
@@ -231,16 +256,7 @@ impl CanvasState {
             // Rotate-Handle?
             let rp = super::overlay::rotate_handle_pos(&b, self.cam.scale);
             if (w[0] - rp[0]).hypot(w[1] - rp[1]) <= pick {
-                let gpu_live = session.selected.iter().all(|&i| {
-                    session.shapes.get(i).is_some_and(|shape| {
-                        !matches!(shape.geo, luxifer_core::Geo::Image { .. })
-                            && !(shape.geo.outline_points().1
-                                && session
-                                    .layers
-                                    .get(shape.layer_id)
-                                    .is_some_and(|layer| layer.visible && layer.mode.is_filled()))
-                    })
-                });
+                let gpu_live = Self::selection_can_gpu_transform(session);
                 if !gpu_live {
                     session.begin_edit();
                 }
@@ -261,15 +277,7 @@ impl CanvasState {
             // Skalier-Handle?
             for (handle, (hx, hy)) in luxifer_core::Handle::positions(&b) {
                 if (w[0] - hx).abs() <= pick && (w[1] - hy).abs() <= pick {
-                    let gpu_live = session.selected.iter().all(|&i| {
-                        session.shapes.get(i).is_some_and(|shape| {
-                            !matches!(shape.geo, luxifer_core::Geo::Image { .. })
-                                && !(shape.geo.outline_points().1
-                                    && session.layers.get(shape.layer_id).is_some_and(|layer| {
-                                        layer.visible && layer.mode.is_filled()
-                                    }))
-                        })
-                    });
+                    let gpu_live = Self::selection_can_gpu_transform(session);
                     if !gpu_live {
                         session.begin_edit();
                     }
@@ -292,30 +300,7 @@ impl CanvasState {
         if self.shift_down {
             self.drag = Drag::None;
         } else if hit.is_some() && selection_editable(session, &self.laser_editable_layers) {
-            let selected_has_image = session.selected.iter().any(|&i| {
-                session
-                    .shapes
-                    .get(i)
-                    .is_some_and(|shape| matches!(shape.geo, luxifer_core::Geo::Image { .. }))
-            });
-            let is_visible_fill = |shape: &luxifer_core::Shape| {
-                shape.geo.outline_points().1
-                    && session.layers.get(shape.layer_id).is_some_and(|layer| {
-                        layer.visible
-                            && layer.mode.is_filled()
-                            && layer.mode != luxifer_core::LayerMode::Image
-                    })
-            };
-            let selected_has_fill = session
-                .selected
-                .iter()
-                .any(|&i| session.shapes.get(i).is_some_and(&is_visible_fill));
-            let all_fills_selected = session
-                .shapes
-                .iter()
-                .enumerate()
-                .all(|(i, shape)| !is_visible_fill(shape) || session.selected.contains(&i));
-            let gpu_live = !selected_has_image && (!selected_has_fill || all_fills_selected);
+            let gpu_live = Self::selection_can_gpu_transform(session);
             if !gpu_live {
                 session.begin_edit();
             }
@@ -947,6 +932,30 @@ mod tests {
     }
 
     #[test]
+    fn resize_aller_fill_konturen_bleibt_bis_zum_commit_auf_der_gpu() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [40.0, 40.0]);
+        session.add_box_shape(BoxShape::Rect, [60.0, 0.0], [100.0, 40.0]);
+        session.layers[0].mode = luxifer_core::LayerMode::Fill;
+        session.select_all();
+        let rev = session.render_rev();
+
+        canvas.cursor = canvas.cam.world_to_screen([100.0, 20.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([150.0, 20.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(session.selection_bbox().unwrap().w, 100.0);
+        assert_eq!(canvas.selection_transform().matrix, [1.5, 0.0, 0.0, 1.0]);
+
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert_eq!(session.selection_bbox().unwrap().w, 150.0);
+        assert!(session.render_rev() > rev);
+    }
+
+    #[test]
     fn rotate_vorschau_rotiert_gpu_und_committet_einmal() {
         let mut canvas = CanvasState::new(Camera::new());
         canvas.tool = Tool::Select;
@@ -966,6 +975,31 @@ mod tests {
         assert!(transform.matrix[0].abs() < 1e-5);
         assert!((transform.matrix[1] + 1.0).abs() < 1e-5);
         assert!((transform.matrix[2] - 1.0).abs() < 1e-5);
+
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert!((session.shapes[0].rotation - 90.0).abs() < 1e-5);
+        assert!(session.render_rev() > rev);
+    }
+
+    #[test]
+    fn bild_rotate_vorschau_bleibt_bis_zum_commit_auf_der_gpu() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_image("test-asset".into(), 0.0, 0.0, 100.0, 50.0);
+        let rev = session.render_rev();
+        let bbox = session.selection_bbox().unwrap();
+        let handle = crate::canvas::overlay::rotate_handle_pos(&bbox, canvas.cam.scale);
+
+        canvas.cursor = canvas.cam.world_to_screen(handle);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([97.0, 25.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(session.shapes[0].rotation, 0.0);
+        let transform = canvas.selection_transform();
+        assert!(transform.matrix[0].abs() < 1e-5);
+        assert!((transform.matrix[1] + 1.0).abs() < 1e-5);
 
         canvas.on_mouse(&mut session, MouseButton::Left, false);
         assert!((session.shapes[0].rotation - 90.0).abs() < 1e-5);

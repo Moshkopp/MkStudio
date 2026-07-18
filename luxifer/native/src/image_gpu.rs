@@ -24,6 +24,9 @@ struct Uniforms {
     scale: f32,
     _pad: f32,
     viewport: [f32; 2],
+    offset: [f32; 2],
+    matrix: [f32; 4],
+    pivot: [f32; 2],
     _pad2: [f32; 2],
 }
 
@@ -50,9 +53,11 @@ pub struct ImageStore {
     tex_layout: Option<wgpu::BindGroupLayout>,
     uniform_buf: Option<wgpu::Buffer>,
     uni_bind: Option<wgpu::BindGroup>,
+    selection_uniform_buf: Option<wgpu::Buffer>,
+    selection_uni_bind: Option<wgpu::BindGroup>,
     textures: HashMap<String, Tex>,
     design_vbuf: Option<wgpu::Buffer>,
-    design_ranges: Vec<(String, u32, u32)>,
+    design_ranges: Vec<(String, u32, u32, bool)>,
     /// Verarbeitete Rasterungen für den Preview-Reiter (ersetzen dort die
     /// Design-Texturen). Werden beim Preview-Aufbau gesetzt.
     rasters: Vec<RasterQuad>,
@@ -87,6 +92,12 @@ impl ImageStore {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let selection_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("img_selection_uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let uni_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -106,6 +117,14 @@ impl ImageStore {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+        let selection_uni_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: None,
+            layout: &uni_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: selection_uniform_buf.as_entire_binding(),
             }],
         });
         let tex_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -176,6 +195,8 @@ impl ImageStore {
         self.tex_layout = Some(tex_layout);
         self.uniform_buf = Some(uniform_buf);
         self.uni_bind = Some(uni_bind);
+        self.selection_uniform_buf = Some(selection_uniform_buf);
+        self.selection_uni_bind = Some(selection_uni_bind);
     }
 
     /// Lädt fehlende Texturen für alle Image-Shapes aus dem Asset-Store.
@@ -212,7 +233,7 @@ impl ImageStore {
     fn rebuild_design_geometry(&mut self, device: &wgpu::Device, state: &AppState) {
         let mut verts = Vec::new();
         self.design_ranges.clear();
-        for shape in &state.shapes {
+        for (shape_index, shape) in state.shapes.iter().enumerate() {
             if let luxifer_core::Geo::Image {
                 asset, x, y, w, h, ..
             } = &shape.geo
@@ -229,7 +250,12 @@ impl ImageStore {
                     (*y + *h) as f32,
                     shape.rotation,
                 );
-                self.design_ranges.push((asset.clone(), start, start + 6));
+                self.design_ranges.push((
+                    asset.clone(),
+                    start,
+                    start + 6,
+                    state.selected.contains(&shape_index),
+                ));
             }
         }
         self.design_vbuf = (!verts.is_empty()).then(|| {
@@ -332,15 +358,28 @@ impl ImageStore {
     }
 
     /// Schreibt die Kamera-Uniforms für die Bild-Pipeline.
-    fn write_camera(&self, gpu: &Gpu, cam: &Camera, uni_buf: &wgpu::Buffer) {
-        let uni = Uniforms {
+    fn write_camera(
+        &self,
+        gpu: &Gpu,
+        cam: &Camera,
+        uni_buf: &wgpu::Buffer,
+        selection_uni_buf: &wgpu::Buffer,
+        transform: crate::gpu::SelectionTransform,
+    ) {
+        let make = |transform: crate::gpu::SelectionTransform| Uniforms {
             center: cam.center,
             scale: cam.scale,
             _pad: 0.0,
             viewport: cam.viewport,
+            offset: transform.offset,
+            matrix: transform.matrix,
+            pivot: transform.pivot,
             _pad2: [0.0, 0.0],
         };
-        gpu.queue.write_buffer(uni_buf, 0, bytemuck::bytes_of(&uni));
+        gpu.queue
+            .write_buffer(uni_buf, 0, bytemuck::bytes_of(&make(Default::default())));
+        gpu.queue
+            .write_buffer(selection_uni_buf, 0, bytemuck::bytes_of(&make(transform)));
     }
 
     /// Zwei Dreiecke einer mm-Box, UV oben-links = (0,0).
@@ -401,24 +440,47 @@ impl ImageStore {
 
     /// Zeichnet alle Image-Shapes als texturierte Quads in den Render-Pass
     /// (Design-Ansicht: die Original-Graustufen an ihrer mm-Box).
-    pub fn draw<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>, gpu: &Gpu, cam: &Camera) {
-        let (Some(pipeline), Some(uni_buf), Some(uni_bind)) = (
+    pub fn draw<'a>(
+        &'a self,
+        rp: &mut wgpu::RenderPass<'a>,
+        gpu: &Gpu,
+        cam: &Camera,
+        transform: crate::gpu::SelectionTransform,
+    ) {
+        let (
+            Some(pipeline),
+            Some(uni_buf),
+            Some(uni_bind),
+            Some(selection_uni_buf),
+            Some(selection_uni_bind),
+        ) = (
             self.pipeline.as_ref(),
             self.uniform_buf.as_ref(),
             self.uni_bind.as_ref(),
-        ) else {
+            self.selection_uniform_buf.as_ref(),
+            self.selection_uni_bind.as_ref(),
+        )
+        else {
             return;
         };
-        self.write_camera(gpu, cam, uni_buf);
+        self.write_camera(gpu, cam, uni_buf, selection_uni_buf, transform);
         let Some(buf) = self.design_vbuf.as_ref() else {
             return;
         };
 
         rp.set_pipeline(pipeline);
-        rp.set_bind_group(0, uni_bind, &[]);
         rp.set_vertex_buffer(0, buf.slice(..));
-        for (asset, start, end) in &self.design_ranges {
+        for (asset, start, end, selected) in &self.design_ranges {
             if let Some(tex) = self.textures.get(asset) {
+                rp.set_bind_group(
+                    0,
+                    if *selected {
+                        selection_uni_bind
+                    } else {
+                        uni_bind
+                    },
+                    &[],
+                );
                 rp.set_bind_group(1, &tex.bind, &[]);
                 rp.draw(*start..*end, 0..1);
             }
@@ -444,7 +506,10 @@ impl ImageStore {
         ) else {
             return;
         };
-        self.write_camera(gpu, cam, uni_buf);
+        let Some(selection_uni_buf) = self.selection_uniform_buf.as_ref() else {
+            return;
+        };
+        self.write_camera(gpu, cam, uni_buf, selection_uni_buf, Default::default());
 
         let mut verts: Vec<ImgVertex> = Vec::new();
         for r in &self.rasters {
@@ -472,7 +537,11 @@ impl ImageStore {
 }
 
 const SHADER: &str = r#"
-struct U { center: vec2<f32>, scale: f32, _p: f32, viewport: vec2<f32>, _p2: vec2<f32> };
+struct U {
+    center: vec2<f32>, scale: f32, _p: f32,
+    viewport: vec2<f32>, offset: vec2<f32>,
+    matrix: vec4<f32>, pivot: vec2<f32>, _p2: vec2<f32>
+};
 @group(0) @binding(0) var<uniform> u: U;
 @group(1) @binding(0) var tex: texture_2d<f32>;
 @group(1) @binding(1) var samp: sampler;
@@ -481,7 +550,12 @@ struct VOut { @builtin(position) pos: vec4<f32>, @location(0) uv: vec2<f32> };
 
 @vertex
 fn vs(@location(0) p: vec2<f32>, @location(1) uv: vec2<f32>) -> VOut {
-    let px = (p - u.center) * u.scale;
+    let local = p - u.pivot;
+    let transformed = vec2<f32>(
+        u.matrix.x * local.x + u.matrix.y * local.y,
+        u.matrix.z * local.x + u.matrix.w * local.y,
+    ) + u.pivot + u.offset;
+    let px = (transformed - u.center) * u.scale;
     let ndc = vec2<f32>(px.x / (u.viewport.x * 0.5), -px.y / (u.viewport.y * 0.5));
     var o: VOut;
     o.pos = vec4<f32>(ndc, 0.0, 1.0);
