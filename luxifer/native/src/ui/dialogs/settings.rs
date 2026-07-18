@@ -369,91 +369,110 @@ fn ui_section(ui: &mut egui::Ui, st: &mut SettingsDialogState) {
 }
 
 fn shortcuts_section(ui: &mut egui::Ui, st: &mut SettingsDialogState) {
-    ui.weak("Linksklick auf eine Belegung startet die Aufnahme. Escape bricht die Aufnahme ab.");
-    ui.add_space(8.0);
+    ui.label("Belegungen anklicken, um sie zu ändern.");
+    ui.weak("× entfernt eine Belegung. Escape bricht eine laufende Aufnahme ab.");
+    ui.add_space(12.0);
     if let Some(message) = &st.shortcut_error {
         ui.colored_label(ui.visuals().error_fg_color, message);
         ui.add_space(6.0);
     }
 
     let modifiers = ui.input(|input| input.modifiers);
-    let mut last_category = "";
-    for action in luxifer_core::ShortcutAction::ALL {
-        let category = action.category();
-        if category != last_category {
-            if !last_category.is_empty() {
-                ui.add_space(8.0);
-            }
-            ui.strong(category);
-            ui.separator();
-            last_category = category;
-        }
-        let triggers = st.draft.shortcut_bindings.triggers(action).to_vec();
-        ui.horizontal_wrapped(|ui| {
-            ui.add_sized([155.0, 24.0], egui::Label::new(action.label()));
-            if triggers.is_empty() {
-                ui.weak("Nicht belegt");
-            }
-            for trigger in triggers {
-                let recording_this = st.shortcut_recording.is_some_and(|recording| {
-                    recording.action == action && recording.replace == Some(trigger)
-                });
-                let label = if recording_this {
-                    recording_label(modifiers)
-                } else {
-                    trigger.label()
-                };
-                if ui
-                    .add(egui::Button::new(label).selected(recording_this))
-                    .on_hover_text("Belegung ersetzen")
-                    .clicked()
+    for category in ["Allgemein", "Bearbeiten", "Werkzeuge", "Ansichten"] {
+        ui.strong(category);
+        ui.add_space(3.0);
+        egui::Grid::new(("shortcut_table", category))
+            .num_columns(3)
+            .striped(true)
+            .min_row_height(30.0)
+            .spacing([12.0, 4.0])
+            .show(ui, |ui| {
+                ui.weak("Aktion");
+                ui.weak("Belegung");
+                ui.weak("Ändern");
+                ui.end_row();
+
+                for action in luxifer_core::ShortcutAction::ALL
+                    .into_iter()
+                    .filter(|action| action.category() == category)
                 {
-                    st.shortcut_recording = Some(crate::ui::state::ShortcutRecording {
-                        action,
-                        replace: Some(trigger),
+                    ui.label(action.label());
+                    let triggers = st.draft.shortcut_bindings.triggers(action).to_vec();
+                    ui.allocate_ui_with_layout(
+                        egui::vec2(210.0, 26.0),
+                        egui::Layout::left_to_right(egui::Align::Center).with_main_wrap(true),
+                        |ui| {
+                            if triggers.is_empty() {
+                                ui.weak("Nicht belegt");
+                            }
+                            for trigger in triggers {
+                                let recording_this =
+                                    st.shortcut_recording.is_some_and(|recording| {
+                                        recording.action == action
+                                            && recording.replace == Some(trigger)
+                                    });
+                                let label = if recording_this {
+                                    recording_label(modifiers)
+                                } else {
+                                    trigger.label()
+                                };
+                                if ui
+                                    .add(egui::Button::new(label).selected(recording_this))
+                                    .on_hover_text("Diese Belegung ersetzen")
+                                    .clicked()
+                                {
+                                    st.shortcut_recording =
+                                        Some(crate::ui::state::ShortcutRecording {
+                                            action,
+                                            replace: Some(trigger),
+                                        });
+                                    st.shortcut_error = None;
+                                }
+                                if ui
+                                    .small_button("×")
+                                    .on_hover_text("Diese Belegung entfernen")
+                                    .clicked()
+                                {
+                                    st.draft.shortcut_bindings.remove(action, trigger);
+                                    st.shortcut_recording = None;
+                                    st.shortcut_error = None;
+                                }
+                            }
+                        },
+                    );
+                    ui.horizontal(|ui| {
+                        let adding = st.shortcut_recording.is_some_and(|recording| {
+                            recording.action == action && recording.replace.is_none()
+                        });
+                        if ui
+                            .button(if adding {
+                                recording_label(modifiers)
+                            } else {
+                                "+ Hinzufügen".into()
+                            })
+                            .clicked()
+                        {
+                            st.shortcut_recording = Some(crate::ui::state::ShortcutRecording {
+                                action,
+                                replace: None,
+                            });
+                            st.shortcut_error = None;
+                        }
+                        if ui
+                            .button("↶ Standard")
+                            .on_hover_text("Diese Aktion auf Standard zurücksetzen")
+                            .clicked()
+                        {
+                            st.draft.shortcut_bindings.reset_action(action);
+                            st.shortcut_recording = None;
+                            st.shortcut_error = None;
+                        }
                     });
-                    st.shortcut_error = None;
+                    ui.end_row();
                 }
-                if ui
-                    .small_button("×")
-                    .on_hover_text("Diese Belegung entfernen")
-                    .clicked()
-                {
-                    st.draft.shortcut_bindings.remove(action, trigger);
-                    st.shortcut_recording = None;
-                    st.shortcut_error = None;
-                }
-            }
-            let adding = st
-                .shortcut_recording
-                .is_some_and(|recording| recording.action == action && recording.replace.is_none());
-            if ui
-                .small_button(if adding {
-                    recording_label(modifiers)
-                } else {
-                    "+".into()
-                })
-                .on_hover_text("Weitere Belegung hinzufügen")
-                .clicked()
-            {
-                st.shortcut_recording = Some(crate::ui::state::ShortcutRecording {
-                    action,
-                    replace: None,
-                });
-                st.shortcut_error = None;
-            }
-            if ui
-                .small_button("↶")
-                .on_hover_text("Diese Aktion auf Standard zurücksetzen")
-                .clicked()
-            {
-                st.draft.shortcut_bindings.reset_action(action);
-                st.shortcut_recording = None;
-                st.shortcut_error = None;
-            }
-        });
+            });
+        ui.add_space(14.0);
     }
-    ui.add_space(12.0);
     if ui.button("Standards wiederherstellen").clicked() {
         st.confirm_shortcut_defaults = true;
         st.shortcut_recording = None;

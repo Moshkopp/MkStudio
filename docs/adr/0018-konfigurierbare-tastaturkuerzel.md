@@ -382,3 +382,11 @@ globalen Aktionen `F1` bis `F5` durch. Mutierende Editorbefehle bleiben dort
 weiterhin gesperrt; in der Laseransicht bleibt zusätzlich der statische
 Pan-Modifier aktiv. Ein Regressionstest prüft alle Hauptansichtswechsel aus
 Laser und Vorschau sowie die fortbestehende Sperre für Löschen.
+
+### Nachtrag: lesbare Shortcut-Tabelle
+
+Die erste kompakte Zeilendarstellung mit mehreren unbeschrifteten Symbolbuttons
+war bei längeren Belegungen schwer erfassbar. Der Bereich verwendet deshalb
+nun pro Kategorie eine gestreifte Tabelle mit den festen Spalten „Aktion“,
+„Belegung“ und „Ändern“. Hinzufügen und Einzel-Reset sind ausgeschrieben;
+Aufnahme und Entfernen werden oberhalb der Tabelle erklärt.
