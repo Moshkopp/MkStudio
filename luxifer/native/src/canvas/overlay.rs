@@ -1,6 +1,7 @@
 //! Overlay-Vertices: Auswahl-BBox, Transform-Handles und die Live-Zeichen-
 //! vorschau (Aufzieh-Box, Punkt-Zug-Gummiband). Jeden Frame neu gebaut, aber
-//! winzig; kamera-abhängig. Reine Funktion — liest nur den übergebenen Zustand.
+//! winzig; kamera-abhängig. Die szenengroßen Auswahlkonturen liegen dagegen in
+//! einem eigenen GPU-Cache. Reine Funktion — liest nur den Zustand.
 
 use luxifer_application::EditorSession;
 use luxifer_core::PolyShape;
@@ -30,6 +31,8 @@ pub struct OverlayInput<'a> {
     /// Schwebender Haltesteg-Entwurf (nur beim Bridge-Werkzeug sichtbar).
     pub bridge: Option<super::state::BridgeDraft>,
     pub trim_preview: Option<&'a [(f64, f64)]>,
+    pub selection_bbox: Option<luxifer_core::BBox>,
+    pub selection_rotation: Option<([f64; 2], f64)>,
 }
 
 /// Halbe Handle-Kantenlänge in Welt-mm, damit die sichtbare Fläche am
@@ -109,10 +112,6 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
             }
         }
     }
-
-    // Selektierte Shapes in Akzentfarbe über die (auswahlfreien) gecachten
-    // Konturen legen — jeden Frame, damit der Vertex-Cache auswahlfrei bleibt.
-    v.extend(scene_geo::selected_outlines(input.session, input.accent));
 
     // Job-Startmarker (Laser-Tab): grünes Fadenkreuz am Anker der Job-BBox —
     // dort setzt der Controller bei „Aktuelle Position"/„Benutzerursprung" an.
@@ -395,10 +394,11 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
         draw_edit_nodes(&mut v, input);
     }
 
+    let selection_overlay_start = v.len();
     // Im Node-Modus stört die Transform-BBox und suggeriert eine andere
     // Interaktion. Dort werden ausschließlich Anker und Tangenten angezeigt.
     if input.tool != Tool::Node {
-        if let Some(b) = input.session.selection_bbox() {
+        if let Some(b) = input.selection_bbox {
             v.extend(scene_geo::rect_outline(
                 b.x as f32,
                 b.y as f32,
@@ -413,7 +413,7 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
     if input.tool != Tool::Select {
         return v;
     }
-    let Some(b) = input.session.selection_bbox() else {
+    let Some(b) = input.selection_bbox else {
         return v;
     };
     let hw = handle_hw(input.cam_scale);
@@ -448,6 +448,24 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
         hw * 1.15,
         scene_geo::HANDLE_COLOR,
     ));
+    if let Some((pivot, degrees)) = input.selection_rotation {
+        let angle = (degrees as f32).to_radians();
+        let (sin, cos) = angle.sin_cos();
+        for vertex in &mut v[selection_overlay_start..] {
+            let (x, y) = luxifer_core::geometry::rotate_point(
+                vertex.pos[0] as f64,
+                vertex.pos[1] as f64,
+                pivot[0],
+                pivot[1],
+                degrees,
+            );
+            vertex.pos = [x as f32, y as f32];
+            vertex.dir = [
+                cos * vertex.dir[0] - sin * vertex.dir[1],
+                sin * vertex.dir[0] + cos * vertex.dir[1],
+            ];
+        }
+    }
     v
 }
 
@@ -529,6 +547,8 @@ mod tests {
             job_start: None,
             bridge: None,
             trim_preview: None,
+            selection_bbox: session.selection_bbox(),
+            selection_rotation: None,
         }
     }
 

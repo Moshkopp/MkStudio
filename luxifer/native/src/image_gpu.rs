@@ -51,6 +51,8 @@ pub struct ImageStore {
     uniform_buf: Option<wgpu::Buffer>,
     uni_bind: Option<wgpu::BindGroup>,
     textures: HashMap<String, Tex>,
+    design_vbuf: Option<wgpu::Buffer>,
+    design_ranges: Vec<(String, u32, u32)>,
     /// Verarbeitete Rasterungen für den Preview-Reiter (ersetzen dort die
     /// Design-Texturen). Werden beim Preview-Aufbau gesetzt.
     rasters: Vec<RasterQuad>,
@@ -201,6 +203,42 @@ impl ImageStore {
                 }
             }
         }
+        self.rebuild_design_geometry(device, state);
+    }
+
+    /// Baut die sechs Quad-Vertices je Image-Shape ausschließlich bei einer
+    /// Szenenänderung. Der Frame-Pfad bindet danach nur noch diesen Buffer und
+    /// die bereits gecachten Texturen.
+    fn rebuild_design_geometry(&mut self, device: &wgpu::Device, state: &AppState) {
+        let mut verts = Vec::new();
+        self.design_ranges.clear();
+        for shape in &state.shapes {
+            if let luxifer_core::Geo::Image {
+                asset, x, y, w, h, ..
+            } = &shape.geo
+            {
+                if !self.textures.contains_key(asset) {
+                    continue;
+                }
+                let start = verts.len() as u32;
+                Self::push_rotated_quad(
+                    &mut verts,
+                    *x as f32,
+                    *y as f32,
+                    (*x + *w) as f32,
+                    (*y + *h) as f32,
+                    shape.rotation,
+                );
+                self.design_ranges.push((asset.clone(), start, start + 6));
+            }
+        }
+        self.design_vbuf = (!verts.is_empty()).then(|| {
+            device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("img_quads_cached"),
+                contents: bytemuck::cast_slice(&verts),
+                usage: wgpu::BufferUsages::VERTEX,
+            })
+        });
     }
 
     /// Übersetzt die Job-Rastertexturen (Pixel 255 = gebrannt) in GPU-Texturen
@@ -320,16 +358,50 @@ impl ImageStore {
         }
     }
 
+    fn push_rotated_quad(
+        verts: &mut Vec<ImgVertex>,
+        x0: f32,
+        y0: f32,
+        x1: f32,
+        y1: f32,
+        degrees: f64,
+    ) {
+        if degrees.abs() <= f64::EPSILON {
+            Self::push_quad(verts, x0, y0, x1, y1);
+            return;
+        }
+        let center = [((x0 + x1) * 0.5) as f64, ((y0 + y1) * 0.5) as f64];
+        let rotate = |p: [f32; 2]| {
+            let (x, y) = luxifer_core::geometry::rotate_point(
+                p[0] as f64,
+                p[1] as f64,
+                center[0],
+                center[1],
+                degrees,
+            );
+            [x as f32, y as f32]
+        };
+        let p = [
+            rotate([x0, y0]),
+            rotate([x1, y0]),
+            rotate([x1, y1]),
+            rotate([x0, y1]),
+        ];
+        for (index, uv) in [
+            (0, [0.0, 0.0]),
+            (1, [1.0, 0.0]),
+            (2, [1.0, 1.0]),
+            (0, [0.0, 0.0]),
+            (2, [1.0, 1.0]),
+            (3, [0.0, 1.0]),
+        ] {
+            verts.push(ImgVertex { pos: p[index], uv });
+        }
+    }
+
     /// Zeichnet alle Image-Shapes als texturierte Quads in den Render-Pass
     /// (Design-Ansicht: die Original-Graustufen an ihrer mm-Box).
-    pub fn draw<'a>(
-        &'a self,
-        rp: &mut wgpu::RenderPass<'a>,
-        gpu: &Gpu,
-        cam: &Camera,
-        state: &AppState,
-        scratch: &'a mut Option<wgpu::Buffer>,
-    ) {
+    pub fn draw<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>, gpu: &Gpu, cam: &Camera) {
         let (Some(pipeline), Some(uni_buf), Some(uni_bind)) = (
             self.pipeline.as_ref(),
             self.uniform_buf.as_ref(),
@@ -338,46 +410,14 @@ impl ImageStore {
             return;
         };
         self.write_camera(gpu, cam, uni_buf);
-
-        // Alle Image-Quads in einen Vertex-Buffer (6 Vertices je Bild).
-        let mut verts: Vec<ImgVertex> = Vec::new();
-        let mut ranges: Vec<(String, u32, u32)> = Vec::new();
-        for s in state.shapes.iter() {
-            if let luxifer_core::Geo::Image {
-                asset, x, y, w, h, ..
-            } = &s.geo
-            {
-                if !self.textures.contains_key(asset) {
-                    continue;
-                }
-                let start = verts.len() as u32;
-                Self::push_quad(
-                    &mut verts,
-                    *x as f32,
-                    *y as f32,
-                    (*x + *w) as f32,
-                    (*y + *h) as f32,
-                );
-                ranges.push((asset.clone(), start, start + 6));
-            }
-        }
-        if verts.is_empty() {
+        let Some(buf) = self.design_vbuf.as_ref() else {
             return;
-        }
-        let buf = gpu
-            .device
-            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
-                label: Some("img_quads"),
-                contents: bytemuck::cast_slice(&verts),
-                usage: wgpu::BufferUsages::VERTEX,
-            });
-        *scratch = Some(buf);
-        let buf = scratch.as_ref().unwrap();
+        };
 
         rp.set_pipeline(pipeline);
         rp.set_bind_group(0, uni_bind, &[]);
         rp.set_vertex_buffer(0, buf.slice(..));
-        for (asset, start, end) in &ranges {
+        for (asset, start, end) in &self.design_ranges {
             if let Some(tex) = self.textures.get(asset) {
                 rp.set_bind_group(1, &tex.bind, &[]);
                 rp.draw(*start..*end, 0..1);
@@ -454,3 +494,24 @@ fn fs(v: VOut) -> @location(0) vec4<f32> {
     return textureSample(tex, samp, v.uv);
 }
 "#;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bild_quad_rotiert_um_seinen_mittelpunkt() {
+        let mut vertices = Vec::new();
+        ImageStore::push_rotated_quad(&mut vertices, 0.0, 0.0, 100.0, 50.0, 90.0);
+
+        assert_eq!(vertices.len(), 6);
+        // Oben links (0,0) rotiert um (50,25) nach (75,-25); UV bleibt am
+        // Bildpunkt hängen und darf nicht achsenparallel zurückbleiben.
+        assert!((vertices[0].pos[0] - 75.0).abs() < 1e-4);
+        assert!((vertices[0].pos[1] + 25.0).abs() < 1e-4);
+        assert_eq!(vertices[0].uv, [0.0, 0.0]);
+        assert!((vertices[2].pos[0] - 25.0).abs() < 1e-4);
+        assert!((vertices[2].pos[1] - 75.0).abs() < 1e-4);
+        assert_eq!(vertices[2].uv, [1.0, 1.0]);
+    }
+}

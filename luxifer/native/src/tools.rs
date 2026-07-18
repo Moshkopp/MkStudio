@@ -226,9 +226,12 @@ pub enum Drag {
     Marquee {
         start: [f64; 2],
     },
-    /// Selektierte Shapes verschieben (letzter Welt-Punkt).
+    /// Selektierte Shapes verschieben. `start` bleibt während eines GPU-Live-
+    /// Moves unverändert; `last` ist die aktuelle Cursorposition.
     MoveShapes {
+        start: [f64; 2],
         last: [f64; 2],
+        gpu_live: bool,
     },
     /// Neues Rechteck/Ellipse aufziehen (Welt-Startpunkt).
     DrawBox {
@@ -257,6 +260,8 @@ pub enum Drag {
         handle: luxifer_core::Handle,
         start_box: luxifer_core::BBox,
         orig: Vec<(usize, luxifer_core::Shape)>,
+        target_box: luxifer_core::BBox,
+        gpu_live: bool,
     },
     /// Auswahl drehen. `pivot` = Mittelpunkt, `orig` = Snapshot bei Drag-Beginn,
     /// `start_angle` = Mauswinkel bei Beginn. Rotation immer vom Ausgangszustand.
@@ -264,6 +269,9 @@ pub enum Drag {
         pivot: [f64; 2],
         start_angle: f64,
         orig: Vec<(usize, luxifer_core::Shape)>,
+        start_box: luxifer_core::BBox,
+        delta_deg: f64,
+        gpu_live: bool,
     },
 }
 

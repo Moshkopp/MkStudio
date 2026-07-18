@@ -129,6 +129,148 @@ Füllpfad, Union zwischen Füllpfaden. Der reale Anker ergibt damit in der
 Core-Scanline die erwarteten Stichproben: Auge frei, Schaft gefüllt, Raum um
 den Anker frei und Zahnkranz gefüllt. Reine Stroke-Pfade ohne `Z` bleiben offen.
 
+## Nachtrag 2026-07-18: Messbarer nativer Renderpfad
+
+Vor weiteren GPU-Umbauten bekommt der native Renderer eine opt-in Baseline.
+Mit
+
+```bash
+LUXIFER_RENDER_PROFILE=1 RUST_LOG=luxifer_render_perf=info \
+  cargo run --release -p luxifer-native
+```
+
+fasst er einmal pro Sekunde folgende CPU-/Treiberwerte zusammen: kompletter
+Frame, egui-Aufbau und -Tessellierung, Fill- und Linienaufbereitung,
+Overlay-Aufbereitung und Image-Draw-Vorbereitung. Dazu protokolliert er
+Szenen-Rebuilds, Scene-/Fill-/Overlay-Vertices, Fill-Compounds und die aus dem
+Renderpfad abgeleitete Draw-Call-Anzahl.
+
+Die Werte sind bewusst keine behauptete GPU-Laufzeit: `queue.submit()` ist
+asynchron. GPU-Zeitstempel werden erst ergänzt, wenn die CPU-Baseline einen
+GPU-seitigen Verdacht belegt. Der nächste Umbau wird anhand dieser Baseline der
+Live-Transformpfad für Move ohne vollständigen Scene-Rebuild und Upload.
+
+### Messung und erster Cache-Schritt
+
+Release-Messung am realen punktreichen Belastungsprojekt vom 2026-07-18:
+
+| Zustand | Szene | Auswahl-Overlay | CPU-Overlay/Frame |
+|---|---:|---:|---:|
+| vorher, große Auswahl | 753.300 Vertices | 753.624 Vertices | ca. 6–9 ms |
+| nach persistentem Auswahl-Cache | 753.300 Vertices | 753.228 gecacht + 396 dynamisch | ca. 0,02 ms |
+
+Die Auswahlkonturen liegen nun in einem eigenen persistenten GPU-Buffer. Nur
+Auswahlbox, Handles und Werkzeugvorschauen werden weiterhin pro Frame erzeugt.
+Damit kostet eine statische große Auswahl nur einen zusätzlichen Draw Call und
+keinen erneuten Aufbau samt Upload von rund 753.000 Vertices.
+
+Die anschließende Move-Messung isoliert den nächsten Engpass: je nach
+Pointerrate 24–39 vollständige Szenen-Rebuilds pro Sekunde, mit rund
+3,6–5,4 ms allein für die Linienaufbereitung pro Rebuild. Der nächste Schritt
+bleibt daher der GPU-Live-Transform während Move; erst beim Loslassen wird die
+Core-Geometrie endgültig übernommen und der Scene-Cache einmal erneuert.
+
+### GPU-Live-Move
+
+Ungefüllte Vektorauswahlen werden während Move nicht mehr im Core mutiert. Die
+selektierten Konturen liegen ausschließlich im Auswahlbuffer und erhalten über
+eine zweite Kamera-Uniform den aktuellen Welt-Offset. Auswahlbox und Handles
+folgen demselben Offset. Beim Loslassen übernimmt ein einziger Core-Edit die
+Gesamtverschiebung; Undo bleibt damit genau ein Schritt. Escape verwirft den
+Offset ohne Core-Rollback.
+
+Der Release-Gegencheck am 753k-Vertex-Projekt zeigt während der isolierten
+Move-Geste null Rebuilds; beim Loslassen folgt genau ein Scene- und
+Selection-Rebuild. Die vorherigen 24–39 Rebuilds pro Sekunde entfallen damit.
+Gefüllte Konturen und Bilder bleiben vorerst im inkrementellen sicheren Pfad,
+bis Fill- beziehungsweise Image-Geometrie ebenfalls eine selektive
+GPU-Transformation besitzt.
+
+### GPU-Live-Move für vollständige Fill-Auswahlen
+
+Der Stencil-Fill kann dieselbe Auswahl-Uniform verwenden, solange der gesamte
+sichtbare Fill-Inhalt gemeinsam bewegt wird. Sind alle sichtbaren geschlossenen
+Fill-Konturen ausgewählt, bindet der Fill-Pass deshalb während Move die
+Selection-Uniform: Stencil-Dreiecke, Compound-Cover und Layer-Cover wandern als
+eine Einheit, ohne CPU-Neuaufbau oder Upload. Beim Loslassen folgt wie beim
+Linienpfad genau ein Core-Commit.
+
+Eine Teilmenge mehrerer Fill-Konturen bleibt bewusst im bisherigen Pfad. Ein
+globaler Offset würde sonst nicht ausgewählte Füllungen mitverschieben; eine
+korrekte Beschleunigung dieses Falls benötigt getrennte selektierte und
+unselektierte Fill-Batches. Zwei Regressionstests sichern beide Grenzen:
+vollständige Fill-Auswahl nutzt GPU-Live-Move, partielle Fill-Auswahl mutiert
+weiterhin inkrementell und bleibt visuell korrekt.
+
+Der visuelle Release-Gegencheck am realen Belastungsprojekt bestätigte den
+Pfad mit 371.202 Fill-Vertices, 753.228 Auswahl-Vertices und einem
+Fill-Compound: während Move null Rebuilds, beim Loslassen genau ein Rebuild.
+Kontur, Stencilfläche und Auswahlrahmen folgten gemeinsam dem GPU-Offset.
+
+### Persistenter Image-Quad-Cache
+
+Designbilder erzeugen ihre sechs Quad-Vertices, Asset-Draw-Ranges und den
+`wgpu::Buffer` nur noch bei einer Szenenänderung. Der Frame-Pfad bindet den
+persistenten Buffer und die bereits vorhandenen Texturen; Pan und Zoom ändern
+nur die Kamera-Uniform. Damit entfallen die vorherigen Frame-Allokationen,
+Asset-ID-Clones und GPU-Buffer-Erzeugungen.
+
+Der Release-Gegencheck mit einem Image-Shape bestätigte korrekte Anzeige,
+Pan/Zoom und Move-Fallback. Die reine Image-Draw-Vorbereitung liegt stabil bei
+rund 0,01 ms pro Frame. Ein selektiver GPU-Live-Move für Bilder hat damit
+gegenüber Resize/Rotate großer Vektorauswahlen keine aktuelle Priorität.
+
+### GPU-Live-Resize für ungefüllte Vektorauswahlen
+
+Die Selection-Uniform trägt nun eine allgemeine affine 2×2-Transformation mit
+Pivot und Offset statt nur einer Translation. Resize geeigneter ungefüllter
+Vektorauswahlen aktualisiert während der Geste ausschließlich diese Uniform und
+die kleine Ziel-BBox für Handles. Shape-Snapshots, Core-Mutationen sowie Scene-
+und Selection-Rebuilds entfallen während der Vorschau; beim Loslassen wird die
+Ziel-BBox genau einmal über `scale_edit` übernommen. Escape verwirft die
+Vorschau ohne Core-Rollback.
+
+Bilder und Fill-Auswahlen bleiben beim Resize zunächst im bisherigen Pfad. Ein
+Regressionstest belegt, dass Core-Revision und Ausgangsgeometrie während der
+GPU-Vorschau unverändert bleiben, die affine Matrix die erwartete Skalierung
+enthält und der abschließende Commit exakt die Zielbreite erzeugt. Rotate kann
+im nächsten Schritt dieselbe Transform-Uniform mit einer Rotationsmatrix nutzen.
+
+### GPU-Live-Rotate für ungefüllte Vektorauswahlen
+
+Rotate nutzt nun dieselbe affine Selection-Uniform mit einer Rotationsmatrix um
+den Auswahlmittelpunkt. Während der Geste bleiben Core-Geometrie, Shape-
+Snapshots und beide GPU-Caches unverändert. Die sichtbare Ziel-BBox wird aus
+den vier um den Pivot rotierten Ecken berechnet, sodass Box und Handles der
+Vorschau folgen. Beim Loslassen übernimmt ein einzelner
+`rotate_edit_around`-Commit den Gesamtwinkel; Escape verwirft nur die Matrix.
+
+Der Release-Gegencheck mit 753.228 Auswahl-Vertices zeigte während der gesamten
+Rotate-Geste null Scene- und Selection-Rebuilds. Am Abschluss folgte genau ein
+gemeinsamer Rebuild. Ein Regressionstest sichert eine 90-Grad-Matrix,
+unveränderte Core-Revision während der Vorschau und den einmaligen finalen
+Rotationswert. Fill-Auswahlen und Bilder bleiben beim Rotate zunächst im
+sicheren bisherigen Pfad.
+
+### Korrektur der Rotate-Vorschau
+
+Der erste GPU-Live-Rotate-Gegencheck zeigte drei getrennte Darstellungsfehler:
+
+- Vertexpositionen rotierten, die Segmentrichtung für die shaderseitige
+  Linienbreite jedoch nicht. Dadurch kollabierten Linienquads winkelabhängig
+  und punktreiche SVGs wirkten, als würden sie ausfaden.
+- Die Live-Auswahl zeigte die achsenparallele Hüllbox der rotierten Box und
+  wuchs deshalb bei Zwischenwinkeln. Rahmen und Handles rotieren nun als
+  orientierte Ausgangsbox gemeinsam um denselben Pivot.
+- Der persistente Image-Quad-Cache verwendete nur `x/y/w/h` und ignorierte
+  `Shape.rotation`. Bild-Quads rotieren nun samt UV-Koordinaten um ihren
+  Mittelpunkt; der sichere Image-Rebuild-Pfad zeigt Bild und Rahmen gemeinsam.
+
+Der Shader transformiert jetzt neben der Position auch `dir` mit der affinen
+2×2-Matrix und normalisiert die Richtung vor der Linienextrusion. Release-
+Gegenchecks bestätigten den SVG-GPU-Pfad ohne Zwischen-Rebuilds und den
+korrekten Image-Fallback bei rund 0,01 ms Image-Draw-Zeit pro Frame.
+
 ## Offen (Reihenfolge im Branch)
 
 Die funktionale Migration und der vollständige Tauri-Abbau werden durch

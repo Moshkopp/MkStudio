@@ -52,7 +52,10 @@ pub(crate) fn world_outline(shape: &luxifer_core::model::Shape) -> (Vec<(f64, f6
 /// hängt und nicht bei jeder Auswahländerung neu gebaut werden muss.
 pub fn shape_lines(state: &AppState) -> Vec<Vertex> {
     let mut v = Vec::new();
-    for shape in &state.shapes {
+    for (index, shape) in state.shapes.iter().enumerate() {
+        if state.selected.contains(&index) {
+            continue;
+        }
         let layer = state.layers.get(shape.layer_id);
         let visible = layer.map(|l| l.visible).unwrap_or(true);
         let fill_mode = layer.map(|l| l.mode.is_filled()).unwrap_or(false);

@@ -96,4 +96,97 @@ impl CanvasState {
     pub fn world(&self) -> [f64; 2] {
         self.cam.screen_to_world(self.cursor)
     }
+
+    pub fn live_move_offset(&self) -> [f32; 2] {
+        match self.drag {
+            Drag::MoveShapes {
+                start,
+                last,
+                gpu_live: true,
+            } => [(last[0] - start[0]) as f32, (last[1] - start[1]) as f32],
+            _ => [0.0, 0.0],
+        }
+    }
+
+    pub fn selection_transform(&self) -> crate::gpu::SelectionTransform {
+        match self.drag {
+            Drag::MoveShapes {
+                start,
+                last,
+                gpu_live: true,
+            } => crate::gpu::SelectionTransform {
+                offset: [(last[0] - start[0]) as f32, (last[1] - start[1]) as f32],
+                ..Default::default()
+            },
+            Drag::Resize {
+                start_box,
+                target_box,
+                gpu_live: true,
+                ..
+            } => crate::gpu::SelectionTransform {
+                matrix: [
+                    (target_box.w / start_box.w) as f32,
+                    0.0,
+                    0.0,
+                    (target_box.h / start_box.h) as f32,
+                ],
+                pivot: [start_box.x as f32, start_box.y as f32],
+                offset: [
+                    (target_box.x - start_box.x) as f32,
+                    (target_box.y - start_box.y) as f32,
+                ],
+            },
+            Drag::Rotate {
+                pivot,
+                delta_deg,
+                gpu_live: true,
+                ..
+            } => {
+                let angle = (delta_deg as f32).to_radians();
+                let (sin, cos) = angle.sin_cos();
+                crate::gpu::SelectionTransform {
+                    matrix: [cos, -sin, sin, cos],
+                    pivot: [pivot[0] as f32, pivot[1] as f32],
+                    offset: [0.0; 2],
+                }
+            }
+            _ => Default::default(),
+        }
+    }
+
+    pub fn display_selection_bbox(
+        &self,
+        base: Option<luxifer_core::BBox>,
+    ) -> Option<luxifer_core::BBox> {
+        match self.drag {
+            Drag::Resize {
+                target_box,
+                gpu_live: true,
+                ..
+            } => Some(target_box),
+            Drag::Rotate {
+                start_box,
+                gpu_live: true,
+                ..
+            } => Some(start_box),
+            _ => base.map(|mut bbox| {
+                let offset = self.live_move_offset();
+                bbox.x += offset[0] as f64;
+                bbox.y += offset[1] as f64;
+                bbox
+            }),
+        }
+    }
+
+    pub fn live_selection_rotation(&self) -> Option<([f64; 2], f64)> {
+        match self.drag {
+            Drag::Rotate {
+                pivot,
+                delta_deg,
+                gpu_live: true,
+                ..
+            } => Some((pivot, delta_deg)),
+            _ => None,
+        }
+    }
 }

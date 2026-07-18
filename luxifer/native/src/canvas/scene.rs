@@ -14,22 +14,41 @@ pub struct BaseGeometry {
     pub background_end: u32,
 }
 
+#[derive(Clone, Copy, Debug, Default)]
+pub struct BaseBuildTimings {
+    pub fill_ms: f64,
+    pub lines_ms: f64,
+}
+
 /// Baut die gecachten Zeichendaten (Tisch-Fläche, Shapes-Füllung/Kontur).
 /// Das Gitter ist kamera-abhängig und liegt im eigenen Grid-Puffer
 /// (`scene_geo::viewport_grid`), nicht in diesem Cache.
-pub fn base_vertices(session: &EditorSession, origin: luxifer_core::BedOrigin) -> BaseGeometry {
+/// Liefert zusätzlich getrennte CPU-Zeiten für die zwei szenengroßen
+/// Aufbereitungsschritte. Der Renderer nutzt diese Werte nur für das opt-in
+/// Performance-Protokoll; die Geometrie bleibt identisch.
+pub fn base_vertices_profiled(
+    session: &EditorSession,
+    origin: luxifer_core::BedOrigin,
+) -> (BaseGeometry, BaseBuildTimings) {
     let mut v = scene_geo::bed_base(session.bed_w_mm as f32, session.bed_h_mm as f32, origin);
     let background_end = v.len() as u32;
+    let fill_started = std::time::Instant::now();
     let (fill_vertices, fill_batches) = scene_geo::solid_fills(session);
+    let fill_ms = fill_started.elapsed().as_secs_f64() * 1_000.0;
+    let lines_started = std::time::Instant::now();
     v.extend(scene_geo::shape_lines(session));
+    let lines_ms = lines_started.elapsed().as_secs_f64() * 1_000.0;
     // Der laufende Punkt-Zug (Polyline/Spline/Bézier/Polygon) wird im Overlay
     // gezeichnet (jeden Frame, damit das Gummiband der Maus folgt).
-    BaseGeometry {
-        vertices: v,
-        fill_vertices,
-        fill_batches,
-        background_end,
-    }
+    (
+        BaseGeometry {
+            vertices: v,
+            fill_vertices,
+            fill_batches,
+            background_end,
+        },
+        BaseBuildTimings { fill_ms, lines_ms },
+    )
 }
 
 /// Material-Vorlage der Laser-Vorschau: Untergrund- und Brennfarbe. Die
@@ -274,7 +293,7 @@ mod tests {
         }
         session.selected = vec![0];
         let rev_before = session.render_rev();
-        let before = base_vertices(&session, Default::default());
+        let before = base_vertices_profiled(&session, Default::default()).0;
 
         session.begin_edit();
         session.translate_edit(50.0, 0.0);
@@ -284,21 +303,18 @@ mod tests {
         // Renderer den gecachten Puffer nie neu.
         assert_ne!(session.render_rev(), rev_before);
 
-        let after = base_vertices(&session, Default::default());
-        // Kontur und feste Flächenfüllung sind mitgewandert.
-        let scene_after = &after.vertices[after.background_end as usize..];
-        assert!(!scene_after.is_empty());
-        assert!(
-            scene_after.iter().all(|v| v.pos[0] >= 45.0),
-            "Füllung/Kontur muss der Verschiebung folgen"
-        );
+        let after = base_vertices_profiled(&session, Default::default()).0;
+        // Die selektierte Kontur liegt im separaten Auswahlbuffer; die feste
+        // Flächenfüllung im Basisbuffer muss dennoch mitwandern.
         assert!(after
             .fill_vertices
             .iter()
             .all(|vertex| vertex.pos[0] >= 45.0));
         // Und vorher lagen sie links.
-        let scene_before = &before.vertices[before.background_end as usize..];
-        assert!(scene_before.iter().all(|v| v.pos[0] <= 15.0));
+        assert!(before
+            .fill_vertices
+            .iter()
+            .all(|vertex| vertex.pos[0] <= 15.0));
     }
 
     #[test]
@@ -330,34 +346,39 @@ mod tests {
         // Vektoren werden an der Kontur gegriffen: linke Kante bei (10,20).
         let press = canvas.cam.world_to_screen([10.0, 20.0]);
         canvas.cursor = press;
-        let mut last_rev = session.render_rev();
+        let last_rev = session.render_rev();
         canvas.on_mouse(&mut session, winit::event::MouseButton::Left, true);
 
-        // Drei Cursor-Moves à +10 Weltpixel; nach jedem prüft der „Renderer".
+        // Drei Cursor-Moves à +10 Weltpixel: Core/Fill-Cache bleiben während
+        // der GPU-Vorschau unverändert, nur der Uniform-Offset steigt.
         for step in 1..=3 {
             let target = canvas
                 .cam
                 .world_to_screen([10.0 + step as f64 * 10.0, 20.0]);
             canvas.on_cursor_move(&mut session, target);
             let rev = session.render_rev();
-            assert_ne!(rev, last_rev, "Frame {step}: render_rev muss steigen");
-            last_rev = rev;
-            let g = base_vertices(&session, Default::default());
-            let scene = &g.vertices[g.background_end as usize..];
-            let min_x = scene.iter().map(|v| v.pos[0]).fold(f32::MAX, f32::min);
-            assert!(
-                (min_x - (10.0 + step as f32 * 10.0)).abs() < 1.0,
-                "Frame {step}: Szene (inkl. Fill) muss bei x≈{} beginnen, ist {min_x}",
-                10.0 + step as f32 * 10.0
+            assert_eq!(
+                rev, last_rev,
+                "Frame {step}: kein Core-Rebuild im Live-Move"
             );
-            let fill_min_x = g
+            assert_eq!(canvas.live_move_offset(), [step as f32 * 10.0, 0.0]);
+            let g = base_vertices_profiled(&session, Default::default()).0;
+            let cached_fill_min_x = g
                 .fill_vertices
                 .iter()
                 .map(|vertex| vertex.pos[0])
                 .fold(f32::MAX, f32::min);
-            assert!((fill_min_x - (10.0 + step as f32 * 10.0)).abs() < 1.0);
+            assert!((cached_fill_min_x - 10.0).abs() < 1.0);
         }
         canvas.on_mouse(&mut session, winit::event::MouseButton::Left, false);
+        assert_ne!(session.render_rev(), last_rev);
+        let committed = base_vertices_profiled(&session, Default::default()).0;
+        let fill_min_x = committed
+            .fill_vertices
+            .iter()
+            .map(|vertex| vertex.pos[0])
+            .fold(f32::MAX, f32::min);
+        assert!((fill_min_x - 40.0).abs() < 1.0);
     }
 
     #[test]
@@ -366,8 +387,9 @@ mod tests {
         session
             .state_mut_for_migration()
             .add_image("asset".into(), 0.0, 0.0, 20.0, 10.0);
+        session.selected.clear();
 
-        let geometry = base_vertices(&session, Default::default());
+        let geometry = base_vertices_profiled(&session, Default::default()).0;
 
         assert!(geometry.background_end > 0);
         assert!((geometry.background_end as usize) < geometry.vertices.len());

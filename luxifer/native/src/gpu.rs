@@ -7,6 +7,23 @@ use crate::scene_geo::{FillBatch, Vertex};
 
 const STENCIL_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth24PlusStencil8;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SelectionTransform {
+    pub matrix: [f32; 4],
+    pub pivot: [f32; 2],
+    pub offset: [f32; 2],
+}
+
+impl Default for SelectionTransform {
+    fn default() -> Self {
+        Self {
+            matrix: [1.0, 0.0, 0.0, 1.0],
+            pivot: [0.0; 2],
+            offset: [0.0; 2],
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
 struct Uniforms {
@@ -16,6 +33,11 @@ struct Uniforms {
     viewport: [f32; 2],
     line_aa: f32,
     _pad2: f32,
+    offset: [f32; 2],
+    _pad3: [f32; 2],
+    matrix: [f32; 4],
+    pivot: [f32; 2],
+    _pad4: [f32; 2],
 }
 
 /// Kapselt Device/Queue/Surface + die Canvas-Pipeline. egui-State liegt separat.
@@ -36,6 +58,8 @@ pub struct Gpu {
     line_antialiasing: bool,
     uniform_buf: wgpu::Buffer,
     bind: wgpu::BindGroup,
+    selection_uniform_buf: wgpu::Buffer,
+    selection_bind: wgpu::BindGroup,
     // Dynamischer Vertex-Buffer (gecachte Szene); wächst bei Bedarf.
     vbuf: wgpu::Buffer,
     vbuf_cap: u64,
@@ -46,6 +70,11 @@ pub struct Gpu {
     obuf: wgpu::Buffer,
     obuf_cap: u64,
     ocount: u32,
+    // Auswahlkonturen: szenengroß, deshalb persistent und getrennt vom kleinen
+    // dynamischen Overlay. Wird nur bei Auswahl-/Geometrieänderung hochgeladen.
+    sbuf: wgpu::Buffer,
+    sbuf_cap: u64,
+    scount: u32,
     // Grid-Buffer (viewportfüllendes Gitter): kamera-abhängig, wird nur bei
     // Kamera-/Rasteränderung neu hochgeladen.
     gbuf: wgpu::Buffer,
@@ -130,6 +159,12 @@ impl Gpu {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let selection_uniform_buf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("selection-uniforms"),
+            size: std::mem::size_of::<Uniforms>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let bind_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
@@ -149,6 +184,14 @@ impl Gpu {
             entries: &[wgpu::BindGroupEntry {
                 binding: 0,
                 resource: uniform_buf.as_entire_binding(),
+            }],
+        });
+        let selection_bind = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("selection-bind"),
+            layout: &bind_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: selection_uniform_buf.as_entire_binding(),
             }],
         });
         let pl_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
@@ -317,6 +360,13 @@ impl Gpu {
             usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
+        let sbuf_cap = 1 << 16;
+        let sbuf = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("selection-outlines"),
+            size: sbuf_cap * std::mem::size_of::<Vertex>() as u64,
+            usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
         let gbuf_cap = 1 << 13;
         let gbuf = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("grid"),
@@ -342,6 +392,8 @@ impl Gpu {
             line_antialiasing,
             uniform_buf,
             bind,
+            selection_uniform_buf,
+            selection_bind,
             vbuf,
             vbuf_cap,
             fill_vbuf,
@@ -349,6 +401,9 @@ impl Gpu {
             obuf,
             obuf_cap,
             ocount: 0,
+            sbuf,
+            sbuf_cap,
+            scount: 0,
             gbuf,
             gbuf_cap,
             gcount: 0,
@@ -372,6 +427,34 @@ impl Gpu {
                 .write_buffer(&self.obuf, 0, bytemuck::cast_slice(verts));
         }
         self.ocount = verts.len() as u32;
+    }
+
+    pub fn upload_selection(&mut self, verts: &[Vertex]) {
+        let need = verts.len() as u64;
+        if need > self.sbuf_cap {
+            self.sbuf_cap = need.next_power_of_two().max(1);
+            self.sbuf = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("selection-outlines"),
+                size: self.sbuf_cap * std::mem::size_of::<Vertex>() as u64,
+                usage: wgpu::BufferUsages::VERTEX | wgpu::BufferUsages::COPY_DST,
+                mapped_at_creation: false,
+            });
+        }
+        if !verts.is_empty() {
+            self.queue
+                .write_buffer(&self.sbuf, 0, bytemuck::cast_slice(verts));
+        }
+        self.scount = verts.len() as u32;
+    }
+
+    pub fn draw_selection<'a>(&'a self, rp: &mut wgpu::RenderPass<'a>) {
+        if self.scount == 0 {
+            return;
+        }
+        rp.set_pipeline(&self.pipeline);
+        rp.set_bind_group(0, &self.selection_bind, &[]);
+        rp.set_vertex_buffer(0, self.sbuf.slice(..));
+        rp.draw(0..self.scount, 0..1);
     }
 
     /// Zeichnet das Overlay (nach der Szene, gleiche Pipeline/Kamera).
@@ -435,17 +518,30 @@ impl Gpu {
     }
 
     /// Schreibt die Kamera-Uniforms (jeden Frame — billig, ein kleiner Buffer).
-    pub fn upload_camera(&mut self, cam: &Camera) {
-        let uni = Uniforms {
+    pub fn upload_camera(&mut self, cam: &Camera, transform: SelectionTransform) {
+        let make = |transform: SelectionTransform| Uniforms {
             center: cam.center,
             scale: cam.scale,
             _pad: 0.0,
             viewport: cam.viewport,
             line_aa: f32::from(self.line_antialiasing),
             _pad2: 0.0,
+            offset: transform.offset,
+            _pad3: [0.0; 2],
+            matrix: transform.matrix,
+            pivot: transform.pivot,
+            _pad4: [0.0; 2],
         };
-        self.queue
-            .write_buffer(&self.uniform_buf, 0, bytemuck::bytes_of(&uni));
+        self.queue.write_buffer(
+            &self.uniform_buf,
+            0,
+            bytemuck::bytes_of(&make(Default::default())),
+        );
+        self.queue.write_buffer(
+            &self.selection_uniform_buf,
+            0,
+            bytemuck::bytes_of(&make(transform)),
+        );
     }
 
     /// Lädt die Vertices in den (ggf. vergrößerten) Buffer. Nur bei
@@ -492,11 +588,24 @@ impl Gpu {
         self.msaa_view.as_ref().unwrap_or(surface)
     }
 
-    pub fn draw_solid_fills<'a>(&'a self, pass: &mut wgpu::RenderPass<'a>, batches: &[FillBatch]) {
+    pub fn draw_solid_fills<'a>(
+        &'a self,
+        pass: &mut wgpu::RenderPass<'a>,
+        batches: &[FillBatch],
+        use_selection_offset: bool,
+    ) {
         if batches.is_empty() {
             return;
         }
-        pass.set_bind_group(0, &self.bind, &[]);
+        pass.set_bind_group(
+            0,
+            if use_selection_offset {
+                &self.selection_bind
+            } else {
+                &self.bind
+            },
+            &[],
+        );
         pass.set_vertex_buffer(0, self.fill_vbuf.slice(..));
         for batch in batches {
             for compound in &batch.compounds {
@@ -588,7 +697,7 @@ fn msaa_view(
 }
 
 const SHADER: &str = r#"
-struct U { center: vec2<f32>, scale: f32, _p: f32, viewport: vec2<f32>, line_aa: f32, _p2: f32 };
+struct U { center: vec2<f32>, scale: f32, _p: f32, viewport: vec2<f32>, line_aa: f32, _p2: f32, offset: vec2<f32>, _p3: vec2<f32>, matrix: vec4<f32>, pivot: vec2<f32>, _p4: vec2<f32> };
 @group(0) @binding(0) var<uniform> u: U;
 struct VOut { @builtin(position) pos: vec4<f32>, @location(0) col: vec4<f32>, @location(1) edge: f32 };
 
@@ -599,9 +708,17 @@ const HALF_W: f32 = 1.1;
 fn vs(@location(0) p: vec2<f32>, @location(1) dir: vec2<f32>,
       @location(2) side: f32, @location(3) c: vec4<f32>) -> VOut {
     // Welt → Pixel (relativ zum Zentrum).
-    var px = (p - u.center) * u.scale;
+    let q = p - u.pivot;
+    let transformed = vec2<f32>(u.matrix.x * q.x + u.matrix.y * q.y,
+                                u.matrix.z * q.x + u.matrix.w * q.y)
+                      + u.pivot + u.offset;
+    var px = (transformed - u.center) * u.scale;
     // Senkrechte zur Segmentrichtung, um HALF_W Pixel zur Seite versetzen.
-    let n = vec2<f32>(-dir.y, dir.x);
+    let transformed_dir = normalize(vec2<f32>(
+        u.matrix.x * dir.x + u.matrix.y * dir.y,
+        u.matrix.z * dir.x + u.matrix.w * dir.y,
+    ));
+    let n = vec2<f32>(-transformed_dir.y, transformed_dir.x);
     let outer = HALF_W + u.line_aa;
     px = px + n * side * outer;
     let ndc = vec2<f32>(px.x / (u.viewport.x * 0.5), -px.y / (u.viewport.y * 0.5));

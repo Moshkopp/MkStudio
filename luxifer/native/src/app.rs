@@ -396,7 +396,16 @@ impl App {
                 self.canvas.poly_pts.clear();
                 self.canvas.bezier_nodes.clear();
                 self.cancel_bridge();
-                if self.session.edit_active() {
+                if matches!(
+                    self.canvas.drag,
+                    Drag::MoveShapes { gpu_live: true, .. }
+                        | Drag::Resize { gpu_live: true, .. }
+                        | Drag::Rotate { gpu_live: true, .. }
+                ) {
+                    // GPU-Live-Move hat den Core noch nicht mutiert: Abbruch
+                    // verwirft nur den visuellen Offset.
+                    self.canvas.drag = Drag::None;
+                } else if self.session.edit_active() {
                     self.session.cancel_edit();
                     self.canvas.drag = Drag::None;
                 } else {
@@ -606,10 +615,17 @@ impl App {
     pub fn render(&mut self) {
         // egui-Frame bauen (Panels): die Closure braucht `&mut App`, daher hier
         // im Root. Der egui-Kontext ist ein billiger Arc-Clone.
+        let ui_started = std::time::Instant::now();
         let raw = self.renderer.take_egui_input(&self.window);
         let mut full = self.egui_ctx.clone().run_ui(raw, |ui| ui::build(ui, self));
+        let build_ms = ui_started.elapsed().as_secs_f64() * 1_000.0;
         let shapes = std::mem::take(&mut full.shapes);
+        let tessellate_started = std::time::Instant::now();
         let tris = self.egui_ctx.tessellate(shapes, full.pixels_per_point);
+        let ui_timings = crate::render::UiFrameTimings {
+            build_ms,
+            tessellate_ms: tessellate_started.elapsed().as_secs_f64() * 1_000.0,
+        };
 
         // Szenenzustand (nur lesend) an den Renderer übergeben; er baut/lädt die
         // Caches und zeichnet Canvas + Overlay + egui.
@@ -664,6 +680,10 @@ impl App {
                 bezier_nodes: &self.canvas.bezier_nodes,
                 bridge: self.canvas.bridge,
                 trim_preview: self.canvas.trim_preview.as_deref(),
+                selection_bbox: self
+                    .canvas
+                    .display_selection_bbox(self.session.selection_bbox()),
+                selection_rotation: self.canvas.live_selection_rotation(),
                 world_cursor: self.canvas.world(),
                 cam_scale: self.canvas.cam.scale,
                 invert_marquee_direction: self.canvas.invert_marquee_direction,
@@ -689,8 +709,24 @@ impl App {
             preview_show_scan_offset: self.preview_show_scan_offset,
             preview_trace: self.preview_trace.as_ref(),
             grid_mm: self.ui_settings.grid_size_mm as f32,
+            selection_transform: self.canvas.selection_transform(),
+            move_all_fills: self.canvas.live_move_offset() != [0.0, 0.0]
+                && self.session.shapes.iter().enumerate().all(|(i, shape)| {
+                    let visible_fill = shape.geo.outline_points().1
+                        && self
+                            .session
+                            .layers
+                            .get(shape.layer_id)
+                            .is_some_and(|layer| {
+                                layer.visible
+                                    && layer.mode.is_filled()
+                                    && layer.mode != luxifer_core::LayerMode::Image
+                            });
+                    !visible_fill || self.session.selected.contains(&i)
+                }),
         };
-        self.renderer.draw_frame(&self.window, scene, full, tris);
+        self.renderer
+            .draw_frame(&self.window, scene, full, tris, ui_timings);
         if self.canvas.cursor_over_canvas
             && self.canvas.tool == crate::tools::Tool::Trim
             && !self.canvas.space_down

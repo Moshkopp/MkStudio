@@ -14,7 +14,9 @@ use winit::window::Window;
 
 use crate::camera::Camera;
 use crate::canvas::overlay::{overlay_vertices, OverlayInput};
-use crate::canvas::scene::{base_vertices, preview_vertices, PreviewLegend, PreviewMaterial};
+use crate::canvas::scene::{
+    base_vertices_profiled, preview_vertices, PreviewLegend, PreviewMaterial,
+};
 use crate::gpu::Gpu;
 use crate::image_gpu::ImageStore;
 
@@ -27,6 +29,111 @@ struct PreviewKey {
     show_laser_path: bool,
     show_scan_offset: bool,
     bed_origin: luxifer_core::BedOrigin,
+}
+
+#[derive(Clone, Copy, Debug, Default)]
+pub struct UiFrameTimings {
+    pub build_ms: f64,
+    pub tessellate_ms: f64,
+}
+
+#[derive(Default)]
+struct PerfWindow {
+    started: Option<Instant>,
+    frames: u64,
+    scene_rebuilds: u64,
+    selection_rebuilds: u64,
+    ui_ms: f64,
+    tessellate_ms: f64,
+    fill_ms: f64,
+    lines_ms: f64,
+    overlay_ms: f64,
+    selection_ms: f64,
+    image_ms: f64,
+    frame_ms: f64,
+    max_frame_ms: f64,
+    scene_vertices: usize,
+    fill_vertices: usize,
+    overlay_vertices: usize,
+    selection_vertices: usize,
+    fill_compounds: usize,
+    estimated_draw_calls: usize,
+}
+
+impl PerfWindow {
+    fn record(&mut self, sample: PerfSample) {
+        self.started.get_or_insert_with(Instant::now);
+        self.frames += 1;
+        self.scene_rebuilds += u64::from(sample.scene_rebuilt);
+        self.selection_rebuilds += u64::from(sample.selection_rebuilt);
+        self.ui_ms += sample.ui.build_ms;
+        self.tessellate_ms += sample.ui.tessellate_ms;
+        self.fill_ms += sample.fill_ms;
+        self.lines_ms += sample.lines_ms;
+        self.overlay_ms += sample.overlay_ms;
+        self.selection_ms += sample.selection_ms;
+        self.image_ms += sample.image_ms;
+        self.frame_ms += sample.frame_ms;
+        self.max_frame_ms = self.max_frame_ms.max(sample.frame_ms);
+        self.scene_vertices = sample.scene_vertices;
+        self.fill_vertices = sample.fill_vertices;
+        self.overlay_vertices = sample.overlay_vertices;
+        self.selection_vertices = sample.selection_vertices;
+        self.fill_compounds = sample.fill_compounds;
+        self.estimated_draw_calls = sample.estimated_draw_calls;
+    }
+
+    fn log_if_due(&mut self) {
+        let Some(started) = self.started else { return };
+        if started.elapsed().as_secs_f32() < 1.0 || self.frames == 0 {
+            return;
+        }
+        let n = self.frames as f64;
+        let rebuilds = self.scene_rebuilds.max(1) as f64;
+        let selection_rebuilds = self.selection_rebuilds.max(1) as f64;
+        log::info!(
+            target: "luxifer_render_perf",
+            "frames={} rebuilds={} selection_rebuilds={} avg_frame_ms frame={:.2} ui={:.2} tess={:.2} overlay={:.2} images={:.2} avg_rebuild_ms fill={:.2} lines={:.2} selection={:.2} max_frame_ms={:.2} vertices scene={} fill={} selection={} dynamic_overlay={} fill_compounds={} estimated_canvas_draw_calls={}",
+            self.frames,
+            self.scene_rebuilds,
+            self.selection_rebuilds,
+            self.frame_ms / n,
+            self.ui_ms / n,
+            self.tessellate_ms / n,
+            self.overlay_ms / n,
+            self.image_ms / n,
+            self.fill_ms / rebuilds,
+            self.lines_ms / rebuilds,
+            self.selection_ms / selection_rebuilds,
+            self.max_frame_ms,
+            self.scene_vertices,
+            self.fill_vertices,
+            self.selection_vertices,
+            self.overlay_vertices,
+            self.fill_compounds,
+            self.estimated_draw_calls,
+        );
+        *self = Self::default();
+    }
+}
+
+#[derive(Clone, Copy, Default)]
+struct PerfSample {
+    ui: UiFrameTimings,
+    scene_rebuilt: bool,
+    selection_rebuilt: bool,
+    fill_ms: f64,
+    lines_ms: f64,
+    overlay_ms: f64,
+    selection_ms: f64,
+    image_ms: f64,
+    frame_ms: f64,
+    scene_vertices: usize,
+    fill_vertices: usize,
+    overlay_vertices: usize,
+    selection_vertices: usize,
+    fill_compounds: usize,
+    estimated_draw_calls: usize,
 }
 
 /// Nur-lesender Szenenzustand, den der Root pro Frame an den Renderer übergibt.
@@ -49,6 +156,8 @@ pub struct FrameScene<'a> {
     pub grid_mm: f32,
     /// Maschinen-Nullpunkt des aktiven Laserprofils.
     pub bed_origin: luxifer_core::BedOrigin,
+    pub selection_transform: crate::gpu::SelectionTransform,
+    pub move_all_fills: bool,
 }
 
 pub struct Renderer {
@@ -81,6 +190,12 @@ pub struct Renderer {
     /// Kamera-/Rasterstand des letzten Grid-Aufbaus (Center, Scale, Viewport,
     /// grid_mm) — das viewportfüllende Gitter wird nur bei Änderung neu gebaut.
     grid_key: Option<([f32; 2], f32, [f32; 2], f32)>,
+    selection_revision: u64,
+    selection_indices: Vec<usize>,
+    selection_accent: [u8; 3],
+    selection_vertex_count: usize,
+    perf_enabled: bool,
+    perf: PerfWindow,
 }
 
 impl Renderer {
@@ -116,6 +231,12 @@ impl Renderer {
             wants_repaint: false,
             next_repaint: None,
             grid_key: None,
+            selection_revision: u64::MAX,
+            selection_indices: Vec::new(),
+            selection_accent: [0; 3],
+            selection_vertex_count: 0,
+            perf_enabled: std::env::var_os("LUXIFER_RENDER_PROFILE").is_some(),
+            perf: PerfWindow::default(),
         }
     }
 
@@ -140,6 +261,7 @@ impl Renderer {
         self.preview_legend = None;
         self.preview_key = None;
         self.preview_pending = None;
+        self.selection_revision = u64::MAX;
     }
 
     /// Legende des letzten Preview-Aufbaus (None, solange keiner lief).
@@ -174,7 +296,13 @@ impl Renderer {
         scene: FrameScene,
         full: egui::FullOutput,
         tris: Vec<egui::ClippedPrimitive>,
+        ui_timings: UiFrameTimings,
     ) {
+        let frame_started = Instant::now();
+        let mut perf = PerfSample {
+            ui: ui_timings,
+            ..Default::default()
+        };
         // FPS.
         let dt = self.last_frame.elapsed().as_secs_f32();
         self.last_frame = Instant::now();
@@ -196,7 +324,9 @@ impl Renderer {
 
         // Canvas-Vertices nur neu bauen+hochladen, wenn sich die Szene änderte.
         let rev = scene.session.render_rev();
-        let mut scene_changed = rev != self.last_render_rev;
+        let selection_changed =
+            self.selection_indices.as_slice() != scene.session.state().selected.as_slice();
+        let mut scene_changed = rev != self.last_render_rev || selection_changed;
         if scene.preview {
             let key = PreviewKey {
                 revision: rev,
@@ -285,7 +415,10 @@ impl Renderer {
         }
         if scene_changed {
             self.last_render_rev = rev;
-            let geometry = base_vertices(scene.session, scene.bed_origin);
+            let (geometry, build_timings) = base_vertices_profiled(scene.session, scene.bed_origin);
+            perf.scene_rebuilt = true;
+            perf.fill_ms = build_timings.fill_ms;
+            perf.lines_ms = build_timings.lines_ms;
             self.background_end = geometry.background_end;
             self.verts = geometry.vertices;
             self.fill_batches = geometry.fill_batches;
@@ -295,7 +428,7 @@ impl Renderer {
             self.gpu.upload_verts(&verts);
             self.verts = verts;
         }
-        self.gpu.upload_camera(scene.cam);
+        self.gpu.upload_camera(scene.cam, scene.selection_transform);
         // Viewportfüllendes Gitter (kamera-abhängig): nur bei Änderung neu.
         // Die Vorschau ist die Material-Bühne und bleibt gitterfrei.
         let grid_key = if scene.preview {
@@ -325,12 +458,41 @@ impl Renderer {
                 scene.session,
             );
         }
+        if scene.preview {
+            if self.selection_vertex_count != 0 {
+                self.gpu.upload_selection(&[]);
+                self.selection_vertex_count = 0;
+            }
+            self.selection_revision = u64::MAX;
+        } else {
+            let selected = &scene.session.state().selected;
+            if self.selection_revision != rev
+                || self.selection_indices.as_slice() != selected.as_slice()
+                || self.selection_accent != scene.overlay.accent
+            {
+                let selection_started = Instant::now();
+                let selection = crate::scene_geo::selected_outlines(
+                    scene.session.state(),
+                    scene.overlay.accent,
+                );
+                self.selection_vertex_count = selection.len();
+                perf.selection_rebuilt = true;
+                perf.selection_ms = selection_started.elapsed().as_secs_f64() * 1_000.0;
+                self.gpu.upload_selection(&selection);
+                self.selection_revision = rev;
+                self.selection_indices.clone_from(selected);
+                self.selection_accent = scene.overlay.accent;
+            }
+        }
         let count = self.verts.len() as u32;
+        let overlay_started = Instant::now();
         let overlay = if scene.preview {
             Vec::new()
         } else {
             overlay_vertices(&scene.overlay)
         };
+        perf.overlay_ms = overlay_started.elapsed().as_secs_f64() * 1_000.0;
+        perf.overlay_vertices = overlay.len();
         self.gpu.upload_overlay(&overlay);
 
         let frame = match self.gpu.surface.get_current_texture() {
@@ -369,6 +531,7 @@ impl Renderer {
 
         // Scratch-Buffer für die Bild-Quads (muss den Render-Pass überleben).
         let mut img_scratch: Option<wgpu::Buffer> = None;
+        let image_started = Instant::now();
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("background-images"),
@@ -399,15 +562,10 @@ impl Renderer {
                 self.images
                     .draw_rasters(&mut rp, &self.gpu, scene.cam, &mut img_scratch);
             } else {
-                self.images.draw(
-                    &mut rp,
-                    &self.gpu,
-                    scene.cam,
-                    scene.session,
-                    &mut img_scratch,
-                );
+                self.images.draw(&mut rp, &self.gpu, scene.cam);
             }
         }
+        perf.image_ms = image_started.elapsed().as_secs_f64() * 1_000.0;
         if !scene.preview && !self.fill_batches.is_empty() {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("solid-fills"),
@@ -432,7 +590,8 @@ impl Renderer {
                 occlusion_query_set: None,
                 multiview_mask: None,
             });
-            self.gpu.draw_solid_fills(&mut rp, &self.fill_batches);
+            self.gpu
+                .draw_solid_fills(&mut rp, &self.fill_batches, scene.move_all_fills);
         }
         {
             let mut rp = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -453,6 +612,7 @@ impl Renderer {
             });
             self.gpu
                 .draw_canvas_range(&mut rp, self.background_end..count);
+            self.gpu.draw_selection(&mut rp);
             self.gpu.draw_overlay(&mut rp);
             // egui obendrauf (eigener Lebenszeit-Scope via forget_lifetime).
             let mut rp = rp.forget_lifetime();
@@ -460,6 +620,32 @@ impl Renderer {
         }
         self.gpu.queue.submit(Some(enc.finish()));
         frame.present();
+
+        if self.perf_enabled {
+            perf.frame_ms = frame_started.elapsed().as_secs_f64() * 1_000.0;
+            perf.scene_vertices = self.verts.len();
+            perf.selection_vertices = self.selection_vertex_count;
+            perf.fill_vertices = self.fill_batches.last().map_or(0, |_| {
+                self.fill_batches
+                    .iter()
+                    .map(|batch| batch.cover.end as usize)
+                    .max()
+                    .unwrap_or(0)
+            });
+            perf.fill_compounds = self
+                .fill_batches
+                .iter()
+                .map(|batch| batch.compounds.len())
+                .sum();
+            // Canvas/Grid/Overlay sind je ein Draw; jeder Compound benötigt drei
+            // Stencil-Draws, jeder Fill-Layer zwei Abschluss-Draws.
+            perf.estimated_draw_calls = 3
+                + usize::from(self.selection_vertex_count > 0)
+                + perf.fill_compounds * 3
+                + self.fill_batches.len() * 2;
+            self.perf.record(perf);
+            self.perf.log_if_due();
+        }
 
         for id in &full.textures_delta.free {
             self.egui_renderer.free_texture(id);

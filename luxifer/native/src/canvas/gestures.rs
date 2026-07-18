@@ -231,24 +231,56 @@ impl CanvasState {
             // Rotate-Handle?
             let rp = super::overlay::rotate_handle_pos(&b, self.cam.scale);
             if (w[0] - rp[0]).hypot(w[1] - rp[1]) <= pick {
-                session.begin_edit();
+                let gpu_live = session.selected.iter().all(|&i| {
+                    session.shapes.get(i).is_some_and(|shape| {
+                        !matches!(shape.geo, luxifer_core::Geo::Image { .. })
+                            && !(shape.geo.outline_points().1
+                                && session
+                                    .layers
+                                    .get(shape.layer_id)
+                                    .is_some_and(|layer| layer.visible && layer.mode.is_filled()))
+                    })
+                });
+                if !gpu_live {
+                    session.begin_edit();
+                }
                 let pivot = [b.x + b.w / 2.0, b.y + b.h / 2.0];
                 let angle = (w[1] - pivot[1]).atan2(w[0] - pivot[0]);
                 self.drag = Drag::Rotate {
                     pivot,
                     start_angle: angle,
-                    orig: Self::snapshot_selection(session),
+                    orig: gpu_live
+                        .then(Vec::new)
+                        .unwrap_or_else(|| Self::snapshot_selection(session)),
+                    start_box: b,
+                    delta_deg: 0.0,
+                    gpu_live,
                 };
                 return;
             }
             // Skalier-Handle?
             for (handle, (hx, hy)) in luxifer_core::Handle::positions(&b) {
                 if (w[0] - hx).abs() <= pick && (w[1] - hy).abs() <= pick {
-                    session.begin_edit();
+                    let gpu_live = session.selected.iter().all(|&i| {
+                        session.shapes.get(i).is_some_and(|shape| {
+                            !matches!(shape.geo, luxifer_core::Geo::Image { .. })
+                                && !(shape.geo.outline_points().1
+                                    && session.layers.get(shape.layer_id).is_some_and(|layer| {
+                                        layer.visible && layer.mode.is_filled()
+                                    }))
+                        })
+                    });
+                    if !gpu_live {
+                        session.begin_edit();
+                    }
                     self.drag = Drag::Resize {
                         handle,
                         start_box: b,
-                        orig: Self::snapshot_selection(session),
+                        orig: gpu_live
+                            .then(Vec::new)
+                            .unwrap_or_else(|| Self::snapshot_selection(session)),
+                        target_box: b,
+                        gpu_live,
                     };
                     return;
                 }
@@ -260,8 +292,38 @@ impl CanvasState {
         if self.shift_down {
             self.drag = Drag::None;
         } else if hit.is_some() && selection_editable(session, &self.laser_editable_layers) {
-            session.begin_edit();
-            self.drag = Drag::MoveShapes { last: w };
+            let selected_has_image = session.selected.iter().any(|&i| {
+                session
+                    .shapes
+                    .get(i)
+                    .is_some_and(|shape| matches!(shape.geo, luxifer_core::Geo::Image { .. }))
+            });
+            let is_visible_fill = |shape: &luxifer_core::Shape| {
+                shape.geo.outline_points().1
+                    && session.layers.get(shape.layer_id).is_some_and(|layer| {
+                        layer.visible
+                            && layer.mode.is_filled()
+                            && layer.mode != luxifer_core::LayerMode::Image
+                    })
+            };
+            let selected_has_fill = session
+                .selected
+                .iter()
+                .any(|&i| session.shapes.get(i).is_some_and(&is_visible_fill));
+            let all_fills_selected = session
+                .shapes
+                .iter()
+                .enumerate()
+                .all(|(i, shape)| !is_visible_fill(shape) || session.selected.contains(&i));
+            let gpu_live = !selected_has_image && (!selected_has_fill || all_fills_selected);
+            if !gpu_live {
+                session.begin_edit();
+            }
+            self.drag = Drag::MoveShapes {
+                start: w,
+                last: w,
+                gpu_live,
+            };
         } else {
             self.drag = Drag::Marquee { start: w };
         }
@@ -364,10 +426,20 @@ impl CanvasState {
                 self.cursor = new;
                 return;
             }
-            Drag::MoveShapes { last } => {
-                let last = *last;
-                self.drag = Drag::MoveShapes { last: w };
-                session.translate_edit(w[0] - last[0], w[1] - last[1]);
+            Drag::MoveShapes {
+                start,
+                last,
+                gpu_live,
+            } => {
+                let (start, last, gpu_live) = (*start, *last, *gpu_live);
+                self.drag = Drag::MoveShapes {
+                    start,
+                    last: w,
+                    gpu_live,
+                };
+                if !gpu_live {
+                    session.translate_edit(w[0] - last[0], w[1] - last[1]);
+                }
                 self.cursor = new;
                 return;
             }
@@ -421,34 +493,48 @@ impl CanvasState {
                 handle,
                 start_box,
                 orig,
+                gpu_live,
+                ..
             } => {
-                Self::restore_snapshot(session, &orig);
                 let mut target = luxifer_core::resize_to_cursor(start_box, handle, w);
                 // Eck-Handles halten standardmäßig das Seitenverhältnis; Shift
                 // löst es (frei). Kanten-Handles skalieren nur eine Achse.
                 if handle.is_corner() && !self.shift_down {
                     target = luxifer_core::keep_aspect(start_box, handle, target);
                 }
-                session.scale_edit(start_box, target);
+                if !gpu_live {
+                    Self::restore_snapshot(session, &orig);
+                    session.scale_edit(start_box, target);
+                }
                 self.drag = Drag::Resize {
                     handle,
                     start_box,
                     orig,
+                    target_box: target,
+                    gpu_live,
                 };
             }
             Drag::Rotate {
                 pivot,
                 start_angle,
                 orig,
+                start_box,
+                gpu_live,
+                ..
             } => {
-                Self::restore_snapshot(session, &orig);
                 let a = (w[1] - pivot[1]).atan2(w[0] - pivot[0]);
                 let delta_deg = (a - start_angle).to_degrees();
-                session.rotate_edit_around(pivot, delta_deg);
+                if !gpu_live {
+                    Self::restore_snapshot(session, &orig);
+                    session.rotate_edit_around(pivot, delta_deg);
+                }
                 self.drag = Drag::Rotate {
                     pivot,
                     start_angle,
                     orig,
+                    start_box,
+                    delta_deg,
+                    gpu_live,
                 };
             }
             other => self.drag = other,
@@ -475,10 +561,46 @@ impl CanvasState {
                 session.commit_edit();
                 false
             }
+            Drag::MoveShapes {
+                start,
+                gpu_live: true,
+                ..
+            } => {
+                session.begin_edit();
+                session.translate_edit(w[0] - start[0], w[1] - start[1]);
+                session.commit_edit();
+                false
+            }
             Drag::MoveShapes { .. }
-            | Drag::Resize { .. }
-            | Drag::Rotate { .. }
+            | Drag::Resize {
+                gpu_live: false, ..
+            }
+            | Drag::Rotate {
+                gpu_live: false, ..
+            }
             | Drag::EditNode { .. } => {
+                session.commit_edit();
+                false
+            }
+            Drag::Resize {
+                start_box,
+                target_box,
+                gpu_live: true,
+                ..
+            } => {
+                session.begin_edit();
+                session.scale_edit(start_box, target_box);
+                session.commit_edit();
+                false
+            }
+            Drag::Rotate {
+                pivot,
+                delta_deg,
+                gpu_live: true,
+                ..
+            } => {
+                session.begin_edit();
+                session.rotate_edit_around(pivot, delta_deg);
                 session.commit_edit();
                 false
             }
@@ -733,5 +855,120 @@ mod tests {
 
         canvas.laser_editable_layers.as_mut().unwrap().insert(0);
         assert!(canvas.laser_editable_layers.as_ref().unwrap().contains(&0));
+    }
+
+    #[test]
+    fn move_vorschau_mutiert_core_erst_beim_loslassen() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [100.0, 50.0]);
+        let before = session.shapes[0].bbox();
+        let rev = session.render_rev();
+
+        canvas.cursor = canvas.cam.world_to_screen([0.0, 20.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([25.0, 30.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(session.shapes[0].bbox(), before);
+        assert_eq!(canvas.live_move_offset(), [25.0, 10.0]);
+
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert_eq!(session.shapes[0].bbox().x, before.x + 25.0);
+        assert_eq!(session.shapes[0].bbox().y, before.y + 10.0);
+        assert!(session.render_rev() > rev);
+    }
+
+    #[test]
+    fn move_aller_fill_konturen_darf_gpu_live_nutzen() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [40.0, 40.0]);
+        session.add_box_shape(BoxShape::Rect, [60.0, 0.0], [100.0, 40.0]);
+        session.layers[0].mode = luxifer_core::LayerMode::Fill;
+        session.select_all();
+        let rev = session.render_rev();
+
+        canvas.cursor = canvas.cam.world_to_screen([10.0, 0.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([25.0, 5.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(canvas.live_move_offset(), [15.0, 5.0]);
+    }
+
+    #[test]
+    fn move_einer_von_mehreren_fill_konturen_bleibt_im_sicheren_pfad() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [40.0, 40.0]);
+        session.add_box_shape(BoxShape::Rect, [60.0, 0.0], [100.0, 40.0]);
+        session.layers[0].mode = luxifer_core::LayerMode::Fill;
+        session.selected = vec![0];
+        let rev = session.render_rev();
+
+        canvas.cursor = canvas.cam.world_to_screen([0.0, 20.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([15.0, 25.0]));
+
+        assert!(session.render_rev() > rev);
+        assert_eq!(canvas.live_move_offset(), [0.0, 0.0]);
+    }
+
+    #[test]
+    fn resize_vorschau_skaliert_gpu_und_committet_einmal() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [100.0, 50.0]);
+        let rev = session.render_rev();
+
+        canvas.cursor = canvas.cam.world_to_screen([100.0, 25.0]);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([150.0, 25.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(session.shapes[0].bbox().w, 100.0);
+        assert_eq!(canvas.selection_transform().matrix, [1.5, 0.0, 0.0, 1.0]);
+        assert_eq!(
+            canvas
+                .display_selection_bbox(session.selection_bbox())
+                .unwrap()
+                .w,
+            150.0
+        );
+
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert_eq!(session.shapes[0].bbox().w, 150.0);
+        assert!(session.render_rev() > rev);
+    }
+
+    #[test]
+    fn rotate_vorschau_rotiert_gpu_und_committet_einmal() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Select;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [100.0, 50.0]);
+        let rev = session.render_rev();
+        let bbox = session.selection_bbox().unwrap();
+        let handle = crate::canvas::overlay::rotate_handle_pos(&bbox, canvas.cam.scale);
+
+        canvas.cursor = canvas.cam.world_to_screen(handle);
+        canvas.on_mouse(&mut session, MouseButton::Left, true);
+        canvas.on_cursor_move(&mut session, canvas.cam.world_to_screen([97.0, 25.0]));
+
+        assert_eq!(session.render_rev(), rev);
+        assert_eq!(session.shapes[0].rotation, 0.0);
+        let transform = canvas.selection_transform();
+        assert!(transform.matrix[0].abs() < 1e-5);
+        assert!((transform.matrix[1] + 1.0).abs() < 1e-5);
+        assert!((transform.matrix[2] - 1.0).abs() < 1e-5);
+
+        canvas.on_mouse(&mut session, MouseButton::Left, false);
+        assert!((session.shapes[0].rotation - 90.0).abs() < 1e-5);
+        assert!(session.render_rev() > rev);
     }
 }
