@@ -24,17 +24,64 @@ pub fn map_key(key: &WinitKey) -> Option<Key> {
         WinitKey::Named(NamedKey::Escape) => Key::Escape,
         WinitKey::Named(NamedKey::Enter) => Key::Enter,
         WinitKey::Named(NamedKey::Space) => Key::Space,
+        WinitKey::Named(NamedKey::F1) => Key::F1,
+        WinitKey::Named(NamedKey::F2) => Key::F2,
+        WinitKey::Named(NamedKey::F3) => Key::F3,
+        WinitKey::Named(NamedKey::F4) => Key::F4,
+        WinitKey::Named(NamedKey::F5) => Key::F5,
+        WinitKey::Named(NamedKey::F6) => Key::F6,
+        WinitKey::Named(NamedKey::F7) => Key::F7,
+        WinitKey::Named(NamedKey::F8) => Key::F8,
+        WinitKey::Named(NamedKey::F9) => Key::F9,
+        WinitKey::Named(NamedKey::F10) => Key::F10,
+        WinitKey::Named(NamedKey::F11) => Key::F11,
+        WinitKey::Named(NamedKey::F12) => Key::F12,
+        WinitKey::Named(NamedKey::Home) => Key::Home,
+        WinitKey::Named(NamedKey::End) => Key::End,
+        WinitKey::Named(NamedKey::PageUp) => Key::PageUp,
+        WinitKey::Named(NamedKey::PageDown) => Key::PageDown,
+        WinitKey::Named(NamedKey::ArrowUp) => Key::ArrowUp,
+        WinitKey::Named(NamedKey::ArrowDown) => Key::ArrowDown,
+        WinitKey::Named(NamedKey::ArrowLeft) => Key::ArrowLeft,
+        WinitKey::Named(NamedKey::ArrowRight) => Key::ArrowRight,
         WinitKey::Character(c) => match c.to_ascii_lowercase().as_str() {
             " " => Key::Space,
-            "s" => Key::S,
-            "v" => Key::V,
-            "r" => Key::R,
-            "e" => Key::E,
-            "p" => Key::P,
-            "z" => Key::Z,
-            "y" => Key::Y,
             "a" => Key::A,
+            "b" => Key::B,
+            "c" => Key::C,
+            "d" => Key::D,
+            "e" => Key::E,
             "f" => Key::F,
+            "g" => Key::G,
+            "h" => Key::H,
+            "i" => Key::I,
+            "j" => Key::J,
+            "k" => Key::K,
+            "l" => Key::L,
+            "m" => Key::M,
+            "n" => Key::N,
+            "o" => Key::O,
+            "p" => Key::P,
+            "q" => Key::Q,
+            "r" => Key::R,
+            "s" => Key::S,
+            "t" => Key::T,
+            "u" => Key::U,
+            "v" => Key::V,
+            "w" => Key::W,
+            "x" => Key::X,
+            "y" => Key::Y,
+            "z" => Key::Z,
+            "0" => Key::Num0,
+            "1" => Key::Num1,
+            "2" => Key::Num2,
+            "3" => Key::Num3,
+            "4" => Key::Num4,
+            "5" => Key::Num5,
+            "6" => Key::Num6,
+            "7" => Key::Num7,
+            "8" => Key::Num8,
+            "9" => Key::Num9,
             _ => return None,
         },
         _ => return None,
@@ -119,7 +166,7 @@ mod tests {
         assert_eq!(map_key(&WinitKey::Character("z".into())), Some(Key::Z));
         assert_eq!(map_key(&WinitKey::Character("Z".into())), Some(Key::Z));
         assert_eq!(map_key(&WinitKey::Character("y".into())), Some(Key::Y));
-        assert_eq!(map_key(&WinitKey::Character("x".into())), None);
+        assert_eq!(map_key(&WinitKey::Character("x".into())), Some(Key::X));
     }
 
     #[test]
@@ -133,6 +180,7 @@ mod tests {
             Some(Key::Delete)
         );
         assert_eq!(map_key(&WinitKey::Named(NamedKey::Space)), Some(Key::Space));
+        assert_eq!(map_key(&WinitKey::Named(NamedKey::F5)), Some(Key::F5));
         assert_eq!(map_key(&WinitKey::Named(NamedKey::Tab)), None);
     }
 }

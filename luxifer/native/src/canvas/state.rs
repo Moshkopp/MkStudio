@@ -31,6 +31,9 @@ pub struct CanvasState {
     pub space_down: bool,
     pub ctrl_down: bool,
     pub shift_down: bool,
+    pub alt_down: bool,
+    /// Rechte Maustaste nutzt aktuell die temporäre Auswahlbelegung (ADR 0018).
+    pub right_select_active: bool,
     /// Benutzerpräferenz: Fenster-/Kreuz-Auswahlrichtungen vertauschen.
     pub invert_marquee_direction: bool,
     /// Punkt-Zug (Welt-Punkte), bis Doppelklick/Enter schließt.
@@ -62,6 +65,8 @@ impl CanvasState {
             space_down: false,
             ctrl_down: false,
             shift_down: false,
+            alt_down: false,
+            right_select_active: false,
             invert_marquee_direction: false,
             poly_pts: Vec::new(),
             bridge: None,

@@ -338,3 +338,20 @@ Dateien ohne Feld migrieren über `#[serde(default)]` exakt auf die neuen
 Defaults. Laden normalisiert die Tabelle und lehnt verbleibende Konflikte ab.
 252 Core-Tests einschließlich Defaults, Reserviert-Regeln, Umbelegung,
 JSON-Roundtrip und Version-3-Migration sind grün.
+
+### Native Action-Auflösung und temporäre Rechtsauswahl
+
+Der native Tastaturpfad bildet nun alle unterstützten logischen winit-Tasten
+einschließlich `F1` bis `F12` auf `ShortcutKey` ab und löst gewöhnliche Befehle
+über die aktiven `UiSettings.shortcut_bindings` auf. `Space`, `Escape` und
+`Enter` bleiben davor statisch mit ihrer bisherigen Key-Flanken- und
+Fokussicherheit. Die Action-Übersetzung deckt Projektbefehle, Bearbeiten,
+sämtliche Werkzeuge, Text, F1–F5 und Assets ab; Ansichten verwenden dieselben
+App-Absichten wie die Topbar.
+
+Ist die rechte Maustaste dem Auswahlwerkzeug zugewiesen, startet sie direkt die
+bestehende Select-Geste und beendet sie beim Loslassen. Das aktive
+Zeichenwerkzeug wird dabei nicht verändert. Wird die rechte Maustaste später
+einer anderen Action zugewiesen, löst sie diese einmal auf Mouse-Down aus.
+53 native Tests sichern unter anderem benutzerdefinierte Bindings,
+Fokusblockade und die temporäre Rechtsauswahl.

@@ -295,6 +295,7 @@ impl App {
         if let WindowEvent::ModifiersChanged(m) = event {
             self.canvas.ctrl_down = m.state().control_key();
             self.canvas.shift_down = m.state().shift_key();
+            self.canvas.alt_down = m.state().alt_key();
         }
 
         if resp.consumed {
@@ -321,11 +322,16 @@ impl App {
                     let mods = crate::tools::Mods {
                         ctrl: self.canvas.ctrl_down,
                         shift: self.canvas.shift_down,
+                        alt: self.canvas.alt_down,
                     };
                     let blocked = self.input_blocked();
-                    if let Some(shortcut) =
-                        crate::tools::resolve_shortcut(key, mods, pressed, blocked)
-                    {
+                    if let Some(shortcut) = crate::tools::resolve_shortcut_with_bindings(
+                        key,
+                        mods,
+                        pressed,
+                        blocked,
+                        &self.ui_settings.shortcut_bindings,
+                    ) {
                         if self.view == crate::tools::View::Laser
                             && !matches!(shortcut, crate::tools::Shortcut::PanModifier(_))
                         {
@@ -341,6 +347,52 @@ impl App {
             _ => {
                 if self.view == crate::tools::View::Preview {
                     self.canvas.handle_preview_pointer_event(event);
+                    return true;
+                }
+                if let WindowEvent::MouseInput {
+                    state,
+                    button: winit::event::MouseButton::Right,
+                    ..
+                } = event
+                {
+                    let pressed = *state == ElementState::Pressed;
+                    if pressed && !self.input_blocked() {
+                        let trigger = luxifer_core::ShortcutTrigger::Mouse(
+                            luxifer_core::ShortcutMouseButton::Right,
+                        );
+                        match crate::tools::resolve_trigger(
+                            trigger,
+                            &self.ui_settings.shortcut_bindings,
+                        ) {
+                            Some(crate::tools::Shortcut::SelectTool(
+                                crate::tools::Tool::Select,
+                            )) => {
+                                self.canvas.right_select_active = true;
+                            }
+                            Some(shortcut) => {
+                                self.apply_shortcut(shortcut);
+                                return true;
+                            }
+                            None => return true,
+                        }
+                    }
+                    if self.canvas.right_select_active {
+                        let out = self.canvas.on_mouse(
+                            &mut self.session,
+                            winit::event::MouseButton::Right,
+                            pressed,
+                        );
+                        if !pressed {
+                            self.canvas.right_select_active = false;
+                        }
+                        if out.shape_added {
+                            self.refresh_accent();
+                        }
+                        if let Some(error) = out.error {
+                            self.app_error = Some(error);
+                        }
+                        return true;
+                    }
                     return true;
                 }
                 let out = self.canvas.handle_pointer_event(&mut self.session, event);
@@ -429,6 +481,11 @@ impl App {
             S::Redo => self.redo(),
             S::SelectAll => self.session.select_all(),
             S::FitView => self.fit_view(),
+            S::Group => self.group(),
+            S::Ungroup => self.ungroup(),
+            S::OpenText => self.open_text_dialog(),
+            S::SwitchView(view) => self.dispatch(crate::ui::UiAction::SelectView(view)),
+            S::OpenAssets => self.dispatch(crate::ui::UiAction::OpenAssetLibrary),
             S::SelectTool(tool) => self.select_tool(tool),
             S::PanModifier(down) => self.canvas.space_down = down,
         }

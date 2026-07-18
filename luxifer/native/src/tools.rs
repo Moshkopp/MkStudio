@@ -128,6 +128,11 @@ pub enum Shortcut {
     SelectAll,
     /// Kamera einpassen: auf die Auswahl, sonst auf alle Objekte (F).
     FitView,
+    Group,
+    Ungroup,
+    OpenText,
+    SwitchView(View),
+    OpenAssets,
     SelectTool(Tool),
     /// Leertaste gedrückt/losgelassen (Pan-Modifier) — kein einmaliger Befehl.
     PanModifier(bool),
@@ -135,28 +140,14 @@ pub enum Shortcut {
 
 /// Gedrückte Taste, die für die Zuordnung relevant ist. Entkoppelt die reine
 /// Shortcut-Logik von `winit::keyboard::Key` (logische Taste, Systemlayout).
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Key {
-    S,
-    Delete,
-    Escape,
-    Enter,
-    Space,
-    V,
-    R,
-    E,
-    P,
-    Z,
-    Y,
-    A,
-    F,
-}
+pub use luxifer_core::ShortcutKey as Key;
 
 /// Modifier-Zustand zum Zeitpunkt des Tastendrucks.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Mods {
     pub ctrl: bool,
     pub shift: bool,
+    pub alt: bool,
 }
 
 /// Bildet eine gedrückte Taste auf eine typisierte Aktion ab.
@@ -171,6 +162,22 @@ pub fn resolve_shortcut(
     mods: Mods,
     pressed: bool,
     input_blocked: bool,
+) -> Option<Shortcut> {
+    resolve_shortcut_with_bindings(
+        key,
+        mods,
+        pressed,
+        input_blocked,
+        &luxifer_core::ShortcutBindings::default(),
+    )
+}
+
+pub fn resolve_shortcut_with_bindings(
+    key: Key,
+    mods: Mods,
+    pressed: bool,
+    input_blocked: bool,
+    bindings: &luxifer_core::ShortcutBindings,
 ) -> Option<Shortcut> {
     // Die Leertaste ist ein gehaltener Pan-Modifier, kein Befehl. Das Loslassen
     // muss IMMER durch — sonst bliebe `space_down` hängen, wenn während
@@ -187,28 +194,58 @@ pub fn resolve_shortcut(
         return None;
     }
     match key {
-        Key::S if mods.ctrl && mods.shift => Some(Shortcut::SaveVersion),
-        Key::S if mods.ctrl => Some(Shortcut::Save),
-        Key::S => None,
-        Key::Z if mods.ctrl && mods.shift => Some(Shortcut::Redo),
-        Key::Z if mods.ctrl => Some(Shortcut::Undo),
-        Key::Y if mods.ctrl => Some(Shortcut::Redo),
-        // Undo/Redo verlangen Strg — ein nacktes „z" ist kein Undo.
-        Key::Z | Key::Y => None,
-        Key::A if mods.ctrl => Some(Shortcut::SelectAll),
-        // Ein nacktes „a" bleibt frei (könnte ein Werkzeug werden).
-        Key::A => None,
-        // FitView nur ohne Strg — Strg+F bleibt für Suche o. Ä. reserviert.
-        Key::F if !mods.ctrl => Some(Shortcut::FitView),
-        Key::F => None,
-        Key::Delete => Some(Shortcut::Delete),
         Key::Escape => Some(Shortcut::Cancel),
         Key::Enter => Some(Shortcut::FinishPolygon),
-        Key::V => Some(Shortcut::SelectTool(Tool::Select)),
-        Key::R => Some(Shortcut::SelectTool(Tool::Rect)),
-        Key::E => Some(Shortcut::SelectTool(Tool::Ellipse)),
-        Key::P => Some(Shortcut::SelectTool(Tool::Polygon)),
         Key::Space => None,
+        _ => resolve_trigger(
+            luxifer_core::ShortcutTrigger::Key(luxifer_core::ShortcutChord {
+                key,
+                ctrl: mods.ctrl,
+                shift: mods.shift,
+                alt: mods.alt,
+            }),
+            bindings,
+        ),
+    }
+}
+
+pub fn resolve_trigger(
+    trigger: luxifer_core::ShortcutTrigger,
+    bindings: &luxifer_core::ShortcutBindings,
+) -> Option<Shortcut> {
+    bindings.resolve(trigger).map(shortcut_for_action)
+}
+
+fn shortcut_for_action(action: luxifer_core::ShortcutAction) -> Shortcut {
+    use luxifer_core::ShortcutAction as A;
+    match action {
+        A::Save => Shortcut::Save,
+        A::SaveVersion => Shortcut::SaveVersion,
+        A::Undo => Shortcut::Undo,
+        A::Redo => Shortcut::Redo,
+        A::SelectAll => Shortcut::SelectAll,
+        A::Delete => Shortcut::Delete,
+        A::Group => Shortcut::Group,
+        A::Ungroup => Shortcut::Ungroup,
+        A::FitView => Shortcut::FitView,
+        A::ToolSelect => Shortcut::SelectTool(Tool::Select),
+        A::ToolRect => Shortcut::SelectTool(Tool::Rect),
+        A::ToolEllipse => Shortcut::SelectTool(Tool::Ellipse),
+        A::ToolPolygon => Shortcut::SelectTool(Tool::Polygon),
+        A::ToolLine => Shortcut::SelectTool(Tool::Line),
+        A::ToolPolyline => Shortcut::SelectTool(Tool::Polyline),
+        A::ToolSpline => Shortcut::SelectTool(Tool::Spline),
+        A::ToolBezier => Shortcut::SelectTool(Tool::Bezier),
+        A::ToolMeasure => Shortcut::SelectTool(Tool::Measure),
+        A::ToolNode => Shortcut::SelectTool(Tool::Node),
+        A::ToolTrim => Shortcut::SelectTool(Tool::Trim),
+        A::ToolBridge => Shortcut::SelectTool(Tool::Bridge),
+        A::OpenText => Shortcut::OpenText,
+        A::ViewProject => Shortcut::SwitchView(View::Projekt),
+        A::ViewDesign => Shortcut::SwitchView(View::Design),
+        A::ViewLaser => Shortcut::SwitchView(View::Laser),
+        A::ViewPreview => Shortcut::SwitchView(View::Preview),
+        A::OpenAssets => Shortcut::OpenAssets,
     }
 }
 
@@ -282,14 +319,17 @@ mod shortcut_tests {
     const NONE: Mods = Mods {
         ctrl: false,
         shift: false,
+        alt: false,
     };
     const CTRL: Mods = Mods {
         ctrl: true,
         shift: false,
+        alt: false,
     };
     const CTRL_SHIFT: Mods = Mods {
         ctrl: true,
         shift: true,
+        alt: false,
     };
 
     #[test]
@@ -390,6 +430,28 @@ mod shortcut_tests {
         assert_eq!(
             resolve_shortcut(Key::Space, NONE, false, true),
             Some(Shortcut::PanModifier(false))
+        );
+    }
+
+    #[test]
+    fn benutzerdefinierte_belegung_ersetzt_den_standard_lookup() {
+        let mut bindings = luxifer_core::ShortcutBindings::default();
+        let custom = luxifer_core::ShortcutTrigger::Key(luxifer_core::ShortcutChord::key(Key::Q));
+        bindings
+            .reassign(luxifer_core::ShortcutAction::ToolRect, custom)
+            .unwrap();
+
+        assert_eq!(
+            resolve_shortcut_with_bindings(Key::Q, NONE, true, false, &bindings),
+            Some(Shortcut::SelectTool(Tool::Rect))
+        );
+        assert_eq!(
+            resolve_shortcut_with_bindings(Key::R, NONE, true, false, &bindings),
+            Some(Shortcut::SelectTool(Tool::Rect))
+        );
+        assert_eq!(
+            resolve_shortcut_with_bindings(Key::Q, NONE, true, true, &bindings),
+            None
         );
     }
 }

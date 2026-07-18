@@ -172,6 +172,12 @@ impl CanvasState {
                 // Loslassen: Zug abschließen.
                 out.shape_added = self.finish_drag(session, w);
             }
+            MouseButton::Right if self.right_select_active && pressed => {
+                self.begin_select(session, w);
+            }
+            MouseButton::Right if self.right_select_active => {
+                out.shape_added = self.finish_drag(session, w);
+            }
             _ => {}
         }
         out
@@ -657,6 +663,23 @@ mod tests {
     use super::*;
     use crate::camera::Camera;
     use winit::event::MouseButton;
+
+    #[test]
+    fn rechte_maustaste_nutzt_auswahl_ohne_zeichenwerkzeug_zu_aendern() {
+        let mut canvas = CanvasState::new(Camera::new());
+        canvas.tool = Tool::Rect;
+        canvas.right_select_active = true;
+        let mut session = EditorSession::default();
+        session.add_box_shape(BoxShape::Rect, [0.0, 0.0], [40.0, 40.0]);
+        session.clear_selection();
+
+        canvas.cursor = canvas.cam.world_to_screen([10.0, 0.0]);
+        canvas.on_mouse(&mut session, MouseButton::Right, true);
+        canvas.on_mouse(&mut session, MouseButton::Right, false);
+
+        assert_eq!(session.selected, vec![0]);
+        assert_eq!(canvas.tool, Tool::Rect);
+    }
 
     #[test]
     fn trim_stroke_entfernt_mehrere_ketten_in_einem_undo_schritt() {
