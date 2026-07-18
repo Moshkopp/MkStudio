@@ -578,6 +578,37 @@ mod tests {
         assert_eq!(batches[0].compounds.len(), 2);
     }
 
+    #[test]
+    fn stress_1808_getrennte_fill_compounds_bleiben_linear_aufbaubar() {
+        let mut state = AppState::new();
+        for index in 0..1_808 {
+            let column = (index % 64) as f64;
+            let row = (index / 64) as f64;
+            state.add_shape(luxifer_core::Geo::Rect {
+                x: column * 2.0,
+                y: row * 2.0,
+                w: 1.0,
+                h: 1.0,
+            });
+        }
+        state.layers[0].mode = luxifer_core::LayerMode::Fill;
+
+        let started = std::time::Instant::now();
+        let (vertices, batches) = solid_fills(&state);
+        let elapsed = started.elapsed();
+
+        assert_eq!(batches.len(), 1);
+        assert_eq!(batches[0].compounds.len(), 1_808);
+        assert_eq!(vertices.len(), 1_808 * 12 + 6);
+        let fill_draw_calls = batches[0].compounds.len() * 3 + 2;
+        assert_eq!(fill_draw_calls, 5_426);
+        eprintln!(
+            "fill_stress compounds=1808 vertices={} cpu_build_ms={:.3} fill_draw_calls={fill_draw_calls}",
+            vertices.len(),
+            elapsed.as_secs_f64() * 1_000.0,
+        );
+    }
+
     /// Beim Arbeitszoom bleibt der Schritt exakt die Settings-Rasterweite;
     /// erst wenn ein Schritt unter die Moiré-Schwelle fiele, vergröbert ×5.
     #[test]

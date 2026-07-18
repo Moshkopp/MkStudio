@@ -271,6 +271,24 @@ Der Shader transformiert jetzt neben der Position auch `dir` mit der affinen
 Gegenchecks bestätigten den SVG-GPU-Pfad ohne Zwischen-Rebuilds und den
 korrekten Image-Fallback bei rund 0,01 ms Image-Draw-Zeit pro Frame.
 
+### Fill-Compound-Stresstest nach dem Transform-Checkpoint
+
+Ein synthetischer Release-Test bildet die historische Obergrenze mit 1.808
+getrennten geschlossenen Fill-Shapes nach. Ergebnis:
+
+- 1.808 Fill-Compounds auf einem Layer,
+- 21.702 Fill-Vertices,
+- 0,751 ms CPU-Aufbauzeit,
+- 5.426 Fill-Draw-Calls im aktuellen Stencilpfad.
+
+Die CPU-Aufbereitung ist damit klar unkritisch. Das verbleibende Risiko liegt
+im GPU-/Treiber-Overhead der drei Stencil-Draws je Compound. Die Compounds
+dürfen nicht einfach gemeinsam per Even-Odd behandelt werden: getrennte
+gemalte SVG-Füllpfade werden vereinigt, während Even-Odd nur innerhalb eines
+Compounds gilt. Der dauerhafte Test sichert deshalb Compoundzahl, Vertexzahl
+und Draw-Call-Ableitung. Vor einem semantischen Umbau folgt ein gezielter
+GPU-Benchmark dieses 5.426-Draw-Falls.
+
 ## Offen (Reihenfolge im Branch)
 
 Die funktionale Migration und der vollständige Tauri-Abbau werden durch
