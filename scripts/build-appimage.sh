@@ -7,7 +7,7 @@ PACKAGE="luxifer-native"
 BINARY="luxifer-native"
 APP_NAME="LuxiFer"
 VERSION="$(awk -F '"' '/^version = "/ { print $2; exit }' \
-  "$ROOT_DIR/luxifer/native/Cargo.toml")"
+  "$ROOT_DIR/Cargo.toml")"
 
 case "$(uname -m)" in
   x86_64) APPIMAGE_ARCH="x86_64" ;;
