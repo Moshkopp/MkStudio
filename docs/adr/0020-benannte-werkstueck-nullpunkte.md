@@ -91,7 +91,7 @@ eine dauerhaft zugeordnete, gut sichtbare Farbe und eine Textbeschriftung:
 
 | Fadenkreuz | Bedeutung | Farbe | Position der Beschriftung |
 |---|---|---|---|
-| **Start** | gewählter 3×3-Jobanker an seiner tatsächlichen Startposition | Grün | links oberhalb des Kreuzes |
+| **Start** | gewählter 3×3-Jobanker auf der Job-BBox der aktiven Inhalte | Grün | links oberhalb des Kreuzes |
 | **Ursprung** | Bezugspunkt der gewählten Startreferenz | Blau | rechts oberhalb des Kreuzes |
 | **Kopf** | live gelesene Position des Laserkopfs | Orange | rechts unterhalb des Kreuzes |
 
@@ -137,11 +137,14 @@ ausgeblendet. Ist eine live zu lesende Koordinate noch nicht verfügbar, zeigt
 das Panel am Marker einen Lade- oder Fehlerzustand, statt ihn an einer
 geschätzten oder alten Stelle einzuzeichnen.
 
-Das Start-Fadenkreuz markiert davon getrennt den gewählten 3×3-Jobanker an der
-Position, an der er mit der aktuellen Auswahl ausgeführt wird. Bei einer
-relativen Referenz liegen **Start** und **Ursprung** im Normalfall exakt
-aufeinander. Bei `Absolute Koordinaten` bleibt **Start** am absoluten Jobanker,
-während **Ursprung** den Maschinenursprung 0/0 markiert.
+Das Start-Fadenkreuz markiert davon getrennt den gewählten 3×3-Jobanker auf
+der Job-BBox der aktiven Inhalte (bei „Nur Auswahl“ auf der Auswahl): Es zeigt,
+wo **auf den Objekten** der Job beginnt — unabhängig von der gewählten
+Startreferenz. An welcher Maschinenkoordinate dieser Anker ausgeführt wird,
+zeigt allein das Ursprungs-Fadenkreuz; die beiden fallen nur zusammen, wenn der
+Anker tatsächlich auf der Referenzkoordinate liegt. (Revidiert: Eine frühere
+Fassung legte **Start** bei relativen Referenzen auf die Referenzkoordinate —
+damit klebte er am Ursprung und war informationslos.)
 
 Das Kopf-Fadenkreuz folgt unabhängig davon immer der zuletzt erfolgreich live
 gelesenen Kopfposition, solange eine Verbindung besteht. Bei unbekannter oder

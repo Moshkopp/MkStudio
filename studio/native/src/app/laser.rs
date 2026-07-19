@@ -35,7 +35,7 @@ impl LaserLiveState {
 
 /// Weltkoordinaten (Editor-mm) der drei Laser-Fadenkreuze (ADR 0020 §B).
 pub struct LaserMarkers {
-    /// „Start": gewählter 3×3-Jobanker an seiner tatsächlichen Startposition.
+    /// „Start": gewählter 3×3-Jobanker auf der Job-BBox der aktiven Inhalte.
     pub start: Option<[f64; 2]>,
     /// „Ursprung": Bezugspunkt der gewählten Startreferenz.
     pub origin: Option<[f64; 2]>,
@@ -366,18 +366,18 @@ impl App {
         };
         let reference = self.laser_reference_position().map(to_editor);
         let head = self.laser_live.head.map(to_editor);
-        // „Start": bei Absolut der absolute Jobanker; sonst die tatsächliche
-        // Startposition = Referenzkoordinate (ADR 0020 §B).
-        let start = match &self.laser.start_reference {
-            studio_core::StartReference::Absolut => self
-                .session
-                .job_anchor_marker(
-                    self.laser.selection_only,
-                    studio_core::Anchor::from_index(self.laser.anchor),
-                )
-                .map(|(x, y)| [x, y]),
-            _ => reference,
-        };
+        // „Start": immer der gewählte 3×3-Jobanker auf der Job-BBox — er
+        // zeigt, wo AUF DEN OBJEKTEN der Job beginnt. Den Bezugspunkt der
+        // Startreferenz zeigt das „Ursprung"-Fadenkreuz; beide auf die
+        // Referenz zu legen machte den Startmarker informationslos
+        // (ADR 0020 §B, revidiert).
+        let start = self
+            .session
+            .job_anchor_marker(
+                self.laser.selection_only,
+                studio_core::Anchor::from_index(self.laser.anchor),
+            )
+            .map(|(x, y)| [x, y]);
         LaserMarkers {
             start,
             origin: reference,
