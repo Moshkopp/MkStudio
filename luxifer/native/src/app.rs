@@ -70,8 +70,7 @@ pub struct App {
     /// Seit dem letzten Projektwechsel importierte Quellen, damit auch
     /// vektorisierte Assets nach dem später vergebenen Projektnamen taggbar sind.
     pub session_asset_context: std::collections::BTreeSet<String>,
-    /// Kurze Erfolgs-/Statusmeldungen als Toasts oben rechts (Fehler laufen
-    /// über `app_error` und bleiben stehen).
+    /// Erfolgs-, Status- und Fehlermeldungen als Overlay oben mittig.
     pub toasts: crate::ui::Toasts,
     /// Offene „Neues Projekt"-Maske (Name + Beschreibung) oder None.
     pub project_save_dialog: Option<crate::ui::ProjectSaveDialogState>,
@@ -519,7 +518,7 @@ impl App {
         use crate::ui::UiAction as A;
         // Bei offenem modalem Dialog ignoriert der Root die (nicht modalen)
         // Panel-Aktionen — nur die Fehleranzeige lässt sich noch schließen.
-        if self.modal_open() && action != A::DismissError {
+        if self.modal_open() {
             return;
         }
         match action {
@@ -612,7 +611,6 @@ impl App {
             A::ImportCatalogAsset(id) => self.import_catalog_asset(&id),
             A::DeleteCatalogAsset(id) => self.delete_catalog_asset(&id),
             A::RequestAssetThumbnail(id) => self.request_asset_thumbnail(&id),
-            A::DismissError => self.app_error = None,
             A::LaserSelect(id) => self.laser_select(&id),
             A::LaserConnect => self.laser_connect(),
             A::LaserDisconnect => self.laser_disconnect(),

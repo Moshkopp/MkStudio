@@ -92,18 +92,20 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
         app.dispatch(action);
     }
 
-    if let Some(error) = app.app_error.as_ref() {
-        let code = error.code().to_string();
-        let message = error.message().to_string();
-        let details = error.details().map(|d| d.to_string());
-        let actions = egui::Panel::top("application_error")
-            .show(ui, |ui| {
-                status::error_banner(ui, &message, &code, details.as_deref())
-            })
-            .inner;
-        for action in actions {
-            app.dispatch(action);
-        }
+    // Anwendungsfehler sind Overlays und dürfen das Arbeitslayout nicht
+    // verschieben. Technische Details bleiben im Fehlerobjekt/Log; im Toast
+    // steht die handlungsorientierte Meldung.
+    if let Some(error) = app.app_error.take() {
+        log::error!(
+            "application error [{}]: {}{}",
+            error.code(),
+            error.message(),
+            error
+                .details()
+                .map(|details| format!(" ({details})"))
+                .unwrap_or_default()
+        );
+        app.toasts.error(error.message().to_owned());
     }
 
     // Zweite Kopfzeile: Anordnen (Ausrichten/Verteilen/Gruppieren/Nesting) — nur

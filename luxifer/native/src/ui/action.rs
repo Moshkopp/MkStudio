@@ -118,7 +118,6 @@ pub enum UiAction {
     /// Fehlendes Thumbnail für ein sichtbares Asset im Hintergrund anfordern.
     RequestAssetThumbnail(String),
     /// Die aktuelle Fehleranzeige schließen.
-    DismissError,
     /// Laser-Profil aktivieren.
     LaserSelect(String),
     /// Verbindung zum aktiven Laser ausdrücklich aufbauen oder trennen.
