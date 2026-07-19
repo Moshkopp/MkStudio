@@ -740,6 +740,13 @@ impl App {
         // egui-Frame bauen (Panels): die Closure braucht `&mut App`, daher hier
         // im Root. Der egui-Kontext ist ein billiger Arc-Clone.
         let ui_started = std::time::Instant::now();
+        // Theme VOR dem Frame auf den Context setzen: Fenster/Menüs/Tooltips
+        // entstehen aus dem Context-Style, nicht aus dem Root-`Ui`. Beide
+        // Theme-Slots (Dark/Light) erhalten denselben Style, damit die
+        // System-Theme-Erkennung nie einen ungethemten Look einblendet.
+        let theme_style = ui::theme_style(&self.ui_settings.theme);
+        self.egui_ctx
+            .all_styles_mut(|style| *style = theme_style.clone());
         let raw = self.renderer.take_egui_input(&self.window);
         let mut full = self.egui_ctx.clone().run_ui(raw, |ui| ui::build(ui, self));
         let build_ms = ui_started.elapsed().as_secs_f64() * 1_000.0;

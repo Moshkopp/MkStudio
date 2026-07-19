@@ -51,8 +51,6 @@ pub(super) fn c32(rgb: [u8; 3]) -> Color32 {
 
 pub fn build(ui: &mut egui::Ui, app: &mut App) {
     use crate::tools::View;
-    apply_theme(ui, &app.ui_settings.theme);
-
     // Oben: globale Aktionen | Ansichten | kompakte Systemzustände.
     let view = app.view;
     let project_name = app
@@ -955,7 +953,11 @@ fn scale_rgb(hue: [u8; 3], f: f32) -> Color32 {
 /// Dark-Workshop-Theme: warme Graphitflächen mit klarer Helligkeitsstaffelung.
 /// Akzent- und Buttonfarbe kommen aus den GUI-Settings (ADR 0002); mit den
 /// Default-Settings entspricht das exakt dem bisherigen festen Look.
-fn apply_theme(ui: &mut egui::Ui, theme: &studio_core::Theme) {
+///
+/// Liefert einen kompletten Context-Style: Fenster, Menüs, Popups und Tooltips
+/// baut egui aus dem Context-Style auf — ein pro-`Ui` gesetztes Theme erreicht
+/// sie nicht.
+pub(crate) fn theme_style(theme: &studio_core::Theme) -> egui::Style {
     use egui::{CornerRadius, Stroke};
     let bg = c32(theme.palette.background);
     let toolbar = c32(theme.palette.toolbar);
@@ -984,6 +986,7 @@ fn apply_theme(ui: &mut egui::Ui, theme: &studio_core::Theme) {
     v.override_text_color = Some(text);
     v.window_stroke = Stroke::new(1.0, border);
     v.window_corner_radius = CornerRadius::same(12);
+    v.menu_corner_radius = CornerRadius::same(8);
     v.selection.bg_fill = accent_sel;
     v.selection.stroke = Stroke::new(1.0, accent);
     v.hyperlink_color = accent;
@@ -1016,11 +1019,15 @@ fn apply_theme(ui: &mut egui::Ui, theme: &studio_core::Theme) {
     v.widgets.open.bg_fill = button_fill;
     v.widgets.open.corner_radius = r;
 
-    *ui.visuals_mut() = v;
+    let mut style = egui::Style {
+        visuals: v,
+        ..egui::Style::default()
+    };
 
     // Etwas mehr Luft in Abständen (näher am Svelte-Spacing).
-    let style = ui.style_mut();
     style.spacing.item_spacing = egui::vec2(8.0, 8.0);
     style.spacing.button_padding = egui::vec2(10.0, 6.0);
     style.spacing.window_margin = egui::Margin::same(12);
+    style.spacing.menu_margin = egui::Margin::same(8);
+    style
 }
