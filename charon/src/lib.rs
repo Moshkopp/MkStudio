@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:3737";
 pub const NETWORK_OPT_IN_ENV: &str = "CHARON_ALLOW_NETWORK";
-pub const PROTOCOL_VERSION: u32 = 2;
+pub const PROTOCOL_VERSION: u32 = 3;
 const ONLINE_TIMEOUT_SECS: u64 = 15;
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
@@ -64,7 +64,7 @@ struct Handshake {
     server_version: &'static str,
     protocol_version: u32,
     instance_id: String,
-    capabilities: [&'static str; 8],
+    capabilities: [&'static str; 9],
 }
 
 #[derive(Serialize)]
@@ -95,6 +95,41 @@ struct WorkplaceBackupAck {
     kind: String,
     content_hash: String,
     stored: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CatalogChangeUpload {
+    kind: String,
+    id: String,
+    base_hash: Option<String>,
+    deleted: bool,
+    content_hash: String,
+    payload: Option<String>,
+    workplace_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CatalogRecord {
+    sequence: u64,
+    kind: String,
+    id: String,
+    deleted: bool,
+    content_hash: String,
+    payload: Option<String>,
+    workplace_id: String,
+    changed_at_unix: u64,
+}
+
+#[derive(Debug, Serialize)]
+struct CatalogChangeAck {
+    accepted: bool,
+    current: Option<CatalogRecord>,
+}
+
+#[derive(Debug, Serialize)]
+struct CatalogChanges {
+    cursor: u64,
+    records: Vec<CatalogRecord>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -354,6 +389,7 @@ fn route(
                 "project_events",
                 "assets",
                 "workplace_backups",
+                "shared_catalog",
                 "machine_leases",
             ],
         })?,
@@ -425,6 +461,34 @@ fn route(
                     ));
                 }
                 Err(StoreBackupError::Io(error)) => return Err(error),
+            }
+        }
+        ("GET", "/api/v1/catalog/changes") => {
+            let after = query_value(query, "after")
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or_default();
+            json_body(&list_catalog_changes(&state.data_dir, after)?)?
+        }
+        ("POST", "/api/v1/catalog/changes") => {
+            let upload: CatalogChangeUpload = match serde_json::from_str(body) {
+                Ok(upload) => upload,
+                Err(_) => return Ok(("400 Bad Request", r#"{"error":"invalid_json"}"#.into())),
+            };
+            match store_catalog_change(&state.data_dir, upload) {
+                Ok(ack) => json_body(&ack)?,
+                Err(StoreCatalogError::Invalid) => {
+                    return Ok((
+                        "400 Bad Request",
+                        r#"{"error":"invalid_catalog_change"}"#.into(),
+                    ));
+                }
+                Err(StoreCatalogError::HashMismatch) => {
+                    return Ok((
+                        "422 Unprocessable Entity",
+                        r#"{"error":"hash_mismatch"}"#.into(),
+                    ));
+                }
+                Err(StoreCatalogError::Io(error)) => return Err(error),
             }
         }
         ("POST", "/api/v1/leases/acquire") => {
@@ -891,6 +955,141 @@ fn release_lease(state: &mut ServerState, request: &LeaseRelease) -> bool {
 }
 
 #[derive(Debug)]
+enum StoreCatalogError {
+    Invalid,
+    HashMismatch,
+    Io(std::io::Error),
+}
+
+fn store_catalog_change(
+    data_dir: &Path,
+    upload: CatalogChangeUpload,
+) -> Result<CatalogChangeAck, StoreCatalogError> {
+    if !valid_id(&upload.id)
+        || !valid_id(&upload.workplace_id)
+        || !matches!(upload.kind.as_str(), "laser_profile" | "material_profile")
+        || upload.deleted == upload.payload.is_some()
+    {
+        return Err(StoreCatalogError::Invalid);
+    }
+    if let Some(payload) = &upload.payload {
+        if luxifer_core::assets::content_hash(payload.as_bytes()) != upload.content_hash {
+            return Err(StoreCatalogError::HashMismatch);
+        }
+        match upload.kind.as_str() {
+            "laser_profile" => {
+                let profile: luxifer_core::LaserProfile =
+                    serde_json::from_str(payload).map_err(|_| StoreCatalogError::Invalid)?;
+                if profile.id != upload.id || profile.name.trim().is_empty() {
+                    return Err(StoreCatalogError::Invalid);
+                }
+            }
+            "material_profile" => {
+                let profile: luxifer_core::MaterialProfile =
+                    serde_json::from_str(payload).map_err(|_| StoreCatalogError::Invalid)?;
+                if profile.id != upload.id || profile.validate().is_err() {
+                    return Err(StoreCatalogError::Invalid);
+                }
+            }
+            _ => return Err(StoreCatalogError::Invalid),
+        }
+    } else if upload.content_hash != luxifer_core::assets::content_hash(b"") {
+        return Err(StoreCatalogError::HashMismatch);
+    }
+
+    let path = catalog_record_path(data_dir, &upload.kind, &upload.id);
+    let current = match std::fs::read(&path) {
+        Ok(bytes) => Some(
+            serde_json::from_slice::<CatalogRecord>(&bytes)
+                .map_err(|error| StoreCatalogError::Io(std::io::Error::other(error)))?,
+        ),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => None,
+        Err(error) => return Err(StoreCatalogError::Io(error)),
+    };
+    if current.as_ref().map(|record| &record.content_hash) != upload.base_hash.as_ref() {
+        return Ok(CatalogChangeAck {
+            accepted: false,
+            current,
+        });
+    }
+    let sequence = catalog_records(data_dir)
+        .map_err(StoreCatalogError::Io)?
+        .into_iter()
+        .map(|record| record.sequence)
+        .max()
+        .unwrap_or_default()
+        .saturating_add(1);
+    let record = CatalogRecord {
+        sequence,
+        kind: upload.kind,
+        id: upload.id,
+        deleted: upload.deleted,
+        content_hash: upload.content_hash,
+        payload: upload.payload,
+        workplace_id: upload.workplace_id,
+        changed_at_unix: now_unix(),
+    };
+    let parent = path.parent().ok_or(StoreCatalogError::Invalid)?;
+    std::fs::create_dir_all(parent).map_err(StoreCatalogError::Io)?;
+    let temp = path.with_extension("json.tmp");
+    let bytes = serde_json::to_vec_pretty(&record)
+        .map_err(|error| StoreCatalogError::Io(std::io::Error::other(error)))?;
+    std::fs::write(&temp, bytes).map_err(StoreCatalogError::Io)?;
+    std::fs::rename(temp, path).map_err(StoreCatalogError::Io)?;
+    Ok(CatalogChangeAck {
+        accepted: true,
+        current: Some(record),
+    })
+}
+
+fn list_catalog_changes(data_dir: &Path, after: u64) -> std::io::Result<CatalogChanges> {
+    let mut all = catalog_records(data_dir)?;
+    let cursor = all
+        .iter()
+        .map(|record| record.sequence)
+        .max()
+        .unwrap_or_default();
+    all.retain(|record| record.sequence > after);
+    all.sort_by_key(|record| record.sequence);
+    Ok(CatalogChanges {
+        cursor,
+        records: all,
+    })
+}
+
+fn catalog_records(data_dir: &Path) -> std::io::Result<Vec<CatalogRecord>> {
+    let root = data_dir.join("catalog");
+    let mut records = Vec::new();
+    for kind in ["laser_profile", "material_profile"] {
+        let entries = match std::fs::read_dir(root.join(kind)) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+            Err(error) => return Err(error),
+        };
+        for entry in entries {
+            let entry = entry?;
+            if entry.file_type()?.is_file()
+                && entry.path().extension().and_then(|ext| ext.to_str()) == Some("json")
+            {
+                records.push(
+                    serde_json::from_slice(&std::fs::read(entry.path())?).map_err(|error| {
+                        std::io::Error::new(std::io::ErrorKind::InvalidData, error)
+                    })?,
+                );
+            }
+        }
+    }
+    Ok(records)
+}
+
+fn catalog_record_path(data_dir: &Path, kind: &str, id: &str) -> PathBuf {
+    data_dir
+        .join("catalog")
+        .join(kind)
+        .join(format!("{id}.json"))
+}
+
+#[derive(Debug)]
 enum StoreBackupError {
     Invalid,
     HashMismatch,
@@ -1101,13 +1300,77 @@ mod tests {
                 "assets",
                 "workplace_backups",
                 "machine_leases",
+                "shared_catalog",
             ],
         })
         .unwrap()
         .1;
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(value["protocol_version"], 2);
+        assert_eq!(value["protocol_version"], 3);
         assert_eq!(value["server"], "charon");
+    }
+
+    #[test]
+    fn gemeinsamer_katalog_erkennt_konflikt_und_behaelt_loeschung() {
+        let dir = std::env::temp_dir().join(format!(
+            "charon-catalog-{}-{}",
+            std::process::id(),
+            now_unix()
+        ));
+        let profile = luxifer_core::LaserProfile {
+            id: "laser-a".into(),
+            name: "Laser A".into(),
+            ..Default::default()
+        };
+        let payload = serde_json::to_string(&profile).unwrap();
+        let hash = luxifer_core::assets::content_hash(payload.as_bytes());
+        let first = store_catalog_change(
+            &dir,
+            CatalogChangeUpload {
+                kind: "laser_profile".into(),
+                id: profile.id.clone(),
+                base_hash: None,
+                deleted: false,
+                content_hash: hash.clone(),
+                payload: Some(payload),
+                workplace_id: "office".into(),
+            },
+        )
+        .unwrap();
+        assert!(first.accepted);
+
+        let conflict = store_catalog_change(
+            &dir,
+            CatalogChangeUpload {
+                kind: "laser_profile".into(),
+                id: profile.id.clone(),
+                base_hash: None,
+                deleted: true,
+                content_hash: luxifer_core::assets::content_hash(b""),
+                payload: None,
+                workplace_id: "workshop".into(),
+            },
+        )
+        .unwrap();
+        assert!(!conflict.accepted);
+
+        let deleted = store_catalog_change(
+            &dir,
+            CatalogChangeUpload {
+                kind: "laser_profile".into(),
+                id: profile.id,
+                base_hash: Some(hash),
+                deleted: true,
+                content_hash: luxifer_core::assets::content_hash(b""),
+                payload: None,
+                workplace_id: "office".into(),
+            },
+        )
+        .unwrap();
+        assert!(deleted.accepted);
+        let records = list_catalog_changes(&dir, 0).unwrap();
+        assert_eq!(records.records.len(), 1);
+        assert!(records.records[0].deleted);
     }
 
     #[test]

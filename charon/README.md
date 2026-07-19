@@ -91,3 +91,9 @@ angelegt. Charon behält pro Arbeitsplatz und Sicherungstyp die letzten zehn
 Änderungen, danach je einen Tagesstand für 30 Tage und anschließend je einen
 30-Tage-Stand für zwölf Zeiträume. Bestehende einzelne Sicherungsdateien aus
 Protokollversion 2 bleiben lesbar und gehen in diese Aufbewahrung ein.
+
+Seit Protokollversion 3 werden Laser- und Materialprofile zusätzlich als
+gemeinsamer Katalog automatisch zwischen allen Arbeitsplätzen abgeglichen.
+Änderungen verwenden Inhaltshashes und Basisrevisionen; Löschungen bleiben als
+Tombstones erhalten. Aktive Auswahlen sind weiterhin rein lokal. Die
+arbeitsplatzbezogene Historie dient nur noch der bewussten Wiederherstellung.

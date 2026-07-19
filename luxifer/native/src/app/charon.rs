@@ -26,7 +26,13 @@ pub(super) enum CharonWorkerResult {
     Syncing(CharonConnection),
     Connected(
         CharonConnection,
-        Result<luxifer_application::CharonSyncReport, String>,
+        Result<
+            (
+                luxifer_application::CharonSyncReport,
+                luxifer_application::SharedCatalogSync,
+            ),
+            String,
+        >,
     ),
     Failed(String),
     Disabled,
@@ -354,6 +360,10 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                         }
                         let sync = luxifer_application::sync_assets(&current.url)
                             .and_then(|mut report| {
+                                let catalog = luxifer_application::sync_shared_catalog(
+                                    &current.url,
+                                    &current.workplace_id,
+                                )?;
                                 report.backups_uploaded =
                                     luxifer_application::upload_workplace_backups(
                                         &current.url,
@@ -368,7 +378,7 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                                 report.uploaded += projects.uploaded;
                                 report.pending += projects.pending;
                                 report.received += projects.received;
-                                Ok(report)
+                                Ok((report, catalog))
                             })
                             .map_err(|error| error.message().to_owned());
                         CharonWorkerResult::Connected(connection, sync)

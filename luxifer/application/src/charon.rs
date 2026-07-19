@@ -6,9 +6,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use crate::catalog_sync::{catalog_key, load_catalog_state, update_catalog_state, CatalogConflict};
 use crate::AppError;
 
-const PROTOCOL_VERSION: u32 = 2;
+const PROTOCOL_VERSION: u32 = 3;
 const TIMEOUT: Duration = Duration::from_millis(800);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(6);
@@ -42,6 +43,62 @@ pub enum CharonBackupKind {
     UiSettings,
     LaserProfiles,
     MaterialProfiles,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CatalogKind {
+    LaserProfile,
+    MaterialProfile,
+}
+
+impl CatalogKind {
+    pub(crate) const fn as_str(self) -> &'static str {
+        match self {
+            Self::LaserProfile => "laser_profile",
+            Self::MaterialProfile => "material_profile",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct SharedCatalogRecord {
+    pub sequence: u64,
+    pub kind: CatalogKind,
+    pub id: String,
+    pub deleted: bool,
+    pub content_hash: String,
+    pub payload: Option<String>,
+    pub workplace_id: String,
+    pub changed_at_unix: u64,
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct SharedCatalogSync {
+    pub records: Vec<SharedCatalogRecord>,
+    pub conflicts: Vec<CatalogConflict>,
+}
+
+#[derive(Serialize)]
+struct CatalogChangeUpload<'a> {
+    kind: CatalogKind,
+    id: &'a str,
+    base_hash: Option<&'a str>,
+    deleted: bool,
+    content_hash: &'a str,
+    payload: Option<&'a str>,
+    workplace_id: &'a str,
+}
+
+#[derive(Deserialize)]
+struct CatalogChangeAck {
+    accepted: bool,
+    current: Option<SharedCatalogRecord>,
+}
+
+#[derive(Deserialize)]
+struct CatalogChanges {
+    records: Vec<SharedCatalogRecord>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -310,14 +367,20 @@ pub fn upload_workplace_backups(
             format!("Einstellungen sind ungültig: {error}"),
         )
     })?;
-    let laser_payload = serde_json::to_string_pretty(lasers).map_err(|error| {
+    // Aktive Auswahlen sind Arbeitsplatz-Zustand und gehören nicht in eine
+    // übertragbare Profil-Sicherung.
+    let mut shared_lasers = lasers.clone();
+    shared_lasers.active_id = None;
+    let mut shared_materials = materials.clone();
+    shared_materials.active_by_laser.clear();
+    let laser_payload = serde_json::to_string_pretty(&shared_lasers).map_err(|error| {
         AppError::wrap(
             "charon_backup_json",
             "Laserprofile sind ungültig.",
             error.to_string(),
         )
     })?;
-    let material_payload = serde_json::to_string_pretty(materials).map_err(|error| {
+    let material_payload = serde_json::to_string_pretty(&shared_materials).map_err(|error| {
         AppError::wrap(
             "charon_backup_json",
             "Materialprofile sind ungültig.",
@@ -538,6 +601,99 @@ pub fn sync_assets(base_url: &str) -> Result<CharonSyncReport, AppError> {
         report.assets_downloaded += 1;
     }
     Ok(report)
+}
+
+/// Synchronisiert die gemeinsamen Laser- und Materialprofile. Lokale
+/// Änderungen kommen aus einer persistenten Outbox; Serverkonflikte werden
+/// zur bewussten Auflösung gemeldet und niemals still überschrieben.
+pub fn sync_shared_catalog(
+    base_url: &str,
+    workplace_id: &str,
+) -> Result<SharedCatalogSync, AppError> {
+    let endpoint = HttpEndpoint::parse(base_url)?;
+    let pending = load_catalog_state()?.pending;
+    for change in pending {
+        let body = serde_json::to_string(&CatalogChangeUpload {
+            kind: change.kind,
+            id: &change.id,
+            base_hash: change.base_hash.as_deref(),
+            deleted: change.payload.is_none(),
+            content_hash: &change.content_hash,
+            payload: change.payload.as_deref(),
+            workplace_id,
+        })
+        .map_err(|error| AppError::new("catalog_json", error.to_string()))?;
+        let ack: CatalogChangeAck = parse_json_response(&send_request(
+            &endpoint,
+            "POST",
+            "/api/v1/catalog/changes",
+            &body,
+            UPLOAD_TIMEOUT,
+        )?)?;
+        update_catalog_state(|state| {
+            let key = catalog_key(change.kind, &change.id);
+            if ack.accepted {
+                if let Some(current) = &ack.current {
+                    state.known_hashes.insert(key, current.content_hash.clone());
+                }
+            } else if let Some(current) = &ack.current {
+                let conflict = CatalogConflict {
+                    kind: change.kind,
+                    id: change.id.clone(),
+                    local_hash: change.content_hash.clone(),
+                    remote_hash: current.content_hash.clone(),
+                };
+                if !state.conflicts.iter().any(|existing| {
+                    existing.kind == conflict.kind
+                        && existing.id == conflict.id
+                        && existing.local_hash == conflict.local_hash
+                        && existing.remote_hash == conflict.remote_hash
+                }) {
+                    state.conflicts.push(conflict);
+                }
+                state.known_hashes.insert(key, current.content_hash.clone());
+            }
+            // Eine inzwischen erneut bearbeitete Version derselben ID bleibt
+            // in der Outbox und wird beim nächsten Durchlauf übertragen.
+            state.pending.retain(|item| {
+                !(item.kind == change.kind
+                    && item.id == change.id
+                    && item.content_hash == change.content_hash)
+            });
+        })?;
+    }
+
+    // Der Server liefert pro ID nur den aktuellen Stand. Ein Vollabgleich ist
+    // deshalb klein, idempotent und nach einem Client-Absturz selbstheilend.
+    let mut changes: CatalogChanges = parse_json_response(&send_request(
+        &endpoint,
+        "GET",
+        "/api/v1/catalog/changes?after=0",
+        "",
+        UPLOAD_TIMEOUT,
+    )?)?;
+    update_catalog_state(|state| {
+        for record in &changes.records {
+            state.known_hashes.insert(
+                catalog_key(record.kind, &record.id),
+                record.content_hash.clone(),
+            );
+        }
+    })?;
+    let state = load_catalog_state()?;
+    // Solange ein Konflikt nicht bewusst aufgelöst wurde, bleibt der lokale
+    // Stand unangetastet. Insbesondere der erste Abgleich eines bestehenden
+    // Rechners darf nicht unbemerkt vom Serverstand überschrieben werden.
+    changes.records.retain(|record| {
+        !state
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.kind == record.kind && conflict.id == record.id)
+    });
+    Ok(SharedCatalogSync {
+        records: changes.records,
+        conflicts: state.conflicts,
+    })
 }
 
 fn hex_encode(bytes: &[u8]) -> String {
@@ -822,7 +978,7 @@ mod tests {
 
     #[test]
     fn parser_akzeptiert_gueltigen_handshake() {
-        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"server\":\"charon\",\"server_version\":\"1.0.0\",\"protocol_version\":2,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}";
+        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"server\":\"charon\",\"server_version\":\"1.0.0\",\"protocol_version\":3,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}";
         let handshake: CharonHandshake = parse_json_response(response).unwrap();
         validate_handshake(&handshake).unwrap();
         assert_eq!(handshake.server_version, "1.0.0");

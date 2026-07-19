@@ -69,7 +69,10 @@ impl App {
             return;
         };
         let original_id = profile.id.clone();
-        self.laser_backend.save_profile(profile);
+        if let Err(error) = self.laser_backend.save_profile(profile) {
+            self.app_error = Some(error);
+            return;
+        }
         let saved = if was_new {
             self.laser_backend.registry.profiles.last().cloned()
         } else {
@@ -102,7 +105,10 @@ impl App {
         else {
             return;
         };
-        self.laser_backend.delete_profile(&id);
+        if let Err(error) = self.laser_backend.delete_profile(&id) {
+            self.app_error = Some(error);
+            return;
+        }
         self.charon_runtime.configure(
             &self.ui_settings,
             &self.laser_backend.registry,

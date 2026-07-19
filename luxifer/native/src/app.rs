@@ -187,6 +187,10 @@ impl App {
         let ui_settings = luxifer_core::UiSettings::load();
         let laser_backend = luxifer_application::LaserService::load();
         let material_service = luxifer_application::MaterialService::load()?;
+        luxifer_application::seed_shared_catalog(
+            &laser_backend.registry.profiles,
+            &material_service.library().profiles,
+        )?;
         let charon_runtime = charon::CharonRuntime::new(
             &ui_settings,
             &laser_backend.registry,

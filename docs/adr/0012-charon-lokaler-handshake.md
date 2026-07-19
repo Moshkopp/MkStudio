@@ -259,16 +259,17 @@ Der erste Meilenstein ist mit Tag `v1.0` umgesetzt:
   die lokale Historie bleibt erhalten. Ist genau dieses Projekt geöffnet und
   ungespeichert, greift vorher der Dirty-Guard. Fehlt eine referenzierte
   Asset-Datei trotz Synchronisierung, bleibt die Übernahme sicher gesperrt.
-- Charon hält je Arbeitsplatz den jüngsten Snapshot von `ui_settings` und
-  `laser_profiles` getrennt und atomar unter `workplaces/<workplace_id>/`.
+- Charon hält je Arbeitsplatz Sicherungen von `ui_settings`, `laser_profiles`
+  und `material_profiles` getrennt und atomar unter
+  `workplaces/<workplace_id>/`.
   Inhaltshashes sichern die Übertragung ab; identische Snapshots werden
   idempotent bestätigt und nicht neu geschrieben;
-- LuxiFer übergibt lokale Änderungen an Settings und Laserprofilen nur dem
+- LuxiFer übergibt lokale Änderungen an Settings und Profilkatalogen nur dem
   vorhandenen Hintergrundthread. Netzwerkzugriff findet weder beim Speichern
   noch im egui-Callback statt und ein Charon-Fehler macht die lokale Änderung
   nicht rückgängig;
-- der Charon-Dialog lädt vorhandene Arbeitsplatzsicherungen ausdrücklich auf
-  Nutzerwunsch. Settings und Laserprofile werden getrennt aufgeführt und erst
+- der Charon-Dialog lädt vorhandene Sicherungen ausdrücklich auf
+  Nutzerwunsch. Settings und Profilkataloge werden getrennt aufgeführt und erst
   durch `Wiederherstellen` lokal geschrieben; beim Start erfolgt keine
   automatische Übernahme.
 - der Laser-Tab zeigt für das aktive Profil ausdrücklich `Verbinden` oder
@@ -352,3 +353,13 @@ für 30 Tage und danach zwölf 30-Tage-Stände. Die UI gruppiert diese Historie
 nach Arbeitsplatz und Typ; ältere Stände bleiben standardmäßig eingeklappt.
 Vor einer Wiederherstellung wird der lokale Ausgangsstand selbst als Snapshot
 eingereiht und eine fachliche Änderungszusammenfassung angezeigt.
+
+Protokollversion `3` ergänzt `shared_catalog`. Laser- und Materialprofile sind
+damit keine arbeitsplatzgebundenen Einstellungen mehr, sondern gemeinsame,
+automatisch abgeglichene Katalogeinträge. Jeder Eintrag besitzt Inhaltshash,
+optimistische Basisrevision und eine dauerhafte Löschmarkierung. Abweichende
+Änderungen derselben stabilen ID werden als Konflikt gemeldet und überschreiben
+den lokalen Stand nicht. Die aktive Laserwahl und die aktive Materialwahl pro
+Laser bleiben ausschließlich lokal. Die vorhandene Sicherungshistorie bleibt
+als bewusst auszulösender Rücksetzpunkt erhalten; ein wiederhergestellter
+Profilstand wird anschließend wieder in den gemeinsamen Katalog veröffentlicht.

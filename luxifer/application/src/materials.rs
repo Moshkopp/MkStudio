@@ -5,7 +5,9 @@ use std::path::{Path, PathBuf};
 
 use luxifer_core::{MaterialLibrary, MaterialProcess, MaterialProcessDefaults, MaterialProfile};
 
-use crate::{AppError, LayerParams};
+use crate::{
+    catalog_sync::enqueue_catalog_profile, AppError, CatalogKind, LayerParams, SharedCatalogRecord,
+};
 
 const MATERIAL_FILE: &str = "material-profile.json";
 
@@ -50,25 +52,43 @@ impl MaterialService {
 
     /// Ersetzt die lokale Bibliothek durch eine geprüfte Arbeitsplatzsicherung.
     /// Persistenz und laufender Zustand bleiben auch hier transaktional gekoppelt.
-    pub fn restore_library(&mut self, library: MaterialLibrary) -> Result<(), AppError> {
+    pub fn restore_library(&mut self, mut library: MaterialLibrary) -> Result<(), AppError> {
         for profile in &library.profiles {
             profile
                 .validate()
                 .map_err(|message| AppError::new("invalid_material_profile", message))?;
         }
-        for (laser_id, material_id) in &library.active_by_laser {
-            if !library
-                .profiles
+        let previous_ids = self
+            .library
+            .profiles
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect::<Vec<_>>();
+        library.active_by_laser =
+            self.library
+                .active_by_laser
                 .iter()
-                .any(|profile| profile.id == *material_id && profile.laser_id == *laser_id)
-            {
-                return Err(AppError::new(
-                    "invalid_material_selection",
-                    "Die gesicherte Materialauswahl passt nicht zum Laser.",
-                ));
+                .filter(|(laser_id, material_id)| {
+                    library.profiles.iter().any(|profile| {
+                        profile.id == **material_id && profile.laser_id == **laser_id
+                    })
+                })
+                .map(|(laser_id, material_id)| (laser_id.clone(), material_id.clone()))
+                .collect();
+        self.commit(library.clone())?;
+        for profile in &library.profiles {
+            enqueue_catalog_profile(CatalogKind::MaterialProfile, &profile.id, Some(profile))?;
+        }
+        for id in previous_ids {
+            if !library.profiles.iter().any(|profile| profile.id == id) {
+                enqueue_catalog_profile::<MaterialProfile>(
+                    CatalogKind::MaterialProfile,
+                    &id,
+                    None,
+                )?;
             }
         }
-        self.commit(library)
+        Ok(())
     }
 
     pub fn new_profile(&self, laser_id: &str, layer: &LayerParams) -> MaterialProfile {
@@ -110,6 +130,7 @@ impl MaterialService {
             ));
         }
         self.commit(next)?;
+        enqueue_catalog_profile(CatalogKind::MaterialProfile, &profile.id, Some(&profile))?;
         Ok(profile)
     }
 
@@ -124,7 +145,8 @@ impl MaterialService {
         next.profiles.retain(|profile| profile.id != id);
         next.active_by_laser
             .retain(|_, material_id| material_id != id);
-        self.commit(next)
+        self.commit(next)?;
+        enqueue_catalog_profile::<MaterialProfile>(CatalogKind::MaterialProfile, id, None)
     }
 
     pub fn set_active(
@@ -165,6 +187,42 @@ impl MaterialService {
             }
         }
         Ok(())
+    }
+
+    pub fn apply_shared_record(&mut self, record: &SharedCatalogRecord) -> Result<bool, AppError> {
+        if record.kind != CatalogKind::MaterialProfile {
+            return Ok(false);
+        }
+        let mut next = self.library.clone();
+        let changed = if record.deleted {
+            let existed = next.profiles.iter().any(|profile| profile.id == record.id);
+            next.profiles.retain(|profile| profile.id != record.id);
+            next.active_by_laser
+                .retain(|_, material_id| material_id != &record.id);
+            existed
+        } else {
+            let profile: MaterialProfile = serde_json::from_str(
+                record
+                    .payload
+                    .as_deref()
+                    .ok_or_else(|| AppError::new("catalog_payload", "Materialprofil fehlt."))?,
+            )
+            .map_err(|error| AppError::new("catalog_payload", error.to_string()))?;
+            profile
+                .validate()
+                .map_err(|message| AppError::new("catalog_payload", message))?;
+            let changed = next.profiles.iter().find(|item| item.id == profile.id) != Some(&profile);
+            if let Some(existing) = next.profiles.iter_mut().find(|item| item.id == profile.id) {
+                *existing = profile;
+            } else {
+                next.profiles.push(profile);
+            }
+            changed
+        };
+        if changed {
+            self.commit(next)?;
+        }
+        Ok(changed)
     }
 
     fn commit(&mut self, next: MaterialLibrary) -> Result<(), AppError> {
@@ -309,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn wiederherstellung_validiert_aktive_laserzuordnung() {
+    fn wiederherstellung_ignoriert_fremde_aktive_auswahl() {
         let dir = temp_dir("restore-invalid");
         let mut service = MaterialService::load_from(&dir).unwrap();
         let mut library = MaterialLibrary::default();
@@ -317,7 +375,7 @@ mod tests {
             .active_by_laser
             .insert("laser-a".into(), "fehlt".into());
 
-        assert!(service.restore_library(library).is_err());
+        assert!(service.restore_library(library).is_ok());
         assert!(service.library().active_by_laser.is_empty());
     }
 }

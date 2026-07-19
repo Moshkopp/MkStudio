@@ -10,7 +10,7 @@ use luxifer_core::{
     Layer, MachineDriver, MachineSetting, Shape, StartMode,
 };
 
-use crate::AppError;
+use crate::{catalog_sync::enqueue_catalog_profile, AppError, CatalogKind, SharedCatalogRecord};
 
 /// Ob eine Job-Aktion eine offene Geräteverbindung braucht. Kompilieren/
 /// Export laufen ohne Gerät.
@@ -162,41 +162,130 @@ impl LaserService {
     }
 
     /// Legt ein neues Profil an oder aktualisiert ein bestehendes (nach ID).
-    pub fn save_profile(&mut self, mut profile: LaserProfile) {
+    pub fn save_profile(&mut self, mut profile: LaserProfile) -> Result<(), AppError> {
         if profile.id.is_empty() {
             let millis = std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .map(|d| d.as_millis())
                 .unwrap_or(0);
             profile.id = format!("laser-{millis}");
-            self.registry.add(profile);
+            self.registry.add(profile.clone());
         } else if !self.registry.update(profile.clone()) {
-            self.registry.add(profile);
+            self.registry.add(profile.clone());
         }
-        let _ = self.registry.save();
+        self.registry.save().map_err(|error| {
+            AppError::new(
+                "laser_registry_write",
+                format!("Laserprofile speichern fehlgeschlagen: {error}"),
+            )
+        })?;
+        enqueue_catalog_profile(CatalogKind::LaserProfile, &profile.id, Some(&profile))?;
         self.driver = None;
         self.driver_id = None;
         self.connected_id = None;
+        Ok(())
     }
 
-    pub fn delete_profile(&mut self, id: &str) {
+    pub fn delete_profile(&mut self, id: &str) -> Result<(), AppError> {
         self.registry.remove(id);
-        let _ = self.registry.save();
+        self.registry.save().map_err(|error| {
+            AppError::new(
+                "laser_registry_write",
+                format!("Laserprofile speichern fehlgeschlagen: {error}"),
+            )
+        })?;
+        enqueue_catalog_profile::<LaserProfile>(CatalogKind::LaserProfile, id, None)?;
         self.driver = None;
         self.driver_id = None;
         self.connected_id = None;
+        Ok(())
+    }
+
+    pub fn apply_shared_record(&mut self, record: &SharedCatalogRecord) -> Result<bool, AppError> {
+        if record.kind != CatalogKind::LaserProfile {
+            return Ok(false);
+        }
+        let changed = if record.deleted {
+            let existed = self
+                .registry
+                .profiles
+                .iter()
+                .any(|profile| profile.id == record.id);
+            self.registry.remove(&record.id);
+            existed
+        } else {
+            let profile: LaserProfile = serde_json::from_str(
+                record
+                    .payload
+                    .as_deref()
+                    .ok_or_else(|| AppError::new("catalog_payload", "Laserprofil fehlt."))?,
+            )
+            .map_err(|error| AppError::new("catalog_payload", error.to_string()))?;
+            let changed = self
+                .registry
+                .profiles
+                .iter()
+                .find(|item| item.id == profile.id)
+                != Some(&profile);
+            if !self.registry.update(profile.clone()) {
+                self.registry.profiles.push(profile);
+            }
+            changed
+        };
+        if changed {
+            if self.registry.active_id.as_ref().is_some_and(|id| {
+                !self
+                    .registry
+                    .profiles
+                    .iter()
+                    .any(|profile| &profile.id == id)
+            }) {
+                self.registry.active_id = self
+                    .registry
+                    .profiles
+                    .first()
+                    .map(|profile| profile.id.clone());
+            }
+            self.registry
+                .save()
+                .map_err(|error| AppError::new("laser_registry_write", error))?;
+            self.disconnect();
+            self.driver = None;
+            self.driver_id = None;
+        }
+        Ok(changed)
     }
 
     /// Ersetzt die lokale Registry nach einer ausdrücklich gewählten
     /// Sicherungs-Wiederherstellung und verwirft den dazu nicht mehr passenden
     /// lazy Treiber.
-    pub fn restore_registry(&mut self, registry: LaserRegistry) -> Result<(), AppError> {
+    pub fn restore_registry(&mut self, mut registry: LaserRegistry) -> Result<(), AppError> {
+        let previous_ids = self
+            .registry
+            .profiles
+            .iter()
+            .map(|profile| profile.id.clone())
+            .collect::<Vec<_>>();
+        registry.active_id = self
+            .registry
+            .active_id
+            .clone()
+            .filter(|id| registry.profiles.iter().any(|profile| &profile.id == id))
+            .or_else(|| registry.profiles.first().map(|profile| profile.id.clone()));
         registry.save().map_err(|error| {
             AppError::new(
                 "laser_registry_write",
                 format!("Laserprofile speichern fehlgeschlagen: {error}"),
             )
         })?;
+        for profile in &registry.profiles {
+            enqueue_catalog_profile(CatalogKind::LaserProfile, &profile.id, Some(profile))?;
+        }
+        for id in previous_ids {
+            if !registry.profiles.iter().any(|profile| profile.id == id) {
+                enqueue_catalog_profile::<LaserProfile>(CatalogKind::LaserProfile, &id, None)?;
+            }
+        }
         self.registry = registry;
         self.driver = None;
         self.driver_id = None;

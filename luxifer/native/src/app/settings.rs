@@ -213,8 +213,40 @@ impl App {
             }
             super::charon::CharonWorkerResult::Connected(connection, sync) => {
                 match sync {
-                    Ok(report) => {
-                        self.charon_sync_error = None;
+                    Ok((report, catalog)) => {
+                        self.charon_sync_error = if catalog.conflicts.is_empty() {
+                            None
+                        } else {
+                            Some(format!(
+                                "{} Profilkonflikt(e) mit Charon. Die lokalen Profile wurden nicht überschrieben.",
+                                catalog.conflicts.len()
+                            ))
+                        };
+                        let mut catalog_changed = false;
+                        for record in &catalog.records {
+                            let result = match record.kind {
+                                luxifer_application::CatalogKind::LaserProfile => {
+                                    self.laser_backend.apply_shared_record(record)
+                                }
+                                luxifer_application::CatalogKind::MaterialProfile => {
+                                    self.material_service.apply_shared_record(record)
+                                }
+                            };
+                            match result {
+                                Ok(changed) => catalog_changed |= changed,
+                                Err(error) => {
+                                    self.charon_sync_error = Some(error.message().to_owned());
+                                }
+                            }
+                        }
+                        if catalog_changed {
+                            self.apply_active_laser_workspace();
+                            self.charon_runtime.configure(
+                                &self.ui_settings,
+                                &self.laser_backend.registry,
+                                self.material_service.library(),
+                            );
+                        }
                         if report.received > 0 {
                             self.refresh_project_inbox();
                         }
