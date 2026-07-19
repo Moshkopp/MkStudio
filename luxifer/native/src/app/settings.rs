@@ -59,12 +59,24 @@ impl App {
                             .map_err(|error| error.message().to_owned())
                     })
             }
+            luxifer_application::CharonBackupKind::MaterialProfiles => {
+                serde_json::from_str::<luxifer_core::MaterialLibrary>(&backup.payload)
+                    .map_err(|error| error.to_string())
+                    .and_then(|library| {
+                        self.material_service
+                            .restore_library(library)
+                            .map_err(|error| error.message().to_owned())
+                    })
+            }
         };
         match result {
             Ok(()) => {
                 self.apply_active_laser_workspace();
-                self.charon_runtime
-                    .configure(&self.ui_settings, &self.laser_backend.registry);
+                self.charon_runtime.configure(
+                    &self.ui_settings,
+                    &self.laser_backend.registry,
+                    self.material_service.library(),
+                );
                 self.toasts.success(format!(
                     "Sicherung von {} wiederhergestellt.",
                     backup.workplace_name
@@ -116,8 +128,11 @@ impl App {
         }
         self.canvas.invert_marquee_direction = draft.invert_marquee_direction;
         self.ui_settings = draft;
-        self.charon_runtime
-            .configure(&self.ui_settings, &self.laser_backend.registry);
+        self.charon_runtime.configure(
+            &self.ui_settings,
+            &self.laser_backend.registry,
+            self.material_service.library(),
+        );
         self.toasts.success("Einstellungen gespeichert.");
         true
     }

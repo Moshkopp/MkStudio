@@ -14,6 +14,7 @@ struct CharonConfig {
     workplace_name: String,
     settings: luxifer_core::UiSettings,
     lasers: luxifer_core::LaserRegistry,
+    materials: luxifer_core::MaterialLibrary,
 }
 
 enum WorkerCommand {
@@ -73,6 +74,7 @@ impl CharonRuntime {
     pub fn new(
         settings: &luxifer_core::UiSettings,
         lasers: &luxifer_core::LaserRegistry,
+        materials: &luxifer_core::MaterialLibrary,
     ) -> Result<Self, AppError> {
         let (command_tx, command_rx) = mpsc::channel();
         let (result_tx, result_rx) = mpsc::channel();
@@ -104,7 +106,7 @@ impl CharonRuntime {
             lease_tx,
             lease_rx,
         };
-        runtime.configure(settings, lasers);
+        runtime.configure(settings, lasers, materials);
         Ok(runtime)
     }
 
@@ -112,6 +114,7 @@ impl CharonRuntime {
         &self,
         settings: &luxifer_core::UiSettings,
         lasers: &luxifer_core::LaserRegistry,
+        materials: &luxifer_core::MaterialLibrary,
     ) {
         let config = settings.charon_enabled.then(|| {
             Box::new(CharonConfig {
@@ -120,6 +123,7 @@ impl CharonRuntime {
                 workplace_name: settings.workplace.clone(),
                 settings: settings.clone(),
                 lasers: lasers.clone(),
+                materials: materials.clone(),
             })
         });
         let _ = self.command_tx.send(WorkerCommand::Configure(config));
@@ -130,6 +134,7 @@ impl CharonRuntime {
                 workplace_name: settings.workplace.clone(),
                 settings: settings.clone(),
                 lasers: lasers.clone(),
+                materials: materials.clone(),
             })
         });
         let _ = self.lease_tx.send(LeaseCommand::Configure(lease_config));
@@ -354,6 +359,7 @@ fn worker(command_rx: Receiver<WorkerCommand>, result_tx: Sender<CharonWorkerRes
                                         &current.url,
                                         &current.settings,
                                         &current.lasers,
+                                        &current.materials,
                                     )?;
                                 let projects = luxifer_application::sync_project_revisions(
                                     &current.url,

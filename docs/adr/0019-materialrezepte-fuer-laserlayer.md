@@ -68,6 +68,9 @@ eine zweite Parameterzuordnung. Bibliotheksänderungen werden zuerst in einer
 Kopie aufgebaut und per temporärer Datei ersetzt; erst nach erfolgreichem
 Schreiben wird der laufende Zustand aktualisiert. Eine beschädigte Datei wird
 als Fehler gemeldet und niemals still durch eine leere Bibliothek ersetzt.
+Charon sichert die Bibliothek als arbeitsplatzbezogenen Backup-Typ
+`material_profiles`. Wiederherstellen läuft ebenfalls über `MaterialService`,
+damit Validierung, persistente Datei und laufender Zustand konsistent bleiben.
 
 ## Begriffe
 

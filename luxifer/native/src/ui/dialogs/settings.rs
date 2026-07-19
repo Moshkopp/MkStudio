@@ -657,6 +657,7 @@ fn charon_section(
             let kind = match backup.kind {
                 luxifer_application::CharonBackupKind::UiSettings => "Einstellungen",
                 luxifer_application::CharonBackupKind::LaserProfiles => "Laserprofile",
+                luxifer_application::CharonBackupKind::MaterialProfiles => "Materialprofile",
             };
             ui.label(format!("{} · {}", backup.workplace_name, kind));
             if ui.button("Wiederherstellen").clicked() {

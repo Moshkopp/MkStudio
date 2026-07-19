@@ -86,8 +86,11 @@ impl App {
             st.is_new = false;
         }
         self.apply_active_laser_workspace();
-        self.charon_runtime
-            .configure(&self.ui_settings, &self.laser_backend.registry);
+        self.charon_runtime.configure(
+            &self.ui_settings,
+            &self.laser_backend.registry,
+            self.material_service.library(),
+        );
         self.toasts.success("Laser-Profil gespeichert.");
     }
 
@@ -100,8 +103,11 @@ impl App {
             return;
         };
         self.laser_backend.delete_profile(&id);
-        self.charon_runtime
-            .configure(&self.ui_settings, &self.laser_backend.registry);
+        self.charon_runtime.configure(
+            &self.ui_settings,
+            &self.laser_backend.registry,
+            self.material_service.library(),
+        );
         if let Some(profile) = self.laser_backend.registry.profiles.first().cloned() {
             self.laser_manager_select(&profile.id);
         } else {

@@ -339,3 +339,8 @@ Proxmox-/LAN-Betrieb mit Authentifizierung und TLS, Aufbewahrungsregeln und
 optional ein späterer Objekt-Merge. Charon darf Versionen verteilen und
 Verbindungen koordinieren, aber keine Projektinhalte selbst bearbeiten,
 Maschinen steuern oder laufende Jobs unterbrechen.
+
+Protokollversion `2` ergänzt `material_profiles` als dritten
+Arbeitsplatz-Backup-Typ. Da Clients die Backup-Art als geschlossenes Enum
+validieren, wird die Version bewusst angehoben; Server und Client müssen für
+diesen Stand gemeinsam aktualisiert werden.

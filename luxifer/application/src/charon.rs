@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppError;
 
-const PROTOCOL_VERSION: u32 = 1;
+const PROTOCOL_VERSION: u32 = 2;
 const TIMEOUT: Duration = Duration::from_millis(800);
 const UPLOAD_TIMEOUT: Duration = Duration::from_secs(10);
 const EVENT_TIMEOUT: Duration = Duration::from_secs(6);
@@ -41,6 +41,7 @@ pub struct CharonConnection {
 pub enum CharonBackupKind {
     UiSettings,
     LaserProfiles,
+    MaterialProfiles,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -300,6 +301,7 @@ pub fn upload_workplace_backups(
     base_url: &str,
     settings: &luxifer_core::UiSettings,
     lasers: &luxifer_core::LaserRegistry,
+    materials: &luxifer_core::MaterialLibrary,
 ) -> Result<usize, AppError> {
     let endpoint = HttpEndpoint::parse(base_url)?;
     let settings_payload = settings.to_json().map_err(|error| {
@@ -315,10 +317,18 @@ pub fn upload_workplace_backups(
             error.to_string(),
         )
     })?;
+    let material_payload = serde_json::to_string_pretty(materials).map_err(|error| {
+        AppError::wrap(
+            "charon_backup_json",
+            "Materialprofile sind ungültig.",
+            error.to_string(),
+        )
+    })?;
     let mut stored = 0;
     for (kind, payload) in [
         (CharonBackupKind::UiSettings, settings_payload),
         (CharonBackupKind::LaserProfiles, laser_payload),
+        (CharonBackupKind::MaterialProfiles, material_payload),
     ] {
         let backup = CharonWorkplaceBackup {
             workplace_id: settings.workplace_id.clone(),
@@ -391,6 +401,22 @@ pub fn list_workplace_backups(base_url: &str) -> Result<Vec<CharonWorkplaceBacku
                         )
                     },
                 )?;
+            }
+            CharonBackupKind::MaterialProfiles => {
+                let library =
+                    serde_json::from_str::<luxifer_core::MaterialLibrary>(&backup.payload)
+                        .map_err(|error| {
+                            AppError::wrap(
+                                "charon_backup_payload",
+                                "Gesicherte Materialprofile sind ungültig.",
+                                error.to_string(),
+                            )
+                        })?;
+                for profile in &library.profiles {
+                    profile
+                        .validate()
+                        .map_err(|message| AppError::new("charon_backup_payload", message))?;
+                }
             }
         }
     }
@@ -796,10 +822,10 @@ mod tests {
 
     #[test]
     fn parser_akzeptiert_gueltigen_handshake() {
-        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"server\":\"charon\",\"server_version\":\"0.1.0\",\"protocol_version\":1,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}";
+        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"server\":\"charon\",\"server_version\":\"1.0.0\",\"protocol_version\":2,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}";
         let handshake: CharonHandshake = parse_json_response(response).unwrap();
         validate_handshake(&handshake).unwrap();
-        assert_eq!(handshake.server_version, "0.1.0");
+        assert_eq!(handshake.server_version, "1.0.0");
         assert!(handshake.capabilities.contains(&"handshake".into()));
     }
 

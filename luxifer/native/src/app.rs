@@ -187,7 +187,11 @@ impl App {
         let ui_settings = luxifer_core::UiSettings::load();
         let laser_backend = luxifer_application::LaserService::load();
         let material_service = luxifer_application::MaterialService::load()?;
-        let charon_runtime = charon::CharonRuntime::new(&ui_settings, &laser_backend.registry)?;
+        let charon_runtime = charon::CharonRuntime::new(
+            &ui_settings,
+            &laser_backend.registry,
+            material_service.library(),
+        )?;
         let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
         let project_integration = project::ProjectIntegrationRuntime::new()?;
         let project = luxifer_application::ProjectService::new();

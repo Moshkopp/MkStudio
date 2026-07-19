@@ -48,6 +48,29 @@ impl MaterialService {
         &self.library
     }
 
+    /// Ersetzt die lokale Bibliothek durch eine geprüfte Arbeitsplatzsicherung.
+    /// Persistenz und laufender Zustand bleiben auch hier transaktional gekoppelt.
+    pub fn restore_library(&mut self, library: MaterialLibrary) -> Result<(), AppError> {
+        for profile in &library.profiles {
+            profile
+                .validate()
+                .map_err(|message| AppError::new("invalid_material_profile", message))?;
+        }
+        for (laser_id, material_id) in &library.active_by_laser {
+            if !library
+                .profiles
+                .iter()
+                .any(|profile| profile.id == *material_id && profile.laser_id == *laser_id)
+            {
+                return Err(AppError::new(
+                    "invalid_material_selection",
+                    "Die gesicherte Materialauswahl passt nicht zum Laser.",
+                ));
+            }
+        }
+        self.commit(library)
+    }
+
     pub fn new_profile(&self, laser_id: &str, layer: &LayerParams) -> MaterialProfile {
         let process = MaterialProcess::from_layer_mode(layer.mode);
         let mut profile = MaterialProfile {
@@ -282,6 +305,19 @@ mod tests {
 
         assert!(service.save_profile(profile).is_err());
         assert!(service.library().profiles.is_empty());
+        assert!(service.library().active_by_laser.is_empty());
+    }
+
+    #[test]
+    fn wiederherstellung_validiert_aktive_laserzuordnung() {
+        let dir = temp_dir("restore-invalid");
+        let mut service = MaterialService::load_from(&dir).unwrap();
+        let mut library = MaterialLibrary::default();
+        library
+            .active_by_laser
+            .insert("laser-a".into(), "fehlt".into());
+
+        assert!(service.restore_library(library).is_err());
         assert!(service.library().active_by_laser.is_empty());
     }
 }

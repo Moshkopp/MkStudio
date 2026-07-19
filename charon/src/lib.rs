@@ -12,7 +12,7 @@ use serde::{Deserialize, Serialize};
 
 pub const DEFAULT_BIND: &str = "127.0.0.1:3737";
 pub const NETWORK_OPT_IN_ENV: &str = "CHARON_ALLOW_NETWORK";
-pub const PROTOCOL_VERSION: u32 = 1;
+pub const PROTOCOL_VERSION: u32 = 2;
 const ONLINE_TIMEOUT_SECS: u64 = 15;
 const MAX_REQUEST_BYTES: usize = 64 * 1024 * 1024;
 
@@ -903,7 +903,10 @@ fn store_workplace_backup(
 ) -> Result<WorkplaceBackupAck, StoreBackupError> {
     if !valid_id(&backup.workplace_id)
         || backup.workplace_name.trim().is_empty()
-        || !matches!(backup.kind.as_str(), "ui_settings" | "laser_profiles")
+        || !matches!(
+            backup.kind.as_str(),
+            "ui_settings" | "laser_profiles" | "material_profiles"
+        )
     {
         return Err(StoreBackupError::Invalid);
     }
@@ -951,7 +954,7 @@ fn list_workplace_backups(data_dir: &Path) -> std::io::Result<Vec<WorkplaceBacku
         if !workplace.path().is_dir() {
             continue;
         }
-        for kind in ["ui_settings", "laser_profiles"] {
+        for kind in ["ui_settings", "laser_profiles", "material_profiles"] {
             let path = workplace.path().join(format!("{kind}.json"));
             if !path.exists() {
                 continue;
@@ -1050,7 +1053,7 @@ mod tests {
         .unwrap()
         .1;
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
-        assert_eq!(value["protocol_version"], 1);
+        assert_eq!(value["protocol_version"], 2);
         assert_eq!(value["server"], "charon");
     }
 
@@ -1143,10 +1146,30 @@ mod tests {
 
         assert!(store_workplace_backup(&dir, backup.clone()).unwrap().stored);
         assert!(!store_workplace_backup(&dir, backup).unwrap().stored);
+        let material_payload = r#"{"profiles":[],"active_by_laser":{}}"#;
+        assert!(
+            store_workplace_backup(
+                &dir,
+                WorkplaceBackup {
+                    workplace_id: "office-1".into(),
+                    workplace_name: "Office".into(),
+                    kind: "material_profiles".into(),
+                    saved_at_unix: 43,
+                    content_hash: luxifer_core::assets::content_hash(material_payload.as_bytes()),
+                    payload: material_payload.into(),
+                },
+            )
+            .unwrap()
+            .stored
+        );
         let backups = list_workplace_backups(&dir).unwrap();
-        assert_eq!(backups.len(), 1);
-        assert_eq!(backups[0].kind, "ui_settings");
-        assert_eq!(backups[0].saved_at_unix, 42);
+        assert_eq!(backups.len(), 2);
+        assert!(backups
+            .iter()
+            .any(|backup| backup.kind == "ui_settings" && backup.saved_at_unix == 42));
+        assert!(backups
+            .iter()
+            .any(|backup| { backup.kind == "material_profiles" && backup.saved_at_unix == 43 }));
         let _ = std::fs::remove_dir_all(dir);
     }
 

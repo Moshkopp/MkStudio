@@ -68,3 +68,20 @@ gestartet. Das Script verändert absichtlich keine Firewallregeln.
 
 Die Proxmox- oder Gast-Firewall sollte `3737/tcp` auf das tatsächlich genutzte
 interne Subnetz beziehungsweise die LuxiFer-Arbeitsplätze begrenzen.
+
+## Update eines bestehenden Proxmox-Dienstes
+
+Nach dem einmaligen Clone wird Charon direkt aus dem Repository aktualisiert:
+
+```bash
+cd /opt/LuxiFer
+./update.sh
+```
+
+Das Script wird als normaler Benutzer ausgeführt und fragt für Installation
+und Dienstneustart selbst nach `sudo`. Es akzeptiert nur einen sauberen
+Git-Stand, zieht den aktuellen Upstream per Fast-Forward, testet und baut
+Charon und ersetzt anschließend `/usr/local/bin/charon`. Startet die neue
+Version nicht, wird automatisch `/usr/local/bin/charon.previous`
+wiederhergestellt. `/var/lib/charon` und `/etc/charon/charon.env` werden beim
+Update nicht verändert.

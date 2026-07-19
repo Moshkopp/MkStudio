@@ -55,6 +55,11 @@ impl App {
                         self.app_error = Some(error);
                         return;
                     }
+                    self.charon_runtime.configure(
+                        &self.ui_settings,
+                        &self.laser_backend.registry,
+                        self.material_service.library(),
+                    );
                 }
                 self.layer_manager = None;
                 self.renderer.invalidate_scene();
@@ -119,6 +124,11 @@ impl App {
                     manager.material_id = Some(profile.id);
                 }
                 self.material_manager = None;
+                self.charon_runtime.configure(
+                    &self.ui_settings,
+                    &self.laser_backend.registry,
+                    self.material_service.library(),
+                );
                 self.toasts.success("Materialprofil gespeichert.");
             }
             Err(error) => self.app_error = Some(error),
@@ -141,6 +151,11 @@ impl App {
                     }
                 }
                 self.material_manager = None;
+                self.charon_runtime.configure(
+                    &self.ui_settings,
+                    &self.laser_backend.registry,
+                    self.material_service.library(),
+                );
                 self.toasts.success("Materialprofil gelöscht.");
             }
             Err(error) => self.app_error = Some(error),
