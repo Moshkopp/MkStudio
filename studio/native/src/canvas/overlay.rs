@@ -47,20 +47,74 @@ pub const LASER_START_COLOR: [f32; 4] = [0.25, 0.78, 0.45, 1.0];
 pub const LASER_ORIGIN_COLOR: [f32; 4] = [0.25, 0.55, 0.98, 1.0];
 pub const LASER_HEAD_COLOR: [f32; 4] = [1.0, 0.62, 0.15, 1.0];
 
-/// Achsenparalleles Fadenkreuz mit Radius `r` (Welt-mm).
-fn crosshair(v: &mut Vec<Vertex>, mx: f64, my: f64, r: f64, color: [f32; 4]) {
-    scene_geo::push_seg(
-        v,
-        [(mx - r) as f32, my as f32],
-        [(mx + r) as f32, my as f32],
-        color,
-    );
-    scene_geo::push_seg(
-        v,
-        [mx as f32, (my - r) as f32],
-        [mx as f32, (my + r) as f32],
-        color,
-    );
+/// Glatter Kreisring (Welt-mm) aus kurzen Segmenten.
+fn marker_ring(v: &mut Vec<Vertex>, mx: f64, my: f64, r: f64, color: [f32; 4]) {
+    const SEGS: usize = 32;
+    let mut prev = (mx + r, my);
+    for i in 1..=SEGS {
+        let a = (i as f64) / (SEGS as f64) * std::f64::consts::TAU;
+        let p = (mx + r * a.cos(), my + r * a.sin());
+        scene_geo::push_seg(
+            v,
+            [prev.0 as f32, prev.1 as f32],
+            [p.0 as f32, p.1 as f32],
+            color,
+        );
+        prev = p;
+    }
+}
+
+/// Kleiner „gefüllter" Mittelpunkt: ein Ring, dessen Radius unter der halben
+/// Linienbreite liegt, wirkt als solider Punkt.
+fn marker_dot(v: &mut Vec<Vertex>, mx: f64, my: f64, r: f64, color: [f32; 4]) {
+    marker_ring(v, mx, my, r, color);
+}
+
+/// Vier Haarlinien-Ticks von `inner` bis `outer` Radius — das Zentrum bleibt
+/// frei, damit der markierte Punkt sichtbar bleibt. `diagonal` dreht das
+/// Kreuz zur X-Form.
+fn marker_ticks(
+    v: &mut Vec<Vertex>,
+    mx: f64,
+    my: f64,
+    inner: f64,
+    outer: f64,
+    diagonal: bool,
+    color: [f32; 4],
+) {
+    let d = std::f64::consts::FRAC_1_SQRT_2;
+    let dirs: [(f64, f64); 4] = if diagonal {
+        [(d, d), (-d, d), (d, -d), (-d, -d)]
+    } else {
+        [(1.0, 0.0), (-1.0, 0.0), (0.0, 1.0), (0.0, -1.0)]
+    };
+    for (dx, dy) in dirs {
+        scene_geo::push_seg(
+            v,
+            [(mx + dx * inner) as f32, (my + dy * inner) as f32],
+            [(mx + dx * outer) as f32, (my + dy * outer) as f32],
+            color,
+        );
+    }
+}
+
+/// Diamant-Umriss (rotiertes Quadrat) mit „Radius" `r` (Welt-mm).
+fn marker_diamond(v: &mut Vec<Vertex>, mx: f64, my: f64, r: f64, color: [f32; 4]) {
+    let corners = [
+        (mx, my - r),
+        (mx + r, my),
+        (mx, my + r),
+        (mx - r, my),
+        (mx, my - r),
+    ];
+    for w in corners.windows(2) {
+        scene_geo::push_seg(
+            v,
+            [w[0].0 as f32, w[0].1 as f32],
+            [w[1].0 as f32, w[1].1 as f32],
+            color,
+        );
+    }
 }
 
 /// Rotate-Handle-Position (mm): mittig über der Auswahl-BBox, mit Abstand.
@@ -140,65 +194,27 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
     // Koordinaten unterscheidbar bleiben. Die Textbeschriftungen zeichnet der
     // egui-Layer (ui::mod) an festen, versetzten Quadranten.
     if let Some(markers) = &input.laser_markers {
-        // Ursprung (blau): größtes Kreuz, zusätzlich kleiner Diamant.
+        // Jede Form nur einmal vergeben, damit deckungsgleiche Marker
+        // unterscheidbar bleiben: Ursprung = Achsen-Ticks + Diamant,
+        // Start = Zielring + Punkt, Kopf = X-Ticks + kleiner Ring.
+        let px = |p: f64| p / input.cam_scale as f64;
+        // Ursprung (blau): größter Marker, achsenparallele Ticks mit freiem
+        // Zentrum und Diamant-Umriss.
         if let Some([mx, my]) = markers.origin {
-            let r = (13.0 / input.cam_scale) as f64;
-            crosshair(&mut v, mx, my, r, LASER_ORIGIN_COLOR);
-            let q = r * 0.35;
-            let corners = [
-                (mx, my - q),
-                (mx + q, my),
-                (mx, my + q),
-                (mx - q, my),
-                (mx, my - q),
-            ];
-            for w in corners.windows(2) {
-                scene_geo::push_seg(
-                    &mut v,
-                    [w[0].0 as f32, w[0].1 as f32],
-                    [w[1].0 as f32, w[1].1 as f32],
-                    LASER_ORIGIN_COLOR,
-                );
-            }
+            marker_ticks(&mut v, mx, my, px(8.0), px(17.0), false, LASER_ORIGIN_COLOR);
+            marker_diamond(&mut v, mx, my, px(6.5), LASER_ORIGIN_COLOR);
+            marker_dot(&mut v, mx, my, px(0.9), LASER_ORIGIN_COLOR);
         }
-        // Start (grün): mittleres Kreuz mit kleinem Quadrat.
+        // Start (grün): ruhiger Zielring mit Mittelpunkt — markiert den
+        // 3×3-Anker auf dem Objekt, ohne Kreuzbalken über der Geometrie.
         if let Some([mx, my]) = markers.start {
-            let r = (10.0 / input.cam_scale) as f64;
-            crosshair(&mut v, mx, my, r, LASER_START_COLOR);
-            let q = r * 0.4;
-            let corners = [
-                (mx - q, my - q),
-                (mx + q, my - q),
-                (mx + q, my + q),
-                (mx - q, my + q),
-                (mx - q, my - q),
-            ];
-            for w in corners.windows(2) {
-                scene_geo::push_seg(
-                    &mut v,
-                    [w[0].0 as f32, w[0].1 as f32],
-                    [w[1].0 as f32, w[1].1 as f32],
-                    LASER_START_COLOR,
-                );
-            }
+            marker_ring(&mut v, mx, my, px(5.0), LASER_START_COLOR);
+            marker_dot(&mut v, mx, my, px(0.9), LASER_START_COLOR);
         }
-        // Kopf (orange): kleinstes Kreuz, diagonal gedreht (X-Form dazu).
+        // Kopf (orange): diagonale X-Ticks + kleiner Ring.
         if let Some([mx, my]) = markers.head {
-            let r = (8.0 / input.cam_scale) as f64;
-            crosshair(&mut v, mx, my, r, LASER_HEAD_COLOR);
-            let d = r * 0.5;
-            scene_geo::push_seg(
-                &mut v,
-                [(mx - d) as f32, (my - d) as f32],
-                [(mx + d) as f32, (my + d) as f32],
-                LASER_HEAD_COLOR,
-            );
-            scene_geo::push_seg(
-                &mut v,
-                [(mx - d) as f32, (my + d) as f32],
-                [(mx + d) as f32, (my - d) as f32],
-                LASER_HEAD_COLOR,
-            );
+            marker_ticks(&mut v, mx, my, px(4.5), px(11.0), true, LASER_HEAD_COLOR);
+            marker_ring(&mut v, mx, my, px(2.5), LASER_HEAD_COLOR);
         }
     }
 
