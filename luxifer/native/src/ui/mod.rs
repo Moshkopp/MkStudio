@@ -53,7 +53,7 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
     use crate::tools::View;
     apply_theme(ui, &app.ui_settings.theme);
 
-    // Oben: Reiter | Undo/Redo + Datei-Aktionen | Projektname.
+    // Oben: globale Aktionen | Ansichten | kompakte Systemzustände.
     let view = app.view;
     let project_name = app
         .project
@@ -79,7 +79,6 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
             topbar::topbar(
                 ui,
                 view,
-                &project_name,
                 inbox_count,
                 app.ui_settings.charon_enabled,
                 &app.charon_status,
@@ -131,7 +130,7 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
     // Statuszeile unten (rein lesend). Meldungen laufen über die Toasts.
     let (fps, tool_label, shapes) = (app.fps(), app.canvas.tool.label(), app.session.shapes.len());
     egui::Panel::bottom("status").show(ui, |ui| {
-        status::status_bar(ui, fps, tool_label, shapes);
+        status::status_bar(ui, fps, tool_label, shapes, &project_name);
     });
 
     match app.view {

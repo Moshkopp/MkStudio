@@ -45,6 +45,20 @@ pub fn draw(p: &Painter, rect: Rect, name: &str, color: Color32) {
     };
 
     match name {
+        "assets" => {
+            rrect(3.0, 4.0, 18.0, 16.0);
+            circ(8.0, 9.0, 1.5);
+            poly(
+                &[
+                    [5.0, 17.0],
+                    [10.0, 12.0],
+                    [13.0, 15.0],
+                    [16.0, 11.0],
+                    [20.0, 16.0],
+                ],
+                false,
+            );
+        }
         // ── Werkzeuge ──────────────────────────────────────────────────────
         "select" => {
             poly(
