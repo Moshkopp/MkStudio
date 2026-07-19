@@ -1007,7 +1007,17 @@ fn parse_json_response<T: for<'de> Deserialize<'de>>(response: &[u8]) -> Result<
 }
 
 fn validate_handshake(handshake: &HubHandshake) -> Result<(), AppError> {
-    if handshake.server != "hub" || handshake.protocol_version != PROTOCOL_VERSION {
+    if handshake.server != studio_core::branding::HUB_PROTOCOL_ID {
+        return Err(AppError::new(
+            "hub_protocol",
+            format!(
+                "Hub-Identität ist nicht kompatibel (erwartet {}, erhalten {}).",
+                studio_core::branding::HUB_PROTOCOL_ID,
+                handshake.server
+            ),
+        ));
+    }
+    if handshake.protocol_version != PROTOCOL_VERSION {
         return Err(AppError::new(
             "hub_protocol",
             format!(
@@ -1025,8 +1035,11 @@ mod tests {
 
     #[test]
     fn parser_akzeptiert_gueltigen_handshake() {
-        let response = b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{\"server\":\"hub\",\"server_version\":\"1.0.0\",\"protocol_version\":3,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}";
-        let handshake: HubHandshake = parse_json_response(response).unwrap();
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n\r\n{{\"server\":\"{}\",\"server_version\":\"1.0.0\",\"protocol_version\":3,\"instance_id\":\"local-test\",\"capabilities\":[\"health\",\"handshake\"]}}",
+            studio_core::branding::HUB_PROTOCOL_ID
+        );
+        let handshake: HubHandshake = parse_json_response(response.as_bytes()).unwrap();
         validate_handshake(&handshake).unwrap();
         assert_eq!(handshake.server_version, "1.0.0");
         assert!(handshake.capabilities.contains(&"handshake".into()));

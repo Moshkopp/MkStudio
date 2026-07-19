@@ -13,6 +13,10 @@ pub const STUDIO_NAME: &str = PRODUCT_NAME;
 /// Öffentlich sichtbarer Name des Koordinationsdienstes.
 pub const HUB_NAME: &str = env!("HUB_NAME");
 
+/// Stabiler Protokoll-Identifier. Er ist kein Branding und darf bei einem
+/// Produkt-Rename nicht geändert werden.
+pub const HUB_PROTOCOL_ID: &str = env!("HUB_PROTOCOL_ID");
+
 /// Stabiler technischer Anwendungsbezeichner für Desktopintegration.
 pub const APP_ID: &str = env!("APP_ID");
 

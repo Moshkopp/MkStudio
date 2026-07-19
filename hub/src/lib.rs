@@ -385,7 +385,7 @@ fn route(
     Ok(match (method, path) {
         ("GET", "/health") => json_body(&Health { status: "ok" })?,
         ("GET", "/api/v1/handshake") => json_body(&Handshake {
-            server: "hub",
+            server: studio_core::branding::HUB_PROTOCOL_ID,
             server_version: env!("CARGO_PKG_VERSION"),
             protocol_version: PROTOCOL_VERSION,
             instance_id: format!("local-{}", std::process::id()),
@@ -1334,7 +1334,7 @@ mod tests {
     #[test]
     fn handshake_hat_stabile_protokollgrenze() {
         let body = json_body(&Handshake {
-            server: "hub",
+            server: studio_core::branding::HUB_PROTOCOL_ID,
             server_version: "test",
             protocol_version: PROTOCOL_VERSION,
             instance_id: "local-test".into(),
@@ -1355,7 +1355,7 @@ mod tests {
         .1;
         let value: serde_json::Value = serde_json::from_str(&body).unwrap();
         assert_eq!(value["protocol_version"], 3);
-        assert_eq!(value["server"], "hub");
+        assert_eq!(value["server"], studio_core::branding::HUB_PROTOCOL_ID);
     }
 
     #[test]
