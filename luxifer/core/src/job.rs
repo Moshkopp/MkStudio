@@ -577,6 +577,21 @@ pub trait MachineDriver {
     /// Name des Treibers (z. B. "Ruida", "GRBL").
     fn name(&self) -> &str;
 
+    /// Optionale, geräteunabhängig beschriebene Treiberfähigkeiten.
+    fn capabilities(&self) -> DriverCapabilities {
+        DriverCapabilities::default()
+    }
+
+    /// Maschinenparameter lesen, sofern der Treiber diese Capability anbietet.
+    fn read_machine_settings(&self) -> Result<Vec<MachineSetting>, DriverError> {
+        Err(DriverError::NotSupported)
+    }
+
+    /// Maschinenparameter als rohe, treiberspezifische Registerwerte schreiben.
+    fn write_machine_settings(&self, _changes: &[(u16, i64)]) -> Result<(), DriverError> {
+        Err(DriverError::NotSupported)
+    }
+
     /// Übersetzt den Plan in gerätespezifische Job-Daten (Standardparameter:
     /// Absolut/Mitte). Für „Starten von"/Anker siehe [`compile_with`].
     ///
@@ -691,6 +706,71 @@ pub trait MachineDriver {
         _params: &JobParams,
     ) -> Result<String, DriverError> {
         Err(DriverError::NotSupported)
+    }
+}
+
+/// Fähigkeiten, die nicht jeder Maschinentreiber bereitstellt.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct DriverCapabilities {
+    pub machine_settings: bool,
+}
+
+/// Einheit eines editierbaren Maschinenparameters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MachineSettingUnit {
+    Raw,
+    Mm,
+    MmPerSec,
+    MmPerSec2,
+    Percent,
+    PermillePercent,
+    StepLength,
+    Pulse,
+    Enum,
+}
+
+impl MachineSettingUnit {
+    pub fn factor(self) -> f64 {
+        match self {
+            Self::Mm | Self::MmPerSec | Self::MmPerSec2 | Self::Pulse => 1_000.0,
+            Self::PermillePercent => 10.0,
+            Self::StepLength => 1_000_000.0,
+            _ => 1.0,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Mm => "mm",
+            Self::MmPerSec => "mm/s",
+            Self::MmPerSec2 => "mm/s²",
+            Self::Percent | Self::PermillePercent => "%",
+            Self::StepLength => "µm",
+            _ => "",
+        }
+    }
+}
+
+/// Ein vom Treiber gelieferter Maschinenparameter. Adressen und Rohwerte
+/// bleiben bewusst opak; ihre Bedeutung kennt ausschließlich der Treiber.
+#[derive(Debug, Clone)]
+pub struct MachineSetting {
+    pub address: u16,
+    pub key: String,
+    pub label: String,
+    pub group: String,
+    pub unit: MachineSettingUnit,
+    pub curated: bool,
+    pub writable: bool,
+    pub bit_mask: Option<i64>,
+    pub options: Vec<(i64, String)>,
+    pub raw: Option<i64>,
+    pub mirror: Option<u16>,
+}
+
+impl MachineSetting {
+    pub fn value(&self) -> Option<f64> {
+        self.raw.map(|value| value as f64 / self.unit.factor())
     }
 }
 

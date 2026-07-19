@@ -14,12 +14,12 @@ pub mod settings;
 pub mod transport;
 
 pub use scan_offset::{ScanOffset, ScanOffsetPoint};
-pub use settings::{RuidaMachineSetting, RuidaSettingDef, RuidaSettingUnit};
+pub use settings::RuidaSettingDef;
 pub use transport::{RuidaTransport, TransportError};
 
 use luxifer_core::{
-    Anchor, DriverError, JobAction, JobLayer, JobParams, JobPlan, Layer, LayerWork, MachineDriver,
-    MachineStatus, StartMode,
+    Anchor, DriverCapabilities, DriverError, JobAction, JobLayer, JobParams, JobPlan, Layer,
+    LayerWork, MachineDriver, MachineSetting, MachineStatus, StartMode,
 };
 use protocol::*;
 
@@ -366,6 +366,20 @@ fn append_ruida_scan_trace(
 impl MachineDriver for RuidaDriver {
     fn name(&self) -> &str {
         "Ruida"
+    }
+
+    fn capabilities(&self) -> DriverCapabilities {
+        DriverCapabilities {
+            machine_settings: true,
+        }
+    }
+
+    fn read_machine_settings(&self) -> Result<Vec<MachineSetting>, DriverError> {
+        RuidaDriver::read_machine_settings(self)
+    }
+
+    fn write_machine_settings(&self, changes: &[(u16, i64)]) -> Result<(), DriverError> {
+        RuidaDriver::write_machine_settings(self, changes)
     }
 
     fn execution_trace(
@@ -1169,4 +1183,8 @@ mod tests {
             "Fill darf kein C6 50 haben"
         );
     }
+}
+#[test]
+fn meldet_maschineneinstellungen_als_capability() {
+    assert!(RuidaDriver::default().capabilities().machine_settings);
 }

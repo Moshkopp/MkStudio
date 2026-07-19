@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use egui::RichText;
-use luxifer_application::{RuidaMachineSetting, RuidaSettingUnit};
+use luxifer_application::{MachineSetting, MachineSettingUnit};
 use luxifer_core::{BedOrigin, Connection, DriverKind, LaserRegistry, ScanOffsetPoint};
 
 use crate::ui::{LaserManagerState, LaserManagerTab};
@@ -383,7 +383,7 @@ fn controller(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut La
 
 fn machine_setting_row(
     ui: &mut egui::Ui,
-    setting: &RuidaMachineSetting,
+    setting: &MachineSetting,
     dirty: &mut std::collections::BTreeMap<u16, i64>,
 ) {
     let original = setting.raw.unwrap_or_default();
@@ -416,7 +416,7 @@ fn machine_setting_row(
                     raw = (raw & !mask) | selected;
                 }
                 changed
-            } else if setting.unit == RuidaSettingUnit::Raw {
+            } else if setting.unit == MachineSettingUnit::Raw {
                 ui.add_enabled(setting.writable, egui::DragValue::new(&mut raw))
                     .changed()
             } else {

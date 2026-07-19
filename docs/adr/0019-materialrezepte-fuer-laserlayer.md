@@ -1,6 +1,6 @@
 # ADR 0019: Materialrezepte für Laser-Layer
 
-- Status: Experimenteller, bewusst uncommitteter Prototyp
+- Status: Experimentell implementiert
 - Datum: 2026-07-18
 - Betrifft: Layerparameter, Laserprofile, Materialbibliothek, Settings
 
@@ -57,8 +57,17 @@ welche Ansätze wir bewusst vereinfachen.
   beantwortet ergänzend, welche Werte material- und maschinenübergreifend
   tatsächlich verwendet und als gut bewertet wurden.
 
-Der Prototyp wird während der Erprobung **nicht committed**. Journal und
-Bewertung folgen erst, wenn sich dieser Grundablauf praktisch bewährt.
+Der Grundablauf ist implementiert. Journal und Bewertung folgen erst, wenn er
+sich praktisch bewährt.
+
+Die Schichtengrenzen sind verbindlich: Der Core besitzt und validiert das
+UI-unabhängige Materialmodell. `MaterialService` in der Application besitzt die
+Anwendungsfälle, Prozesszuordnung und persistente Bibliothek. Native zeigt und
+koordiniert diese Anwendungsfälle, enthält aber weder JSON-Dateizugriffe noch
+eine zweite Parameterzuordnung. Bibliotheksänderungen werden zuerst in einer
+Kopie aufgebaut und per temporärer Datei ersetzt; erst nach erfolgreichem
+Schreiben wird der laufende Zustand aktualisiert. Eine beschädigte Datei wird
+als Fehler gemeldet und niemals still durch eine leere Bibliothek ersetzt.
 
 ## Begriffe
 

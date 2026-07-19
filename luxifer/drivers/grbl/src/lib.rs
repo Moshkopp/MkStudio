@@ -283,6 +283,16 @@ mod tests {
     }
 
     #[test]
+    fn maschineneinstellungen_bleiben_nicht_unterstuetzt() {
+        let driver = GrblDriver::default();
+        assert!(!driver.capabilities().machine_settings);
+        assert_eq!(
+            driver.read_machine_settings().unwrap_err(),
+            DriverError::NotSupported
+        );
+    }
+
+    #[test]
     fn erzeugt_gueltige_praeambel_und_feed() {
         let (plan, layers) = plan_one_rect();
         let g = GrblDriver::default().to_gcode(&plan, &layers);

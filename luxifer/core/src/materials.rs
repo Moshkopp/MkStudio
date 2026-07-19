@@ -2,14 +2,10 @@
 //! Sie gehören bewusst nicht zum Projektformat: dasselbe Design darf an einem
 //! anderen Arbeitsplatz auf einem anderen Material ausgeführt werden.
 
-use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 
 use crate::{Layer, LayerMode};
-
-const MATERIAL_FILE: &str = "material-profile.json";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -77,6 +73,35 @@ impl MaterialProcessDefaults {
         layer.dpi = self.dpi;
         layer.bidirectional = self.bidirectional;
     }
+
+    pub fn validate(&self, process: MaterialProcess) -> Result<(), String> {
+        if !self.speed_mm_s.is_finite() || self.speed_mm_s <= 0.0 {
+            return Err("Geschwindigkeit muss größer als 0 mm/s sein.".into());
+        }
+        if !self.power_pct.is_finite() || !(0.0..=100.0).contains(&self.power_pct) {
+            return Err("Maximale Leistung muss zwischen 0 und 100 % liegen.".into());
+        }
+        if !self.min_power_pct.is_finite() || !(0.0..=self.power_pct).contains(&self.min_power_pct)
+        {
+            return Err("Minimale Leistung muss zwischen 0 und Power max liegen.".into());
+        }
+        if self.passes == 0 {
+            return Err("Durchläufe müssen mindestens 1 sein.".into());
+        }
+        match process {
+            MaterialProcess::Cut => {}
+            MaterialProcess::VectorEngrave
+                if !self.line_step_mm.is_finite() || self.line_step_mm <= 0.0 =>
+            {
+                return Err("Linienabstand muss größer als 0 mm sein.".into());
+            }
+            MaterialProcess::RasterEngrave if !self.dpi.is_finite() || self.dpi <= 0.0 => {
+                return Err("DPI muss größer als 0 sein.".into());
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -119,6 +144,27 @@ impl MaterialProfile {
             MaterialProcess::VectorEngrave => &mut self.vector_engrave,
             MaterialProcess::RasterEngrave => &mut self.raster_engrave,
         }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        if self.laser_id.trim().is_empty() {
+            return Err("Das Material braucht eine Laserzuordnung.".into());
+        }
+        if self.name.trim().is_empty() {
+            return Err("Das Material braucht einen Namen.".into());
+        }
+        if self
+            .thickness_mm
+            .is_some_and(|value| !value.is_finite() || value <= 0.0)
+        {
+            return Err("Die Materialstärke muss größer als 0 mm sein.".into());
+        }
+        for process in MaterialProcess::ALL {
+            if let Some(defaults) = self.defaults(process) {
+                defaults.validate(process)?;
+            }
+        }
+        Ok(())
     }
 }
 
@@ -182,29 +228,6 @@ impl MaterialLibrary {
             Some(_) => false,
         }
     }
-
-    pub fn load() -> Self {
-        Self::load_from(&crate::project::data_root())
-    }
-
-    pub fn load_from(dir: &Path) -> Self {
-        match std::fs::read_to_string(dir.join(MATERIAL_FILE)) {
-            Ok(json) => serde_json::from_str(&json).unwrap_or_default(),
-            Err(_) => Self::default(),
-        }
-    }
-
-    pub fn save(&self) -> Result<PathBuf, String> {
-        self.save_to(&crate::project::data_root())
-    }
-
-    pub fn save_to(&self, dir: &Path) -> Result<PathBuf, String> {
-        std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
-        let path = dir.join(MATERIAL_FILE);
-        let json = serde_json::to_string_pretty(self).map_err(|error| error.to_string())?;
-        std::fs::write(&path, json).map_err(|error| error.to_string())?;
-        Ok(path)
-    }
 }
 
 #[cfg(test)]
@@ -251,14 +274,9 @@ mod tests {
     }
 
     #[test]
-    fn json_roundtrip_erhaelt_aktive_materialwahl() {
-        let dir = std::env::temp_dir().join("luxifer_material_profile_test");
-        let _ = std::fs::remove_dir_all(&dir);
-        let mut library = MaterialLibrary::default();
-        library.profiles.push(profile());
-        library.set_active("laser-a", Some("pappel-3"));
-        library.save_to(&dir).unwrap();
-        assert_eq!(MaterialLibrary::load_from(&dir), library);
-        let _ = std::fs::remove_dir_all(&dir);
+    fn ungueltige_prozesswerte_werden_abgewiesen() {
+        let mut profile = profile();
+        profile.cut.as_mut().unwrap().speed_mm_s = 0.0;
+        assert!(profile.validate().is_err());
     }
 }

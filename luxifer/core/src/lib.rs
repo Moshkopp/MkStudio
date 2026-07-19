@@ -52,8 +52,8 @@ pub use geo_ops::BoolOp;
 pub use geometry::{Axis, BBox, Geo, ImageMode, ImageParams, Pt};
 pub use interact::{keep_aspect, resize_to_cursor, Handle};
 pub use job::{
-    Anchor, DriverError, JobLayer, JobParams, JobPlan, LayerWork, MachineDriver, MachineStatus,
-    Path, StartMode,
+    Anchor, DriverCapabilities, DriverError, JobLayer, JobParams, JobPlan, LayerWork,
+    MachineDriver, MachineSetting, MachineSettingUnit, MachineStatus, Path, StartMode,
 };
 pub use laser::{
     BedOrigin, Connection, DriverKind, JobAction, LaserProfile, LaserRegistry, ScanOffsetCal,

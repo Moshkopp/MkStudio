@@ -7,6 +7,7 @@ mod assets;
 mod charon;
 mod error;
 mod laser;
+mod materials;
 mod project;
 mod session;
 mod sync_inbox;
@@ -23,7 +24,8 @@ pub use charon::{
 };
 pub use error::AppError;
 pub use laser::LaserService;
-pub use luxifer_driver_ruida::{RuidaMachineSetting, RuidaSettingUnit};
+pub use luxifer_core::{MachineSetting, MachineSettingUnit};
+pub use materials::MaterialService;
 pub use project::{ProjectDetail, ProjectService};
 pub use session::{BoxShape, EditorSession, LayerParams, LayerToggle, PointPath};
 pub use sync_inbox::{

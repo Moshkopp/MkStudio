@@ -590,11 +590,12 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
             ui,
             app.layer_manager.as_mut().unwrap(),
             laser.as_ref(),
-            &app.material_library,
+            app.material_service.library(),
             &colors,
         );
         match outcome {
             dialogs::LayerManagerOutcome::None => {}
+            dialogs::LayerManagerOutcome::LoadMaterial => app.layer_manager_load_material(),
             dialogs::LayerManagerOutcome::Save => app.layer_manager_save(),
             dialogs::LayerManagerOutcome::Cancel => app.layer_manager = None,
             dialogs::LayerManagerOutcome::NewMaterial => app.open_material_manager(true),

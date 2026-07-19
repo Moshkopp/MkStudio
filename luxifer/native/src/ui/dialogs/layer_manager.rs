@@ -8,6 +8,7 @@ pub(in crate::ui) enum LayerManagerOutcome {
     None,
     Save,
     Cancel,
+    LoadMaterial,
     NewMaterial,
     EditMaterial,
 }
@@ -78,9 +79,7 @@ pub(in crate::ui) fn layer_manager_window(
                     .add_enabled(selected.is_some(), egui::Button::new("Materialwerte laden"))
                     .clicked()
                 {
-                    if let Some(profile) = selected {
-                        apply_material(profile, &mut state.layers);
-                    }
+                    outcome = LayerManagerOutcome::LoadMaterial;
                 }
                 if ui
                     .add_enabled(laser.is_some(), egui::Button::new("+ Material"))
@@ -236,26 +235,6 @@ fn layer_table_row(
     });
 }
 
-fn apply_material(
-    profile: &luxifer_core::MaterialProfile,
-    layers: &mut [luxifer_application::LayerParams],
-) {
-    for layer in layers {
-        let process = luxifer_core::MaterialProcess::from_layer_mode(layer.mode);
-        let Some(defaults) = profile.defaults(process) else {
-            continue;
-        };
-        layer.speed_mm_s = defaults.speed_mm_s;
-        layer.power_pct = defaults.power_pct;
-        layer.min_power_pct = defaults.min_power_pct;
-        layer.passes = defaults.passes;
-        layer.air_assist = defaults.air_assist;
-        layer.line_step_mm = defaults.line_step_mm;
-        layer.dpi = defaults.dpi;
-        layer.bidirectional = defaults.bidirectional;
-    }
-}
-
 fn color_swatch(ui: &mut egui::Ui, color: [u8; 3]) {
     let (rect, _) = ui.allocate_exact_size(egui::vec2(26.0, 22.0), egui::Sense::hover());
     ui.painter().rect_filled(
@@ -319,44 +298,5 @@ fn process_detail(ui: &mut egui::Ui, layer: &mut luxifer_application::LayerParam
                 ui.checkbox(&mut layer.bidirectional, "Bidirektional");
             });
         }
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn material_laden_ordnet_werte_nach_prozess_zu() {
-        let cut = luxifer_core::MaterialProcessDefaults {
-            speed_mm_s: 18.0,
-            power_pct: 80.0,
-            min_power_pct: 10.0,
-            passes: 1,
-            air_assist: true,
-            line_step_mm: 0.1,
-            dpi: 254.0,
-            bidirectional: true,
-        };
-        let mut engrave = cut.clone();
-        engrave.speed_mm_s = 220.0;
-        engrave.power_pct = 28.0;
-        let profile = luxifer_core::MaterialProfile {
-            id: "material".into(),
-            laser_id: "laser".into(),
-            name: "Pappel".into(),
-            thickness_mm: Some(3.0),
-            cut: Some(cut),
-            vector_engrave: Some(engrave),
-            raster_engrave: None,
-        };
-        let cut_layer = luxifer_application::LayerParams::from_layer(&luxifer_core::Layer::new(0));
-        let mut fill_layer = cut_layer.clone();
-        fill_layer.mode = luxifer_core::LayerMode::Fill;
-        let mut layers = vec![cut_layer, fill_layer];
-        apply_material(&profile, &mut layers);
-        assert_eq!(layers[0].speed_mm_s, 18.0);
-        assert_eq!(layers[1].speed_mm_s, 220.0);
-        assert_eq!(layers[1].power_pct, 28.0);
     }
 }

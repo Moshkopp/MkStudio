@@ -3,41 +3,7 @@
 
 use crate::protocol::cmd_write_reg;
 use crate::{read_reg_optional, to_driver_err, RuidaDriver};
-use luxifer_core::DriverError;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RuidaSettingUnit {
-    Raw,
-    Mm,
-    MmPerSec,
-    MmPerSec2,
-    Percent,
-    PermillePercent,
-    StepLength,
-    Pulse,
-    Enum,
-}
-
-impl RuidaSettingUnit {
-    pub fn factor(self) -> f64 {
-        match self {
-            Self::Mm | Self::MmPerSec | Self::MmPerSec2 | Self::Pulse => 1_000.0,
-            Self::PermillePercent => 10.0,
-            Self::StepLength => 1_000_000.0,
-            _ => 1.0,
-        }
-    }
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::Mm => "mm",
-            Self::MmPerSec => "mm/s",
-            Self::MmPerSec2 => "mm/s²",
-            Self::Percent | Self::PermillePercent => "%",
-            Self::StepLength => "µm",
-            _ => "",
-        }
-    }
-}
+use luxifer_core::{DriverError, MachineSetting, MachineSettingUnit};
 
 #[derive(Debug, Clone, Copy)]
 pub struct RuidaSettingDef {
@@ -45,45 +11,25 @@ pub struct RuidaSettingDef {
     pub key: &'static str,
     pub label: &'static str,
     pub group: &'static str,
-    pub unit: RuidaSettingUnit,
+    pub unit: MachineSettingUnit,
     pub bit_mask: Option<i64>,
     pub options: &'static [(i64, &'static str)],
     pub mirror: Option<u16>,
 }
 
-#[derive(Debug, Clone)]
-pub struct RuidaMachineSetting {
-    pub address: u16,
-    pub key: String,
-    pub label: String,
-    pub group: String,
-    pub unit: RuidaSettingUnit,
-    pub curated: bool,
-    pub writable: bool,
-    pub bit_mask: Option<i64>,
-    pub options: Vec<(i64, String)>,
-    pub raw: Option<i64>,
-    pub mirror: Option<u16>,
-}
-
-impl RuidaMachineSetting {
-    pub fn value(&self) -> Option<f64> {
-        self.raw.map(|v| v as f64 / self.unit.factor())
-    }
-    fn from_def(def: &RuidaSettingDef, raw: Option<i64>) -> Self {
-        Self {
-            address: def.address,
-            key: def.key.into(),
-            label: def.label.into(),
-            group: def.group.into(),
-            unit: def.unit,
-            curated: true,
-            writable: !PROTECTED.contains(&def.address),
-            bit_mask: def.bit_mask,
-            options: def.options.iter().map(|(v, l)| (*v, (*l).into())).collect(),
-            raw,
-            mirror: def.mirror,
-        }
+fn setting_from_def(def: &RuidaSettingDef, raw: Option<i64>) -> MachineSetting {
+    MachineSetting {
+        address: def.address,
+        key: def.key.into(),
+        label: def.label.into(),
+        group: def.group.into(),
+        unit: def.unit,
+        curated: true,
+        writable: !PROTECTED.contains(&def.address),
+        bit_mask: def.bit_mask,
+        options: def.options.iter().map(|(v, l)| (*v, (*l).into())).collect(),
+        raw,
+        mirror: def.mirror,
     }
 }
 
@@ -97,7 +43,7 @@ macro_rules! s {
             key: $k,
             label: $l,
             group: $g,
-            unit: RuidaSettingUnit::$u,
+            unit: MachineSettingUnit::$u,
             bit_mask: None,
             options: NONE,
             mirror: None,
@@ -217,7 +163,7 @@ pub static SETTINGS: &[RuidaSettingDef] = &[
         key: "engraving_mode",
         label: "Engraving mode",
         group: "Gravurparameter",
-        unit: RuidaSettingUnit::Enum,
+        unit: MachineSettingUnit::Enum,
         bit_mask: Some(0x0400),
         options: ENGRAVING,
         mirror: None,
@@ -251,7 +197,7 @@ pub static SETTINGS: &[RuidaSettingDef] = &[
         key: "rotary_enable",
         label: "Rotary aktiv",
         group: "Rotary",
-        unit: RuidaSettingUnit::Enum,
+        unit: MachineSettingUnit::Enum,
         bit_mask: Some(1),
         options: ON_OFF,
         mirror: None,
@@ -318,22 +264,19 @@ const RAW: &[u16] = &[
 const PROTECTED: &[u16] = &[0x0207, 0x020B, 0x0400, 0x057E, 0x0004, 0x0005];
 
 impl RuidaDriver {
-    pub fn read_machine_settings(&self) -> Result<Vec<RuidaMachineSetting>, DriverError> {
+    pub fn read_machine_settings(&self) -> Result<Vec<MachineSetting>, DriverError> {
         let t = self.transport()?;
         let mut out = Vec::new();
         for def in SETTINGS {
-            out.push(RuidaMachineSetting::from_def(
-                def,
-                read_reg_optional(t, def.address)?,
-            ));
+            out.push(setting_from_def(def, read_reg_optional(t, def.address)?));
         }
         for &address in RAW {
-            out.push(RuidaMachineSetting {
+            out.push(MachineSetting {
                 address,
                 key: format!("mem_{address:04x}"),
                 label: format!("0x{address:04X}"),
                 group: "Raw-Register".into(),
-                unit: RuidaSettingUnit::Raw,
+                unit: MachineSettingUnit::Raw,
                 curated: false,
                 writable: !PROTECTED.contains(&address),
                 bit_mask: None,
@@ -381,7 +324,7 @@ mod tests {
 
     #[test]
     fn einheiten_und_bitmasken_erhalten_rohwerte() {
-        assert_eq!(RuidaSettingUnit::MmPerSec.factor(), 1000.0);
+        assert_eq!(MachineSettingUnit::MmPerSec.factor(), 1000.0);
         let engraving = SETTINGS.iter().find(|s| s.key == "engraving_mode").unwrap();
         let old = 0x2000_i64;
         let mask = engraving.bit_mask.unwrap();

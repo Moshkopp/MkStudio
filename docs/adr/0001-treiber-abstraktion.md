@@ -41,6 +41,10 @@ Ein Treiber implementiert:
   gerätespezifische Format (Ruida-Bytes bzw. G-Code als UTF-8-Bytes).
 - Live-Steuerung: `jog`, `home`, `go_origin`, `frame`, `stop`, `status`,
   `send_job` — über den jeweiligen Transport (UDP/seriell).
+- Optionale Funktionen werden durch `DriverCapabilities` gemeldet. Dazu
+  gehören derzeit geräteneutral beschriebene Maschineneinstellungen. Die
+  Application spricht auch dafür nur mit `MachineDriver`; Registeradressen und
+  Protokolldetails verbleiben im konkreten Treiber.
 
 ### 3. Treiber sind eigene Crates
 

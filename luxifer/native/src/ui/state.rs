@@ -290,7 +290,7 @@ pub struct LaserManagerState {
     pub draft: luxifer_core::LaserProfile,
     pub is_new: bool,
     pub tab: LaserManagerTab,
-    pub machine_settings: Vec<luxifer_application::RuidaMachineSetting>,
+    pub machine_settings: Vec<luxifer_application::MachineSetting>,
     pub machine_dirty: std::collections::BTreeMap<u16, i64>,
     pub machine_confirm_write: bool,
 }

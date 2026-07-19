@@ -91,7 +91,7 @@ pub struct App {
     /// Eigenständige Laserprofil-/Controllerverwaltung.
     pub laser_manager: Option<crate::ui::LaserManagerState>,
     /// Lokale, laserbezogene Materialstandards; bewusst kein Projektinhalt.
-    pub material_library: luxifer_core::MaterialLibrary,
+    pub material_service: luxifer_application::MaterialService,
     pub material_manager: Option<crate::ui::MaterialManagerState>,
     pub layer_manager: Option<crate::ui::LayerManagerState>,
     /// Präsentationszustand des Projektbrowsers (Auswahl, Drafts, Detail-Cache).
@@ -186,7 +186,7 @@ impl App {
 
         let ui_settings = luxifer_core::UiSettings::load();
         let laser_backend = luxifer_application::LaserService::load();
-        let material_library = luxifer_core::MaterialLibrary::load();
+        let material_service = luxifer_application::MaterialService::load()?;
         let charon_runtime = charon::CharonRuntime::new(&ui_settings, &laser_backend.registry)?;
         let project_inbox = luxifer_application::list_inbox().unwrap_or_default();
         let project_integration = project::ProjectIntegrationRuntime::new()?;
@@ -241,7 +241,7 @@ impl App {
             laser_lease_pending: false,
             settings_dialog: None,
             laser_manager: None,
-            material_library,
+            material_service,
             material_manager: None,
             layer_manager: None,
             project_browser: Default::default(),
