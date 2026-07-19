@@ -78,7 +78,7 @@ cargo run -p studio
 
 ## Commits
 
-- Sprache: Deutsch. Betreff im Imperativ, knapp; Body erklärt das *Warum*.
+- Sprache: english. Betreff im Imperativ, knapp; Body erklärt das *Warum*.
 - Ein Commit = eine logische Änderung.
 - Nur committen/pushen, wenn der Nutzer es verlangt.
-- Footer: `Co-Authored-By: Claude Fable 5 <noreply@anthropic.com>`
+- Footer: empty

@@ -1,5 +1,3 @@
-# --- Referenzprojekt (nur lokal, nicht Teil von LuxiFer) ---
-/nur zur Referenu/
 
 # --- Rust ---
 target/
@@ -12,12 +10,6 @@ node_modules/
 dist/
 .svelte-kit/
 *.local
-
-# Tauri-generierte Schemas (aus tauri.conf.json/capabilities abgeleitet)
-luxifer/frontend/src-tauri/gen/
-# Android-Icon-Varianten (Desktop-App braucht sie nicht)
-luxifer/frontend/src-tauri/icons/android/
-luxifer/frontend/src-tauri/icons/ios/
 
 # --- IDE / Editor ---
 .idea/
@@ -32,6 +24,6 @@ luxifer/frontend/src-tauri/icons/ios/
 .DS_Store
 Thumbs.db
 
-# --- LuxiFer-Laufzeitdaten (lokale Projekte/Assets/Fonts) ---
+# --- Laufzeitdaten (lokale Projekte/Assets/Fonts) ---
 /local-data/
 *.log
