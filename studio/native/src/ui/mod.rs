@@ -937,6 +937,13 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         .saved_origin_id()
         .is_some_and(|id| !saved_origins.iter().any(|row| row.id == id));
     let can_save_origin = connected && capabilities.position_read;
+    // Z/U-Verfügbarkeit ist eine Profil-Einstellung (nicht aus dem Controller,
+    // ADR 0021 §A). Aus dem aktiven Profil, unabhängig von der Verbindung.
+    let axes = app
+        .laser_backend
+        .active_profile()
+        .map(|profile| profile.axes)
+        .unwrap_or_default();
     let live = &app.laser_live;
     let pos = laserpanel::AxisPositions {
         x: live.head.map(|(x, _)| x),
@@ -954,8 +961,8 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         saved_origins,
         reference_missing,
         can_save_origin,
-        has_z_axis: live.has_z_axis,
-        has_u_axis: live.has_u_axis,
+        has_z_axis: axes.has_z_axis,
+        has_u_axis: axes.has_u_axis,
         pos,
         hold_active: app.laser_hold.is_some(),
     }

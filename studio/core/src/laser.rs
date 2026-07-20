@@ -145,6 +145,25 @@ impl SavedOrigin {
     }
 }
 
+/// Zusatzachsen-Konfiguration eines Lasers (ADR 0021). Ob Z/U vorhanden sind,
+/// steht NICHT im Controller (an Hardware verifiziert) — es ist eine
+/// Profil-Einstellung. `invert_*` dreht die fachliche Richtung pro Achse.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct AxisConfig {
+    /// Maschine hat eine Z-Achse (Fokus/Betthöhe).
+    #[serde(default)]
+    pub has_z_axis: bool,
+    /// Maschine hat eine U-Achse (Rotary über den U-Ausgang).
+    #[serde(default)]
+    pub has_u_axis: bool,
+    /// Z-Richtung umkehren (Verkabelung/Blickrichtung).
+    #[serde(default)]
+    pub invert_z: bool,
+    /// U-Richtung umkehren.
+    #[serde(default)]
+    pub invert_u: bool,
+}
+
 /// Ein gespeicherter Laser (Werkstatt-Gerät).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct LaserProfile {
@@ -167,6 +186,10 @@ pub struct LaserProfile {
     /// Reversal-Kalibrierung (nur für Treiber relevant, die sie nutzen).
     #[serde(default)]
     pub scan_offset: ScanOffsetCal,
+    /// Zusatzachsen (Z/U vorhanden, Richtungs-Inversion). Profil-Einstellung,
+    /// da nicht aus dem Controller lesbar (ADR 0021 §A).
+    #[serde(default)]
+    pub axes: AxisConfig,
     /// Benannte Werkstück-Nullpunkte (absolute Maschinenkoordinaten).
     #[serde(default)]
     pub saved_origins: Vec<SavedOrigin>,
@@ -183,6 +206,7 @@ impl Default for LaserProfile {
             bed_mm: (600.0, 400.0),
             origin: BedOrigin::default(),
             scan_offset: ScanOffsetCal::default(),
+            axes: AxisConfig::default(),
             saved_origins: Vec::new(),
         }
     }

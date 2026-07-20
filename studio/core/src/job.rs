@@ -663,16 +663,13 @@ pub struct MachineStatus {
     pub is_paused: bool,
     pub pos_x_mm: f64,
     pub pos_y_mm: f64,
-    /// Z-/U-Achsenposition (mm), sofern der Treiber sie liest. `None` = Achse
-    /// nicht vorhanden bzw. nicht gelesen.
+    /// Z-/U-Achsenposition (mm), sofern der Treiber sie liest. `None` = nicht
+    /// gelesen. (Ein Wert sagt nichts über *Vorhandensein* der Achse — das ist
+    /// eine Profil-Einstellung, ADR 0021 §A.)
     pub pos_z_mm: Option<f64>,
     pub pos_u_mm: Option<f64>,
-    /// Aus dem Controller gelesene Achsen-Verfügbarkeit. Steuert, was die UI
-    /// freigibt (ADR 0021 §A). Ohne diese Info (nicht verbunden) bleibt alles
-    /// gesperrt.
-    pub has_z_axis: bool,
-    pub has_u_axis: bool,
     /// Rotary läuft klassisch über die Y-Achse (`rotary_enable` im Controller).
+    /// Das IST ein echter Gerätezustand (im Gegensatz zur Z/U-Verfügbarkeit).
     pub rotary_on_y: bool,
 }
 

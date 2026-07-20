@@ -266,6 +266,29 @@ fn basic_data(ui: &mut egui::Ui, state: &mut LaserManagerState) {
                     }
                 });
             ui.end_row();
+
+            // Zusatzachsen (ADR 0021 §A): ob Z/U vorhanden sind, weiß der
+            // Controller nicht — es ist eine Profil-Einstellung. Steuert, ob die
+            // Z/U-Bedienelemente im Laserpanel freigegeben werden.
+            let axes = &mut profile.axes;
+            ui.label("Zusatzachsen");
+            ui.vertical(|ui| {
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut axes.has_z_axis, "Z-Achse (Fokus)");
+                    ui.add_enabled(
+                        axes.has_z_axis,
+                        egui::Checkbox::new(&mut axes.invert_z, "Z umkehren"),
+                    );
+                });
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut axes.has_u_axis, "U-Achse (Rotary)");
+                    ui.add_enabled(
+                        axes.has_u_axis,
+                        egui::Checkbox::new(&mut axes.invert_u, "U umkehren"),
+                    );
+                });
+            });
+            ui.end_row();
         });
 }
 

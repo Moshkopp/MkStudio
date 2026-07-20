@@ -19,10 +19,8 @@ pub struct LaserLiveState {
     /// Z-/U-Achsenposition (mm), sofern der Treiber sie liefert.
     pub pos_z: Option<f64>,
     pub pos_u: Option<f64>,
-    /// Aus dem Controller gelesene Achsen-Verfügbarkeit (ADR 0021 §A). Gilt nur
-    /// bei bestehender Verbindung; sonst Default false → UI gesperrt.
-    pub has_z_axis: bool,
-    pub has_u_axis: bool,
+    /// Rotary läuft klassisch über Y (`rotary_enable`, echter Controller-Zustand).
+    /// Z/U-Verfügbarkeit steht dagegen im Profil, nicht hier (ADR 0021 §A).
     pub rotary_on_y: bool,
     /// Sichtbare Begründung, warum keine (frische) Kopfposition vorliegt.
     pub head_note: Option<String>,
@@ -407,8 +405,6 @@ impl App {
                             self.laser_live.head = Some((status.pos_x_mm, status.pos_y_mm));
                             self.laser_live.pos_z = status.pos_z_mm;
                             self.laser_live.pos_u = status.pos_u_mm;
-                            self.laser_live.has_z_axis = status.has_z_axis;
-                            self.laser_live.has_u_axis = status.has_u_axis;
                             self.laser_live.rotary_on_y = status.rotary_on_y;
                             self.laser_live.head_note = None;
                             self.laser_live.is_running = status.is_running;
@@ -418,8 +414,6 @@ impl App {
                             self.laser_live.head = None;
                             self.laser_live.pos_z = None;
                             self.laser_live.pos_u = None;
-                            self.laser_live.has_z_axis = false;
-                            self.laser_live.has_u_axis = false;
                             self.laser_live.rotary_on_y = false;
                             self.laser_live.head_note = Some(error.message().to_owned());
                             self.laser_live.error_backoff = true;

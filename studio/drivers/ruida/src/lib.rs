@@ -31,6 +31,9 @@ use studio_core::{
 pub struct RuidaConfig {
     /// Geschwindigkeitsabhängige Reversal-Korrektur fürs bidirektionale Rastern.
     pub scan_offset: ScanOffset,
+    /// Nutzerdefinierte Richtungs-Inversion der Zusatzachsen (Profil, ADR 0021).
+    pub invert_z: bool,
+    pub invert_u: bool,
 }
 
 /// Der Ruida-Treiber.
@@ -68,7 +71,11 @@ impl RuidaDriver {
                 })
                 .collect(),
         };
-        Self::new(RuidaConfig { scan_offset })
+        Self::new(RuidaConfig {
+            scan_offset,
+            invert_z: profile.axes.invert_z,
+            invert_u: profile.axes.invert_u,
+        })
     }
 
     fn transport(&self) -> Result<&RuidaTransport, DriverError> {
@@ -510,8 +517,6 @@ impl MachineDriver for RuidaDriver {
             pos_y_mm: y as f64 / 1000.0,
             pos_z_mm: z.map(|v| v as f64 / 1000.0),
             pos_u_mm: u.map(|v| v as f64 / 1000.0),
-            has_z_axis: false,
-            has_u_axis: false,
             rotary_on_y,
         })
     }
@@ -525,6 +530,14 @@ impl MachineDriver for RuidaDriver {
     ) -> Result<(), DriverError> {
         let t = self.transport()?;
         let idx = axis_index(axis);
+        // Nutzer-Inversion pro Achse (Profil-Einstellung) vorschalten; die
+        // treiberinterne Schritt/Dauer-Inversion folgt in den Helfern.
+        let invert = match axis {
+            MachineAxis::Z => self.config.invert_z,
+            MachineAxis::U => self.config.invert_u,
+            _ => false,
+        };
+        let dir = if invert { flip_axis_dir(dir) } else { dir };
         match motion {
             JogMotion::Step(mm) => {
                 // Schritt-Kommando: Richtung ggf. treiberintern invertieren
@@ -736,6 +749,14 @@ fn axis_index(axis: MachineAxis) -> u8 {
 // invertieren jeweils den anderen Pfad — Tippen und Halten fahren dann gleich.
 // An HW beobachtet: X + U im Dauerlauf gegenüber Schritt gedreht, Z im Schritt
 // gegenüber Dauerlauf. Diese Tabelle ist die einzige Stelle der Inversion.
+
+/// Kehrt eine fachliche Achsenrichtung um (für die Nutzer-Inversion).
+fn flip_axis_dir(dir: AxisDir) -> AxisDir {
+    match dir {
+        AxisDir::Forward => AxisDir::Backward,
+        AxisDir::Backward => AxisDir::Forward,
+    }
+}
 
 /// Soll der Schritt-Move für diese Achse/Richtung rückwärts (negativ) fahren?
 fn step_backward(axis: MachineAxis, dir: AxisDir) -> bool {
@@ -1223,6 +1244,7 @@ mod tests {
         let ohne = RuidaDriver::default().build_job(&plan);
         let mit = RuidaDriver::new(RuidaConfig {
             scan_offset: ScanOffset::from_linear(0.001, 100.0),
+            ..Default::default()
         })
         .build_job(&plan);
         assert_ne!(ohne, mit, "aktiver Scan-Offset muss den Job verändern");
