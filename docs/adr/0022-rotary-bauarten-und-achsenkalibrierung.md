@@ -1,6 +1,7 @@
 # ADR 0022: Rotary-Bauarten und treiberneutrale Achsenkalibrierung
 
-- Status: Vorgeschlagen
+- Status: Angenommen — Kalibrierung umgesetzt und an Hardware verifiziert;
+  Rotary-Fachmodell umgesetzt, aber noch ohne Gravur-Anbindung (ADR 0023)
 - Datum: 2026-07-20
 - Betrifft: studio-core (Fachmodell/Rechnung), Treiber (Ruida/GRBL/FluidNC),
   Application, Laserprofile, Laserpanel
@@ -38,18 +39,39 @@ eigenes Fachmodell brauchen:
 
 ### Recherche: Kalibrierung ist bei allen Treibern dieselbe Fachlogik
 
-Alle drei relevanten Firmwares können Achsen-Schrittkalibrierung, mit
-**identischer Formel** und nur unterschiedlichem Speicherort:
+Alle drei relevanten Firmwares können Achsen-Schrittkalibrierung. Der
+Speicherort unterscheidet sich — und, **entscheidend**, auch die gespeicherte
+Größe:
 
-| Firmware        | Steps-Einstellung                     | Rotary       |
-|-----------------|---------------------------------------|--------------|
-| Ruida           | `*_step_length` (`0x0021/31/41/51`)   | U bzw. Y-Rotary |
-| GRBL / grblHAL  | `$100/$101/$102/$103`                 | A (grblHAL)  |
-| FluidNC         | `steps_per_mm` je Achse (config)      | A (steps_per_degree) |
+| Firmware        | Steps-Einstellung                     | Größe | Rotary       |
+|-----------------|---------------------------------------|-------|--------------|
+| Ruida           | `*_step_length` (`0x0021/31/41/51`)   | **Weg pro Schritt** (µm) | U bzw. Y-Rotary |
+| GRBL / grblHAL  | `$100/$101/$102/$103`                 | **Schritte pro mm** | A (grblHAL)  |
+| FluidNC         | `steps_per_mm` je Achse (config)      | **Schritte pro mm** | A (steps_per_degree) |
 
-Die Kalibrier-Rechnung ist überall: **`neu = alt × (Soll / Ist)`** (iterativ,
-bis Soll = Ist). Das ist geräteneutrale Fachlogik — sie gehört in den Core, das
-Schreiben des konkreten Registers in den Treiber.
+Die beiden Größen sind Kehrwerte voneinander, **die Kalibrierformel ist
+deshalb nicht dieselbe**:
+
+- **Weg pro Schritt** (Ruida): die gefahrene Strecke ist *umgekehrt*
+  proportional zum Wert — der Controller fährt `Strecke / Schrittlänge`
+  Schritte. Fährt die Achse zu weit, war die Schrittlänge zu klein und muss
+  **steigen**: **`neu = alt × (Ist / Soll)`**.
+- **Schritte pro mm** (GRBL/FluidNC): die Strecke ist *proportional* zum Wert.
+  Fährt die Achse zu weit, muss der Wert **sinken**:
+  **`neu = alt × (Soll / Ist)`**.
+
+An Hardware gegengeprüft (Ruida, U-Achse): 10,6667 µm, Soll 10 mm, gemessen
+25 mm → 26,6667 µm. Ein Durchgang trifft exakt; die Rechnung ist nicht bloß
+konvergent, sondern genau, solange die Messung stimmt.
+
+> **Frühere Fassung dieses ADR nannte `neu = alt × (Soll / Ist)` als für alle
+> Firmwares identisch.** Das ist für Ruida falsch herum und führte in der ersten
+> Umsetzung dazu, dass eine zu weit fahrende Achse nach dem Kalibrieren noch
+> weiter fuhr. Wer einen neuen Treiber anbindet, muss zuerst klären, welche der
+> beiden Größen dessen Register führt.
+
+Die Rechnung ist geräteneutrale Fachlogik und gehört in den Core; welche der
+beiden Formeln gilt, entscheidet die Einheit des Zielregisters.
 
 ## Entscheidung
 
@@ -95,23 +117,42 @@ Damit ist Rotary **nicht** an Ruida gebunden — genau die Anforderung.
 
 ```
 // studio-core: reine Rechnung, testbar, kein Gerät
-pub fn calibrated_steps(current_steps: f64, soll_mm: f64, ist_mm: f64) -> f64 {
-    current_steps * (soll_mm / ist_mm)     // + Schutz gegen ist≈0
+// Für Register, die den WEG PRO SCHRITT führen (Ruida *_step_length, µm).
+pub fn calibrated_step_length(
+    current_step_length: f64,
+    target_mm: f64,
+    measured_mm: f64,
+) -> Result<f64, CalibrationError> {
+    // Strecke ist umgekehrt proportional zur Schrittlänge:
+    // zu weit gefahren → Schrittlänge muss steigen.
+    current_step_length * (measured_mm / target_mm)   // + Schutz gegen ist≈0
 }
 ```
 
+Ein Treiber, dessen Register **Schritte pro mm** führt (GRBL `$10x`,
+FluidNC `steps_per_mm`), braucht die gespiegelte Rechnung
+`alt × (Soll / Ist)`. Beide gehören in den Core; die Einheit des
+Zielregisters entscheidet, welche gilt.
+
+Fehlerhafte Eingaben liefern bewusst ein `Result` statt eines Ersatzwerts:
+ein stillschweigend „reparierter" Steps-Wert bewegt echte Hardware.
+
 Der Fluss:
 
-1. Native liest Soll und Ist vom Nutzer (z. B. „Soll 10, Ist 18") und die
+1. Native liest Soll und Ist vom Nutzer (z. B. „Soll 10, gemessen 25") und die
    Achse.
-2. Application liest über den Treiber den **aktuellen** Steps-Wert der Achse.
-3. **Core** rechnet den neuen Wert (`calibrated_steps`).
+2. Application liest über den Treiber den **aktuellen** Wert der Achse.
+3. **Core** rechnet den neuen Wert (`calibrated_step_length`).
 4. Der **Treiber** schreibt den neuen Wert in sein Achsen-Register
    (Ruida: `write_machine_settings`, das existiert bereits; GRBL: `$10x`;
    FluidNC: config) und liest zur Kontrolle zurück.
 
 So kennt der Core keine Registeradresse, und kein Treiber trägt die
 Fachformel doppelt.
+
+Weil der Ruida jedes Register einzeln beantwortet, dauert ein vollständiger
+Lese-/Schreibgang mehrere Sekunden. Der gesamte Ablauf läuft deshalb auf dem
+Geräte-Worker (wie `read_live_async`), nicht im UI-Thread.
 
 ### (C) Capability statt Annahme
 
@@ -175,7 +216,7 @@ Feinheit der Umsetzung; fachlich sind es zwei getrennte Dinge.
 **Aufwand / Risiko**
 
 - `studio-core` bekommt ein Rotary-Modul (Modell + `circumference_mm`/
-  `steps_per_mm` + `calibrated_steps`) mit Tests.
+  `steps_per_mm` + `calibrated_step_length`) mit Tests.
 - `DriverCapabilities` und `LaserProfile` wachsen (Rotary-Parameter, gewählte
   Bauart) — rückwärtskompatibel über `serde(default)`.
 - Die **Roller-Formel** ist bewusst auf „nur Walzendurchmesser" festgelegt; das
