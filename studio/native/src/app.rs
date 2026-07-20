@@ -91,6 +91,15 @@ pub struct App {
     pub settings_dialog: Option<crate::ui::SettingsDialogState>,
     /// Eigenständige Laserprofil-/Controllerverwaltung.
     pub laser_manager: Option<crate::ui::LaserManagerState>,
+    /// Rotary-Dialog (ADR 0022/0023), aus dem Laser-Kopf geöffnet.
+    pub rotary_dialog: Option<crate::ui::RotaryDialogState>,
+    /// Merker: der laufende Rotary-Registerzugriff ist ein Schreiben, damit die
+    /// Rückmeldung den Neustart-Hinweis nennt statt „gelesen".
+    rotary_wrote: Option<()>,
+    /// Ergebniskanal für die im Rotary-Dialog gelesenen Controller-Register.
+    rotary_read_rx: Option<
+        std::sync::mpsc::Receiver<Result<Vec<studio_application::MachineSetting>, AppError>>,
+    >,
     /// Lokale, laserbezogene Materialstandards; bewusst kein Projektinhalt.
     pub material_service: studio_application::MaterialService,
     pub material_manager: Option<crate::ui::MaterialManagerState>,
@@ -261,6 +270,9 @@ impl App {
             laser_lease_pending: false,
             settings_dialog: None,
             laser_manager: None,
+            rotary_dialog: None,
+            rotary_read_rx: None,
+            rotary_wrote: None,
             material_service,
             material_manager: None,
             layer_manager: None,
@@ -650,6 +662,7 @@ impl App {
             A::LaserHoldFrame(hold) => self.laser_hold_frame(hold),
             A::LaserHome => self.laser_home(),
             A::OpenLaserManager { create_new } => self.open_laser_manager(create_new),
+            A::OpenRotaryDialog => self.open_rotary_dialog(),
             A::LaserSelectStartReference(reference) => self.laser_set_start_reference(reference),
             A::LaserSaveOriginHere => self.laser_save_origin_here(),
         }

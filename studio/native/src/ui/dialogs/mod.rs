@@ -14,6 +14,7 @@ mod layer_manager;
 mod material;
 mod project_save;
 mod revision_compare;
+mod rotary;
 mod settings;
 mod text;
 
@@ -26,6 +27,7 @@ pub(super) use layer_manager::{layer_manager_window, LayerManagerOutcome};
 pub(super) use material::{material_manager_window, MaterialManagerOutcome};
 pub(super) use project_save::project_save_dialog_window;
 pub(super) use revision_compare::{revision_comparison_window, RevisionComparisonOutcome};
+pub(super) use rotary::{rotary_window, RotaryOutcome};
 pub(super) use settings::{settings_dialog_window, SettingsOutcome};
 pub(super) use text::text_dialog_window;
 

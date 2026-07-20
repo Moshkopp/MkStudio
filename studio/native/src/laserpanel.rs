@@ -45,10 +45,12 @@ pub struct LaserView {
     pub reference_missing: bool,
     /// „Position speichern" möglich (verbunden + Positionslesen unterstützt)?
     pub can_save_origin: bool,
-    /// Aus dem Controller gelesene Achsen-Verfügbarkeit (ADR 0021 §A). Gated die
-    /// Z/U-Ecken des Jog-Kreuzes.
+    /// Achsen-Verfügbarkeit aus dem Laserprofil (ADR 0021 §A — nicht aus dem
+    /// Controller lesbar). Gated die Z/U-Ecken des Jog-Kreuzes.
     pub has_z_axis: bool,
     pub has_u_axis: bool,
+    /// Rotary am U-Ausgang aktiv (ADR 0022/0023). Zeigt den Zustand im Kopf.
+    pub rotary_active: bool,
     /// Live-Achsenpositionen (mm) für die Anzeige; `None` = unbekannt/„—".
     pub pos: AxisPositions,
     /// Läuft gerade ein Achsen-Dauerlauf? Steuert das kontinuierliche Repaint,
@@ -145,6 +147,20 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
                     .clicked()
                 {
                     actions.push(UiAction::OpenLaserManager { create_new: false });
+                }
+                // Rotary sitzt im Kopf, weil er zwischen zwei Aufträgen
+                // gewechselt wird — nicht einmalig wie die Geräteeinrichtung.
+                let rotary_label = if view.rotary_active {
+                    RichText::new("Rotary").strong()
+                } else {
+                    RichText::new("Rotary").weak()
+                };
+                if ui
+                    .add(egui::Button::selectable(view.rotary_active, rotary_label))
+                    .on_hover_text("Rotary einrichten und ein-/ausschalten")
+                    .clicked()
+                {
+                    actions.push(UiAction::OpenRotaryDialog);
                 }
                 egui::ComboBox::from_id_salt("laser_sel")
                     .selected_text(active_label)
@@ -737,6 +753,7 @@ mod tests {
             can_save_origin: false,
             has_z_axis: false,
             has_u_axis: false,
+            rotary_active: false,
             pos: AxisPositions::default(),
             hold_active: false,
         }

@@ -414,3 +414,49 @@ pub struct PreviewOutline {
     pub closed: bool,
     pub color: [u8; 3],
 }
+
+/// Kurzlebiger Zustand des Rotary-Dialogs.
+pub struct RotaryDialogState {
+    pub draft: studio_core::Rotary,
+    /// Objektdurchmesser für die Chuck-Bauart, getrennt gehalten: beim
+    /// Umschalten der Bauart soll der zuletzt eingegebene Wert erhalten bleiben.
+    pub object_diameter_mm: f64,
+    pub roller_diameter_mm: f64,
+    /// Aus dem Controller gelesene Rotary-Register (Anzeige, nicht editierbar).
+    pub controller: Option<ControllerRotary>,
+    /// Vollständiger gelesener Parametersatz — nötig, um beim Schreiben Adresse
+    /// und Einheit je Register zu kennen, statt sie zu raten.
+    pub machine_settings: Vec<studio_application::MachineSetting>,
+    /// Soll/Ist einer Testgravur, um die Pulse pro Umdrehung nachzuziehen.
+    pub cal_target_mm: f64,
+    pub cal_measured_mm: f64,
+    pub reading: bool,
+}
+
+/// Die drei Rotary-Werte, die der Ruida selbst führt.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ControllerRotary {
+    pub enabled: Option<bool>,
+    pub pulses_per_rot: Option<f64>,
+    pub diameter_mm: Option<f64>,
+}
+
+impl RotaryDialogState {
+    pub fn from_profile(rotary: Option<studio_core::Rotary>) -> Self {
+        let draft = rotary.unwrap_or_default();
+        let (object, roller) = match draft.kind {
+            studio_core::RotaryKind::Chuck { object_diameter_mm } => (object_diameter_mm, 40.0),
+            studio_core::RotaryKind::Roller { roller_diameter_mm } => (50.0, roller_diameter_mm),
+        };
+        Self {
+            draft,
+            object_diameter_mm: object,
+            roller_diameter_mm: roller,
+            controller: None,
+            machine_settings: Vec::new(),
+            cal_target_mm: 0.0,
+            cal_measured_mm: 0.0,
+            reading: false,
+        }
+    }
+}

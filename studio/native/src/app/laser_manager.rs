@@ -316,6 +316,166 @@ impl App {
         true
     }
 
+    /// Öffnet den Rotary-Dialog mit den Werten des aktiven Lasers.
+    pub fn open_rotary_dialog(&mut self) {
+        let rotary = self
+            .laser_backend
+            .active_profile()
+            .and_then(|profile| profile.rotary);
+        self.rotary_dialog = Some(crate::ui::RotaryDialogState::from_profile(rotary));
+    }
+
+    /// Übernimmt die Rotary-Einstellung ins aktive Profil.
+    pub fn apply_rotary(&mut self, rotary: studio_core::Rotary) {
+        let Some(mut profile) = self.laser_backend.active_profile().cloned() else {
+            return;
+        };
+        profile.rotary = Some(rotary);
+        // Speichern kann trennen (Rotary steckt im Treiber): vorher stoppen.
+        self.laser_hold_cancel();
+        if let Err(error) = self.laser_backend.save_profile(profile) {
+            self.app_error = Some(error);
+            return;
+        }
+        self.rotary_dialog = None;
+        self.toasts.success(if rotary.active {
+            "Rotary aktiv."
+        } else {
+            "Rotary ausgeschaltet."
+        });
+    }
+
+    /// Schreibt Rotary-Modus, Pulse und Durchmesser in den Controller.
+    ///
+    /// Beim Ruida rechnet die Firmware die Drehung selbst (ADR 0023 §B); Studio
+    /// setzt deshalb nur diese drei Register und rechnet die Bewegung NICHT
+    /// zusätzlich um.
+    pub fn rotary_write_controller(&mut self, rotary: studio_core::Rotary) {
+        let Some(settings) = self.rotary_register_writes(rotary) else {
+            self.app_error = Some(studio_application::AppError::new(
+                "rotary_registers_unknown",
+                "Erst aus dem Gerät lesen — ohne die Registeradressen kann nicht geschrieben werden.",
+            ));
+            return;
+        };
+        match self.laser_backend.write_machine_settings_async(settings) {
+            Ok(receiver) => {
+                self.rotary_read_rx = Some(receiver);
+                self.rotary_wrote = Some(());
+                if let Some(st) = self.rotary_dialog.as_mut() {
+                    st.reading = true;
+                }
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    /// Baut die Registerschreibungen aus der Bauart. Braucht einen zuvor
+    /// gelesenen Parametersatz, weil nur dort Adresse und Einheit je Parameter
+    /// stehen — geraten wird nichts.
+    fn rotary_register_writes(&self, rotary: studio_core::Rotary) -> Option<Vec<(u16, i64)>> {
+        let settings = &self.rotary_dialog.as_ref()?.machine_settings;
+        if settings.is_empty() {
+            return None;
+        }
+        let raw_for = |key: &str, value: f64| -> Option<(u16, i64)> {
+            let setting = settings.iter().find(|setting| setting.key == key)?;
+            Some((
+                setting.address,
+                (value * setting.unit.factor()).round() as i64,
+            ))
+        };
+        let mut writes = Vec::new();
+
+        // rotary_enable ist ein einzelnes Bit in einem geteilten Register: nur
+        // dieses Bit setzen und die übrigen Schalter unverändert
+        // zurückschreiben, sonst würden fremde Einstellungen gelöscht.
+        let enable = settings
+            .iter()
+            .find(|setting| setting.key == "rotary_enable")?;
+        let mask = enable.bit_mask.unwrap_or(i64::MAX);
+        let current = enable.raw.unwrap_or_default();
+        let bits = if rotary.active { mask } else { 0 };
+        writes.push((enable.address, (current & !mask) | bits));
+
+        writes.push(raw_for("pulses_per_rot", rotary.steps_per_rev)?);
+        writes.push(raw_for(
+            "rotary_diameter",
+            rotary.kind.driving_diameter_mm(),
+        )?);
+        Some(writes)
+    }
+
+    /// Liest die Rotary-Register frisch aus dem Controller (nur zur Anzeige).
+    pub fn rotary_read_controller(&mut self) {
+        match self.laser_backend.read_machine_settings_async() {
+            Ok(receiver) => {
+                self.rotary_read_rx = Some(receiver);
+                if let Some(st) = self.rotary_dialog.as_mut() {
+                    st.reading = true;
+                }
+            }
+            Err(error) => {
+                self.app_error = Some(error);
+                if let Some(st) = self.rotary_dialog.as_mut() {
+                    st.reading = false;
+                }
+            }
+        }
+    }
+
+    /// Holt gelesene Rotary-Register ab. Pro Frame aufzurufen.
+    pub fn poll_rotary_read(&mut self) -> bool {
+        let Some(result) = self
+            .rotary_read_rx
+            .as_ref()
+            .and_then(|rx| rx.try_recv().ok())
+        else {
+            return false;
+        };
+        self.rotary_read_rx = None;
+        match result {
+            Ok(values) => {
+                let find = |key: &str| {
+                    values
+                        .iter()
+                        .find(|setting| setting.key == key)
+                        .and_then(|setting| setting.value())
+                };
+                // rotary_enable teilt sich ein Register mit anderen Schaltern
+                // (bit_mask). Ohne Maskierung meldete jedes andere gesetzte Bit
+                // fälschlich „Rotary aktiv".
+                let enabled = values
+                    .iter()
+                    .find(|setting| setting.key == "rotary_enable")
+                    .and_then(|setting| {
+                        let mask = setting.bit_mask.unwrap_or(i64::MAX);
+                        setting.raw.map(|raw| raw & mask != 0)
+                    });
+                if let Some(st) = self.rotary_dialog.as_mut() {
+                    st.controller = Some(crate::ui::ControllerRotary {
+                        enabled,
+                        pulses_per_rot: find("pulses_per_rot"),
+                        diameter_mm: find("rotary_diameter"),
+                    });
+                    st.machine_settings = values;
+                    st.reading = false;
+                }
+                if self.rotary_wrote.take().is_some() {
+                    self.toasts
+                        .success("Rotary-Register geschrieben und bestätigt.");
+                }
+            }
+            Err(error) => {
+                self.app_error = Some(error);
+                if let Some(st) = self.rotary_dialog.as_mut() {
+                    st.reading = false;
+                }
+            }
+        }
+        true
+    }
+
     fn activate_managed_laser(&mut self) {
         if let Some(id) = self
             .laser_manager

@@ -142,6 +142,8 @@ pub enum UiAction {
     OpenLaserManager {
         create_new: bool,
     },
+    /// Rotary einrichten und ein-/ausschalten (ADR 0022/0023).
+    OpenRotaryDialog,
     /// „Starten von": Startreferenz wählen (bewegt NIE die Maschine, ADR 0020).
     /// Angefahren wird der Bezugspunkt nur über die „Ursprung"-Kachel.
     LaserSelectStartReference(studio_core::StartReference),

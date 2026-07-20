@@ -28,11 +28,12 @@ pub use action::UiAction;
 pub(crate) use project::preview_from_state;
 pub use splash::Splash;
 pub use state::{
-    BackupRestoreConfirmation, CachedProjectDetail, CropKind, GeoOpDialogState, GeoOpKind,
-    HubTestStatus, ImageDialogPage, ImageDialogState, LaserManagerState, LaserManagerTab,
-    LayerDialogState, LayerManagerState, MaterialManagerState, PendingProjectAction,
-    ProjectBrowserState, ProjectSaveDialogState, RevisionComparisonState, SavedOriginDialogState,
-    SelectionSizeState, SettingsDialogState, SettingsSection, TextDialogState,
+    BackupRestoreConfirmation, CachedProjectDetail, ControllerRotary, CropKind, GeoOpDialogState,
+    GeoOpKind, HubTestStatus, ImageDialogPage, ImageDialogState, LaserManagerState,
+    LaserManagerTab, LayerDialogState, LayerManagerState, MaterialManagerState,
+    PendingProjectAction, ProjectBrowserState, ProjectSaveDialogState, RevisionComparisonState,
+    RotaryDialogState, SavedOriginDialogState, SelectionSizeState, SettingsDialogState,
+    SettingsSection, TextDialogState,
 };
 pub use toast::Toasts;
 
@@ -638,6 +639,22 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
         }
     }
 
+    // Rotary einrichten/umschalten — aus dem Laser-Kopf, nicht aus der
+    // Geräteverwaltung: der Modus wechselt zwischen Aufträgen.
+    if app.rotary_dialog.is_some() {
+        let outcome = {
+            let state = app.rotary_dialog.as_mut().unwrap();
+            dialogs::rotary_window(ui, state)
+        };
+        match outcome {
+            dialogs::RotaryOutcome::None => {}
+            dialogs::RotaryOutcome::Close => app.rotary_dialog = None,
+            dialogs::RotaryOutcome::Apply(rotary) => app.apply_rotary(rotary),
+            dialogs::RotaryOutcome::ReadController => app.rotary_read_controller(),
+            dialogs::RotaryOutcome::WriteController(rotary) => app.rotary_write_controller(rotary),
+        }
+    }
+
     if app.layer_manager.is_some() && app.material_manager.is_none() {
         let laser = app.laser_backend.active_profile().cloned();
         let colors: Vec<_> = app.session.layers.iter().map(|layer| layer.color).collect();
@@ -966,6 +983,11 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         can_save_origin,
         has_z_axis: axes.has_z_axis,
         has_u_axis: axes.has_u_axis,
+        rotary_active: app
+            .laser_backend
+            .active_profile()
+            .and_then(|profile| profile.rotary)
+            .is_some_and(|rotary| rotary.active),
         pos,
         hold_active: app.laser_hold.is_some(),
     }
