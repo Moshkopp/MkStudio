@@ -32,6 +32,7 @@ pub mod pattern_fill;
 pub mod preview;
 pub mod project;
 pub mod raster;
+pub mod rotary;
 pub mod scanline;
 pub mod shapes;
 pub mod shortcuts;
@@ -68,6 +69,7 @@ pub use project::{
     ProjectFile, ProjectInfo, VersionInfo,
 };
 pub use raster::{raster_rows, raster_texture, Placement, RasterImage, RasterRow, RasterTexture};
+pub use rotary::{calibrated_step_length, CalibrationError, Rotary, RotaryKind};
 pub use scanline::FillSegment;
 pub use shapes::{PolyShape, ShapeInfo};
 pub use shortcuts::{
