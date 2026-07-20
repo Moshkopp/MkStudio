@@ -5,8 +5,9 @@
 //! den `LaserService` aus (echte Treiber-Aktionen, hardwarelos getestet).
 
 use egui::{Color32, RichText, Sense, Vec2};
-use studio_core::{JobAction, StartReference};
+use studio_core::{AxisDir, JobAction, MachineAxis, StartReference};
 
+use crate::app::HoldJog;
 use crate::tools::LaserUi;
 use crate::ui::UiAction;
 
@@ -44,6 +45,24 @@ pub struct LaserView {
     pub reference_missing: bool,
     /// „Position speichern" möglich (verbunden + Positionslesen unterstützt)?
     pub can_save_origin: bool,
+    /// Aus dem Controller gelesene Achsen-Verfügbarkeit (ADR 0021 §A). Gated die
+    /// Z/U-Ecken des Jog-Kreuzes.
+    pub has_z_axis: bool,
+    pub has_u_axis: bool,
+    /// Live-Achsenpositionen (mm) für die Anzeige; `None` = unbekannt/„—".
+    pub pos: AxisPositions,
+    /// Läuft gerade ein Achsen-Dauerlauf? Steuert das kontinuierliche Repaint,
+    /// damit der Watchdog die Karenzzeit auslaufen lassen und stoppen kann.
+    pub hold_active: bool,
+}
+
+/// Live-Positionen aller vier Achsen (mm), soweit gelesen.
+#[derive(Default, Clone, Copy)]
+pub struct AxisPositions {
+    pub x: Option<f64>,
+    pub y: Option<f64>,
+    pub z: Option<f64>,
+    pub u: Option<f64>,
 }
 
 /// Farb-Ton der Ampel-Kacheln.
@@ -305,15 +324,75 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
     ui.separator();
     ui.add_space(8.0);
 
-    // Jog-Kreuz.
-    ui.label(RichText::new("KOPF").small().weak());
+    // Jog-Kreuz: Mitte X/Y + Home, Ecken oben U (dreh −/+), Ecken unten Z (−/+).
+    // Das eine Panel für alle fünf Bewegungen. Der Modus (Schritt/Dauer) rechts
+    // neben der Überschrift bestimmt, ob ein Klick einen festen Schritt fährt
+    // oder Gedrückthalten einen Dauerlauf auslöst.
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("KOPF").small().weak());
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            ui.selectable_value(&mut ui_state.continuous_jog, false, "Schritt");
+            ui.selectable_value(&mut ui_state.continuous_jog, true, "Dauer");
+        });
+    });
     ui.add_space(4.0);
-    if let Some(jog) = jog_cross(ui, ui_state.jog_step, view.connected) {
-        actions.push(jog);
+
+    let mut hold: Option<HoldJog> = None;
+    jog_cross(
+        ui,
+        view,
+        ui_state.jog_step,
+        ui_state.continuous_jog,
+        &mut actions,
+        &mut hold,
+    );
+    if ui_state.continuous_jog {
+        // Kontinuierlich neu zeichnen, solange etwas zu tun ist: eine Zelle
+        // gehalten wird ODER noch ein Dauerlauf aktiv ist (Watchdog-Karenz).
+        if hold.is_some() || view.hold_active {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(16));
+        }
+        actions.push(UiAction::LaserHoldFrame(hold));
     }
+
     ui.add_space(8.0);
     slider_row(ui, "Schritt", "mm", &mut ui_state.jog_step, 0.1, 100.0);
     slider_row(ui, "Speed", "mm/s", &mut ui_state.jog_speed, 1.0, 1000.0);
+    // Eigener Z-Speed, hart auf Z_JOG_SPEED_MAX begrenzt (Gewindestange).
+    slider_row(
+        ui,
+        "Z-Speed",
+        "mm/s",
+        &mut ui_state.z_jog_speed,
+        1.0,
+        crate::tools::Z_JOG_SPEED_MAX,
+    );
+
+    // Live-Positionsanzeige aller vier Achsen (rein informativ).
+    ui.add_space(8.0);
+    ui.separator();
+    ui.label(RichText::new("POSITION").small().weak());
+    ui.add_space(2.0);
+    egui::Grid::new("axis_position")
+        .num_columns(2)
+        .spacing([10.0, 3.0])
+        .show(ui, |ui| {
+            for (label, value) in [
+                ("X", view.pos.x),
+                ("Y", view.pos.y),
+                ("Z", view.pos.z),
+                ("U", view.pos.u),
+            ] {
+                ui.label(RichText::new(label).weak());
+                let text = match value {
+                    Some(mm) => format!("{mm:.3} mm"),
+                    None => "—".to_owned(),
+                };
+                ui.label(RichText::new(text).monospace());
+                ui.end_row();
+            }
+        });
 
     actions
 }
@@ -380,111 +459,233 @@ fn anchor_grid(ui: &mut egui::Ui, anchor: &mut usize) {
         });
 }
 
-/// Zeichnet das Jog-Kreuz. Gibt die ausgelöste Bewegung als `UiAction` zurück
-/// (Jog um `step` mm bzw. Home).
-fn jog_cross(ui: &mut egui::Ui, step: f64, enabled: bool) -> Option<UiAction> {
-    let b = 46.0;
-    let gap = 5.0;
-    let total = 3.0 * b + 2.0 * gap;
-    let mut result: Option<UiAction> = None;
-    ui.horizontal(|ui| {
-        // Zentrieren.
-        let pad = (ui.available_width() - total) * 0.5;
-        if pad > 0.0 {
-            ui.add_space(pad);
-        }
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(total, total), Sense::hover());
-        let cell = |col: usize, row: usize| -> egui::Rect {
-            let x = rect.left() + col as f32 * (b + gap);
-            let y = rect.top() + row as f32 * (b + gap);
-            egui::Rect::from_min_size(egui::pos2(x, y), Vec2::splat(b))
-        };
-        // Richtung als selbstgezeichnetes Dreieck/Symbol — schriftunabhängig
-        // (egui-Default-Font hat die Unicode-Pfeile nicht).
-        let mut btn = |ui: &mut egui::Ui, r: egui::Rect, dir: JogDir| {
-            let sense = if enabled {
-                Sense::click()
-            } else {
-                Sense::hover()
-            };
-            let resp = ui.allocate_rect(r, sense);
-            let bg = if resp.hovered() {
-                Color32::from_rgb(0x30, 0x36, 0x40)
-            } else {
-                Color32::from_rgb(0x24, 0x28, 0x30)
-            };
-            ui.painter().rect_filled(r, 8.0, bg);
-            let c = r.center();
-            let fg = Color32::from_gray(0xec);
-            let s = 9.0;
-            match dir {
-                JogDir::Up => tri(
-                    ui,
-                    [
-                        c + Vec2::new(0.0, -s),
-                        c + Vec2::new(-s, s * 0.6),
-                        c + Vec2::new(s, s * 0.6),
-                    ],
-                    fg,
-                ),
-                JogDir::Down => tri(
-                    ui,
-                    [
-                        c + Vec2::new(0.0, s),
-                        c + Vec2::new(-s, -s * 0.6),
-                        c + Vec2::new(s, -s * 0.6),
-                    ],
-                    fg,
-                ),
-                JogDir::Left => tri(
-                    ui,
-                    [
-                        c + Vec2::new(-s, 0.0),
-                        c + Vec2::new(s * 0.6, -s),
-                        c + Vec2::new(s * 0.6, s),
-                    ],
-                    fg,
-                ),
-                JogDir::Right => tri(
-                    ui,
-                    [
-                        c + Vec2::new(s, 0.0),
-                        c + Vec2::new(-s * 0.6, -s),
-                        c + Vec2::new(-s * 0.6, s),
-                    ],
-                    fg,
-                ),
-                JogDir::Home => {
-                    // Kleines Haus.
-                    ui.painter().circle_filled(c, 4.0, fg);
-                }
-            }
-            if resp.clicked() {
-                result = Some(match dir {
-                    JogDir::Up => UiAction::LaserJog(0.0, -step),
-                    JogDir::Down => UiAction::LaserJog(0.0, step),
-                    JogDir::Left => UiAction::LaserJog(-step, 0.0),
-                    JogDir::Right => UiAction::LaserJog(step, 0.0),
-                    JogDir::Home => UiAction::LaserHome,
-                });
-            }
-        };
-        btn(ui, cell(1, 0), JogDir::Up);
-        btn(ui, cell(0, 1), JogDir::Left);
-        btn(ui, cell(1, 1), JogDir::Home);
-        btn(ui, cell(2, 1), JogDir::Right);
-        btn(ui, cell(1, 2), JogDir::Down);
-    });
-    result
+/// Was eine Zelle des Jog-Kreuzes auslöst.
+#[derive(Clone, Copy)]
+enum JogCell {
+    /// X/Y-Kopfbewegung (dx, dy als Vielfache von `jog_step`).
+    Head(f64, f64),
+    Home,
+    /// Zusatzachse Z/U in eine Richtung (Schritt: Tippen; Dauer: Halten).
+    Axis(MachineAxis, AxisDir),
 }
 
-#[derive(Debug, Clone, Copy)]
-enum JogDir {
+/// Symbol einer Jog-Zelle.
+#[derive(Clone, Copy)]
+enum JogGlyph {
     Up,
     Down,
     Left,
     Right,
     Home,
+    Label(&'static str),
+}
+
+/// Zeichnet das Jog-Kreuz: Mitte X/Y + Home, Ecken oben U (dreh), unten Z. Im
+/// Schritt-Modus tippt ein Klick einen festen Schritt (`actions`); im
+/// Dauer-Modus setzt eine gedrückt gehaltene Zelle `hold`. Z/U-Ecken sind nur
+/// aktiv, wenn die Achse laut Controller vorhanden ist (`has_z/has_u`).
+fn jog_cross(
+    ui: &mut egui::Ui,
+    view: &LaserView,
+    step: f64,
+    continuous: bool,
+    actions: &mut Vec<UiAction>,
+    hold: &mut Option<HoldJog>,
+) {
+    let b = 46.0;
+    let gap = 5.0;
+    let total = 3.0 * b + 2.0 * gap;
+    ui.horizontal(|ui| {
+        let pad = (ui.available_width() - total) * 0.5;
+        if pad > 0.0 {
+            ui.add_space(pad);
+        }
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(total, total), Sense::hover());
+        let cell_rect = |col: usize, row: usize| -> egui::Rect {
+            let x = rect.left() + col as f32 * (b + gap);
+            let y = rect.top() + row as f32 * (b + gap);
+            egui::Rect::from_min_size(egui::pos2(x, y), Vec2::splat(b))
+        };
+
+        // Ecken oben = U (dreh −/+), Ecken unten = Z (−/+), Mitte = X/Y + Home.
+        let cells: [(usize, usize, JogGlyph, JogCell); 9] = [
+            (
+                0,
+                0,
+                JogGlyph::Label("U−"),
+                JogCell::Axis(MachineAxis::U, AxisDir::Backward),
+            ),
+            (1, 0, JogGlyph::Up, JogCell::Head(0.0, -1.0)),
+            (
+                2,
+                0,
+                JogGlyph::Label("U+"),
+                JogCell::Axis(MachineAxis::U, AxisDir::Forward),
+            ),
+            (0, 1, JogGlyph::Left, JogCell::Head(-1.0, 0.0)),
+            (1, 1, JogGlyph::Home, JogCell::Home),
+            (2, 1, JogGlyph::Right, JogCell::Head(1.0, 0.0)),
+            (
+                0,
+                2,
+                JogGlyph::Label("Z−"),
+                JogCell::Axis(MachineAxis::Z, AxisDir::Backward),
+            ),
+            (1, 2, JogGlyph::Down, JogCell::Head(0.0, 1.0)),
+            (
+                2,
+                2,
+                JogGlyph::Label("Z+"),
+                JogCell::Axis(MachineAxis::Z, AxisDir::Forward),
+            ),
+        ];
+
+        for (col, row, glyph, action) in cells {
+            // Zelle nur aktiv, wenn verbunden UND (X/Y/Home immer, Z/U nur bei
+            // vorhandener Achse).
+            let axis_ok = match action {
+                JogCell::Axis(MachineAxis::Z, _) => view.has_z_axis,
+                JogCell::Axis(MachineAxis::U, _) => view.has_u_axis,
+                _ => true,
+            };
+            let enabled = view.connected && axis_ok;
+
+            let r = cell_rect(col, row);
+            let sense = if !enabled {
+                Sense::hover()
+            } else if continuous {
+                Sense::drag()
+            } else {
+                Sense::click()
+            };
+            let resp = ui.allocate_rect(r, sense);
+            let held = continuous && enabled && resp.is_pointer_button_down_on();
+            let bg = if held {
+                ui.visuals().selection.stroke.color.gamma_multiply(0.6)
+            } else if !enabled {
+                Color32::from_rgb(0x1c, 0x1f, 0x25)
+            } else if resp.hovered() {
+                Color32::from_rgb(0x30, 0x36, 0x40)
+            } else {
+                Color32::from_rgb(0x24, 0x28, 0x30)
+            };
+            ui.painter().rect_filled(r, 8.0, bg);
+            let fg = if enabled {
+                Color32::from_gray(0xec)
+            } else {
+                Color32::from_gray(0x55)
+            };
+            draw_glyph(ui, r, glyph, fg);
+
+            if !enabled {
+                continue;
+            }
+            if continuous {
+                if held {
+                    match action {
+                        JogCell::Axis(axis, dir) => *hold = Some(HoldJog { axis, dir }),
+                        JogCell::Head(dx, dy) => *hold = head_hold(dx, dy),
+                        JogCell::Home => {}
+                    }
+                }
+            } else if resp.clicked() {
+                match action {
+                    JogCell::Head(dx, dy) => {
+                        // X/Y-Schritt geht über das bestehende `LaserJog(dx,dy)`
+                        // (Ebene, absolut+delta), skaliert mit dem Schritt.
+                        actions.push(UiAction::LaserJog(dx * step, dy * step))
+                    }
+                    JogCell::Home => actions.push(UiAction::LaserHome),
+                    JogCell::Axis(axis, dir) => actions.push(UiAction::LaserJogAxis(axis, dir)),
+                }
+            }
+        }
+    });
+}
+
+/// Übersetzt eine X/Y-Kreuzrichtung in einen Dauerlauf-Halte-Wunsch. Die
+/// Vorzeichen folgen dem Kreuz: links/rechts = X∓, hoch/runter = Y (Y-Achse
+/// zählt am Ruida von oben, daher hoch = Forward).
+fn head_hold(dx: f64, dy: f64) -> Option<HoldJog> {
+    if dx < 0.0 {
+        Some(HoldJog {
+            axis: MachineAxis::X,
+            dir: AxisDir::Backward,
+        })
+    } else if dx > 0.0 {
+        Some(HoldJog {
+            axis: MachineAxis::X,
+            dir: AxisDir::Forward,
+        })
+    } else if dy < 0.0 {
+        Some(HoldJog {
+            axis: MachineAxis::Y,
+            dir: AxisDir::Forward,
+        })
+    } else if dy > 0.0 {
+        Some(HoldJog {
+            axis: MachineAxis::Y,
+            dir: AxisDir::Backward,
+        })
+    } else {
+        None
+    }
+}
+
+/// Zeichnet das Symbol einer Jog-Zelle (Pfeil-Dreieck, Home-Punkt oder Label).
+fn draw_glyph(ui: &egui::Ui, r: egui::Rect, glyph: JogGlyph, fg: Color32) {
+    let c = r.center();
+    let s = 9.0;
+    match glyph {
+        JogGlyph::Up => tri(
+            ui,
+            [
+                c + Vec2::new(0.0, -s),
+                c + Vec2::new(-s, s * 0.6),
+                c + Vec2::new(s, s * 0.6),
+            ],
+            fg,
+        ),
+        JogGlyph::Down => tri(
+            ui,
+            [
+                c + Vec2::new(0.0, s),
+                c + Vec2::new(-s, -s * 0.6),
+                c + Vec2::new(s, -s * 0.6),
+            ],
+            fg,
+        ),
+        JogGlyph::Left => tri(
+            ui,
+            [
+                c + Vec2::new(-s, 0.0),
+                c + Vec2::new(s * 0.6, -s),
+                c + Vec2::new(s * 0.6, s),
+            ],
+            fg,
+        ),
+        JogGlyph::Right => tri(
+            ui,
+            [
+                c + Vec2::new(s, 0.0),
+                c + Vec2::new(-s * 0.6, -s),
+                c + Vec2::new(-s * 0.6, s),
+            ],
+            fg,
+        ),
+        JogGlyph::Home => {
+            ui.painter().circle_filled(c, 4.0, fg);
+        }
+        JogGlyph::Label(text) => {
+            ui.painter().text(
+                c,
+                egui::Align2::CENTER_CENTER,
+                text,
+                egui::FontId::proportional(15.0),
+                fg,
+            );
+        }
+    }
 }
 
 /// Ausgefülltes Dreieck aus drei Punkten (für die Jog-Pfeile).
@@ -533,6 +734,10 @@ mod tests {
             }],
             reference_missing: false,
             can_save_origin: false,
+            has_z_axis: false,
+            has_u_axis: false,
+            pos: AxisPositions::default(),
+            hold_active: false,
         }
     }
 
@@ -591,7 +796,7 @@ mod tests {
         let input = egui::RawInput {
             screen_rect: Some(egui::Rect::from_min_size(
                 egui::Pos2::ZERO,
-                egui::vec2(420.0, 900.0),
+                egui::vec2(420.0, 1300.0),
             )),
             ..Default::default()
         };
@@ -604,7 +809,9 @@ mod tests {
             ("Test · Ruida", "Verwalten"),
             ("⏺ Getrennt", "Verbinden"),
             ("Absolute Koordinaten", "+"),
-            ("Schritt", "10.0"),
+            // „Speed" ist eindeutig (das „Schritt"-Label kommt jetzt auch im
+            // Modus-Umschalter vor); prüft dieselbe Slider-Zeilen-Ausrichtung.
+            ("Speed", "100.0"),
         ] {
             let dy = (text_y_center(&out.shapes, left) - text_y_center(&out.shapes, right)).abs();
             assert!(

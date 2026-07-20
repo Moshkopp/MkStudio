@@ -937,6 +937,13 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         .saved_origin_id()
         .is_some_and(|id| !saved_origins.iter().any(|row| row.id == id));
     let can_save_origin = connected && capabilities.position_read;
+    let live = &app.laser_live;
+    let pos = laserpanel::AxisPositions {
+        x: live.head.map(|(x, _)| x),
+        y: live.head.map(|(_, y)| y),
+        z: live.pos_z,
+        u: live.pos_u,
+    };
     laserpanel::LaserView {
         profiles,
         active_id,
@@ -947,6 +954,10 @@ fn laser_view(app: &mut App) -> laserpanel::LaserView {
         saved_origins,
         reference_missing,
         can_save_origin,
+        has_z_axis: live.has_z_axis,
+        has_u_axis: live.has_u_axis,
+        pos,
+        hold_active: app.laser_hold.is_some(),
     }
 }
 
