@@ -43,6 +43,10 @@ impl RotaryKind {
 /// treibenden Elements.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct Rotary {
+    /// Ob der Rotary gerade benutzt wird. Wird zwischen Aufträgen umgeschaltet,
+    /// während Bauart und Durchmesser eingerichtet bleiben.
+    #[serde(default)]
+    pub active: bool,
     #[serde(default)]
     pub kind: RotaryKind,
     /// Motor-/Getriebeschritte pro voller Umdrehung.
@@ -57,6 +61,7 @@ fn default_steps_per_rev() -> f64 {
 impl Default for Rotary {
     fn default() -> Self {
         Self {
+            active: false,
             kind: RotaryKind::default(),
             steps_per_rev: default_steps_per_rev(),
         }
@@ -146,6 +151,37 @@ pub fn calibrated_step_length(
     Ok(current_step_length * (measured_mm / target_mm))
 }
 
+/// Neue **Schritte pro Umdrehung** aus Soll/Ist: `neu = alt × Soll / Ist`.
+///
+/// Gegenstück zu [`calibrated_step_length`] für Größen, die Schritte **pro
+/// Einheit** zählen (Ruida `pulses_per_rot`, GRBL `$10x`). Hier ist die
+/// gefahrene Strecke **proportional** zum Wert:
+///
+/// - fährt zu **kurz** (Ist < Soll) → es braucht **mehr** Schritte pro
+///   Umdrehung, der Wert **steigt**.
+///
+/// Bewusst getrennt vom Walzendurchmesser: der ist gemessen und bleibt, wie er
+/// ist. Die Pulse sind der freie Parameter, über den kalibriert wird.
+pub fn calibrated_pulses_per_rev(
+    current_pulses: f64,
+    target_mm: f64,
+    measured_mm: f64,
+) -> Result<f64, CalibrationError> {
+    if !current_pulses.is_finite()
+        || !target_mm.is_finite()
+        || !measured_mm.is_finite()
+        || current_pulses <= 0.0
+        || target_mm <= 0.0
+        || measured_mm < 0.0
+    {
+        return Err(CalibrationError::InvalidInput);
+    }
+    if measured_mm < MIN_MEASURED_MM {
+        return Err(CalibrationError::MeasuredZero);
+    }
+    Ok(current_pulses * (target_mm / measured_mm))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -153,6 +189,7 @@ mod tests {
     #[test]
     fn chuck_wickelt_den_objektumfang_ab() {
         let rotary = Rotary {
+            active: true,
             kind: RotaryKind::Chuck {
                 object_diameter_mm: 10.0,
             },
@@ -170,6 +207,7 @@ mod tests {
         // dick das Objekt ist — deshalb trägt RotaryKind::Roller den Objekt-Ø
         // gar nicht erst.
         let rotary = Rotary {
+            active: true,
             kind: RotaryKind::Roller {
                 roller_diameter_mm: 20.0,
             },
@@ -185,12 +223,14 @@ mod tests {
         // beide Durchmesser zufällig gleich sind. Der Test hält fest, dass die
         // Bauart und nicht der Zahlenwert entscheidet.
         let chuck = Rotary {
+            active: true,
             kind: RotaryKind::Chuck {
                 object_diameter_mm: 80.0,
             },
             steps_per_rev: 1_000.0,
         };
         let roller = Rotary {
+            active: true,
             kind: RotaryKind::Roller {
                 roller_diameter_mm: 20.0,
             },
@@ -203,6 +243,7 @@ mod tests {
     fn unbrauchbarer_durchmesser_liefert_keine_skalierung() {
         for diameter in [0.0, -5.0, f64::NAN] {
             let rotary = Rotary {
+                active: true,
                 kind: RotaryKind::Chuck {
                     object_diameter_mm: diameter,
                 },
@@ -292,5 +333,57 @@ mod tests {
                 "({current}, {soll}, {ist}) muss abgelehnt werden"
             );
         }
+    }
+
+    #[test]
+    fn alte_profile_ohne_active_laden_als_ausgeschaltet() {
+        // Rückwärtskompatibilität: ein vor der Rotary-Umschaltung gespeichertes
+        // Profil darf nicht plötzlich mit aktivem Rotary hochkommen — das würde
+        // den nächsten Job als Rotary-Job ausführen.
+        let alt = r#"{"kind":{"Roller":{"roller_diameter_mm":40.0}},"steps_per_rev":1000.0}"#;
+        let rotary: Rotary = serde_json::from_str(alt).expect("altes Profil lädt");
+        assert!(!rotary.active, "ohne active-Feld muss der Rotary aus sein");
+        assert!((rotary.steps_per_rev - 1_000.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn pulse_steigen_wenn_die_drehung_zu_kurz_faellt() {
+        // Gegenrichtung zur Schrittlänge: Pulse pro Umdrehung zählen Schritte
+        // pro Einheit, die Strecke ist also PROPORTIONAL. Soll 100 mm, real nur
+        // 80 gefahren → es braucht mehr Pulse.
+        let neu = calibrated_pulses_per_rev(10_000.0, 100.0, 80.0).expect("gültige Eingabe");
+        assert!((neu - 12_500.0).abs() < 1e-6, "erwartet 12500, war {neu}");
+        assert!(neu > 10_000.0, "zu kurz gedreht muss die Pulse erhöhen");
+    }
+
+    #[test]
+    fn pulse_fallen_wenn_die_drehung_zu_weit_geht() {
+        let neu = calibrated_pulses_per_rev(10_000.0, 100.0, 125.0).expect("gültige Eingabe");
+        assert!((neu - 8_000.0).abs() < 1e-6);
+        assert!(neu < 10_000.0, "zu weit gedreht muss die Pulse senken");
+    }
+
+    #[test]
+    fn pulse_und_schrittlaenge_laufen_gegenlaeufig() {
+        // Hält fest, dass die beiden Formeln NICHT dieselbe sind — genau diese
+        // Verwechslung hat die erste Kalibrierung in die falsche Richtung
+        // geschickt.
+        let (soll, ist) = (10.0, 25.0);
+        let laenge = calibrated_step_length(100.0, soll, ist).expect("gültig");
+        let pulse = calibrated_pulses_per_rev(100.0, soll, ist).expect("gültig");
+        assert!(laenge > 100.0, "Schrittlänge steigt bei zu weit");
+        assert!(pulse < 100.0, "Pulse sinken bei zu weit");
+    }
+
+    #[test]
+    fn pulse_lehnen_unbrauchbare_eingaben_ab() {
+        assert_eq!(
+            calibrated_pulses_per_rev(10_000.0, 100.0, 0.0),
+            Err(CalibrationError::MeasuredZero)
+        );
+        assert_eq!(
+            calibrated_pulses_per_rev(0.0, 100.0, 100.0),
+            Err(CalibrationError::InvalidInput)
+        );
     }
 }
