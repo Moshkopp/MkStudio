@@ -626,7 +626,7 @@ pub struct JobParams {
 /// Eine steuerbare Maschinenachse (geräteneutral). X/Y bilden die Ebene, Z ist
 /// Fokus/Betthöhe, U die Rotary/Drehachse. Der Treiber bildet sie auf sein
 /// Protokoll ab.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum MachineAxis {
     X,
     Y,
@@ -874,6 +874,10 @@ pub struct DriverCapabilities {
     pub user_origin_read: bool,
     /// Absolute laserfreie Bewegung (`move_to()`).
     pub absolute_move: bool,
+    /// Achsen-Steps-Kalibrierung schreibbar (ADR 0022 §C). Treiber ohne
+    /// Schreibzugriff melden `false`; die UI blendet die Kalibrierung dann aus,
+    /// statt sie ins Leere laufen zu lassen.
+    pub axis_step_calibration: bool,
 }
 
 /// Einheit eines editierbaren Maschinenparameters.

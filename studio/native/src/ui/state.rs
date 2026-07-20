@@ -294,7 +294,11 @@ pub struct BackupRestoreConfirmation {
 pub enum LaserManagerTab {
     #[default]
     Grunddaten,
-    Kalibrierung,
+    /// Reversal-/Scan-Offset-Korrektur (geschwindigkeitsabhängiger Versatz beim
+    /// bidirektionalen Scannen). Nicht zu verwechseln mit `Achskalibrierung`.
+    ScanOffset,
+    /// Achsen-Schrittweite aus Soll/Ist kalibrieren (ADR 0022 §D).
+    Achskalibrierung,
     Controller,
     /// Werkstück-Nullpunkte dieses Lasers (ADR 0020): umbenennen/löschen.
     Nullpunkte,
@@ -308,6 +312,38 @@ pub struct LaserManagerState {
     pub machine_settings: Vec<studio_application::MachineSetting>,
     pub machine_dirty: std::collections::BTreeMap<u16, i64>,
     pub machine_confirm_write: bool,
+    /// Ergebniskanal eines laufenden Lese- oder Schreibvorgangs. Beide liefern
+    /// einen frischen Parametersatz und teilen sich deshalb einen Kanal.
+    pub machine_read_rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<Vec<studio_application::MachineSetting>, studio_application::AppError>,
+        >,
+    >,
+    /// Gesetzt, solange der laufende Vorgang ein Schreiben ist — nur für die
+    /// Rückmeldung, damit sie die geschriebenen Register nennt.
+    pub machine_write_count: Option<usize>,
+    /// Soll/Ist-Eingaben der Achskalibrierung (ADR 0022 §D), je Achse.
+    pub axis_cal: std::collections::BTreeMap<studio_core::MachineAxis, AxisCalInput>,
+    /// Einmal-Auftrag: die Textpuffer dieser Achse im nächsten Frame leeren.
+    /// Nötig, weil die Eingabefelder ihren Text in `ui.data_mut` zwischenlagern
+    /// und ein bloßes Nullen im State sonst überschrieben würde.
+    pub axis_cal_clear_inputs: Option<studio_core::MachineAxis>,
+    /// Achse, deren Schrittlänge gerade geschrieben wird. Das Schreiben blockiert
+    /// den UI-Thread mehrere Sekunden — ohne Anzeige wirkt die Anwendung tot.
+    pub axis_cal_pending: Option<studio_core::MachineAxis>,
+    /// Ergebniskanal der laufenden Kalibrierung vom Geräte-Worker.
+    pub axis_cal_rx: Option<
+        std::sync::mpsc::Receiver<
+            Result<studio_application::AxisCalibration, studio_application::AppError>,
+        >,
+    >,
+}
+
+/// Soll- und Ist-Strecke einer Achse für die Schrittweiten-Kalibrierung.
+#[derive(Clone, Copy, Default)]
+pub struct AxisCalInput {
+    pub target_mm: f64,
+    pub measured_mm: f64,
 }
 
 /// Kurzlebiger Entwurf eines lokalen, laserbezogenen Materialprofils.

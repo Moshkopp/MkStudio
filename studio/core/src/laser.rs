@@ -190,6 +190,10 @@ pub struct LaserProfile {
     /// da nicht aus dem Controller lesbar (ADR 0021 §A).
     #[serde(default)]
     pub axes: AxisConfig,
+    /// Rotary-Aufsatz (Bauart + Schritte/Umdrehung, ADR 0022 §A). `None` =
+    /// kein Rotary eingerichtet.
+    #[serde(default)]
+    pub rotary: Option<crate::rotary::Rotary>,
     /// Benannte Werkstück-Nullpunkte (absolute Maschinenkoordinaten).
     #[serde(default)]
     pub saved_origins: Vec<SavedOrigin>,
@@ -207,6 +211,7 @@ impl Default for LaserProfile {
             origin: BedOrigin::default(),
             scan_offset: ScanOffsetCal::default(),
             axes: AxisConfig::default(),
+            rotary: None,
             saved_origins: Vec::new(),
         }
     }

@@ -181,6 +181,14 @@ impl ApplicationHandler for Runner {
         if app.view == crate::tools::View::Laser && app.poll_laser_status() {
             app.window.request_redraw();
         }
+        // Ohne View-Bedingung: die Kalibrierung läuft im Verwaltungsdialog,
+        // der aus jeder Ansicht heraus offen sein kann.
+        if app.poll_axis_calibration() {
+            app.window.request_redraw();
+        }
+        if app.poll_machine_read() {
+            app.window.request_redraw();
+        }
         // Der Netzwerkthread arbeitet unabhängig. Dieses kurze Aufwachen dient
         // nur dazu, dessen Ergebnis zeitnah in die UI zu übernehmen.
         let regular_wake = now + std::time::Duration::from_millis(500);

@@ -20,6 +20,8 @@ pub(in crate::ui) enum LaserManagerOutcome {
     Delete,
     MachineRead,
     MachineWrite,
+    /// Schrittweite einer Achse aus Soll/Ist kalibrieren (ADR 0022 §B).
+    CalibrateAxis(studio_core::MachineAxis, f64, f64),
 }
 
 pub(in crate::ui) fn laser_manager_window(
@@ -133,8 +135,15 @@ fn detail(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut LaserM
         tab(
             ui,
             state,
-            LaserManagerTab::Kalibrierung,
-            "Kalibrierung",
+            LaserManagerTab::ScanOffset,
+            "Scan-Offset",
+            !state.is_new,
+        );
+        tab(
+            ui,
+            state,
+            LaserManagerTab::Achskalibrierung,
+            "Achskalibrierung",
             !state.is_new,
         );
         tab(
@@ -160,7 +169,8 @@ fn detail(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut LaserM
         .auto_shrink([false, false])
         .show(ui, |ui| match state.tab {
             LaserManagerTab::Grunddaten => basic_data(ui, state),
-            LaserManagerTab::Kalibrierung => calibration(ui, state),
+            LaserManagerTab::ScanOffset => calibration(ui, state),
+            LaserManagerTab::Achskalibrierung => axis_calibration(ui, state, outcome),
             LaserManagerTab::Controller => controller(ui, state, outcome),
             LaserManagerTab::Nullpunkte => saved_origins(ui, &mut state.draft),
         });
@@ -391,8 +401,162 @@ fn calibration(ui: &mut egui::Ui, state: &mut LaserManagerState) {
     }
 }
 
+/// Achs-Schrittweiten-Kalibrierung (ADR 0022 §D): pro Achse Soll und Ist
+/// eingeben, „Kalibrieren" liest den aktuellen Wert, rechnet im Core und
+/// schreibt zurück. Nur Achsen, die es an dieser Maschine gibt.
+fn axis_calibration(
+    ui: &mut egui::Ui,
+    state: &mut LaserManagerState,
+    outcome: &mut LaserManagerOutcome,
+) {
+    use studio_core::MachineAxis;
+
+    ui.label("Strecke fahren oder schneiden, nachmessen und Soll/Ist eintragen.");
+    ui.weak(
+        "Beispiel: Soll 10 mm, tatsächlich 25 mm — die Schrittlänge steigt dann auf das 2,5-Fache.",
+    );
+    ui.add_space(8.0);
+
+    // Ohne gelesene Werte gibt es weder einen Ist-Stand noch eine Vorschau —
+    // dann wird nur zum Auslesen aufgefordert, statt blind schreiben zu lassen.
+    let reading = state.machine_read_rx.is_some();
+    if state.machine_settings.is_empty() || reading {
+        ui.horizontal(|ui| {
+            if reading {
+                ui.spinner();
+                ui.weak("liest Register…");
+            } else {
+                if ui.button("Maschine auslesen").clicked() {
+                    *outcome = LaserManagerOutcome::MachineRead;
+                }
+                ui.weak("nötig, um die aktuelle Schrittlänge zu zeigen");
+            }
+        });
+        ui.add_space(8.0);
+    }
+
+    let axes = [
+        (MachineAxis::X, "X", "x_step_length", true),
+        (MachineAxis::Y, "Y", "y_step_length", true),
+        (
+            MachineAxis::Z,
+            "Z",
+            "z_step_length",
+            state.draft.axes.has_z_axis,
+        ),
+        (
+            MachineAxis::U,
+            "U",
+            "u_step_length",
+            state.draft.axes.has_u_axis,
+        ),
+    ];
+    let current_of = |key: &str| -> Option<f64> {
+        state
+            .machine_settings
+            .iter()
+            .find(|setting| setting.key == key)
+            .and_then(|setting| setting.value())
+    };
+
+    // Welche Achse ihre Eingaben verliert, entscheidet sich hier; geleert wird
+    // erst im Feld selbst, weil die Puffer-ID am dortigen Ui hängt.
+    let clear_for = state.axis_cal_clear_inputs.take();
+
+    let mut requested = None;
+    egui::Grid::new("axis_calibration")
+        .num_columns(6)
+        .striped(true)
+        .show(ui, |ui| {
+            ui.strong("Achse");
+            ui.strong("Aktuell (µm)");
+            ui.strong("Soll (mm)");
+            ui.strong("Ist (mm)");
+            ui.strong("Neu (µm)");
+            ui.end_row();
+            for (axis, label, key, available) in axes {
+                // Eine Achse, die es nicht gibt, wird gar nicht erst angeboten.
+                if !available {
+                    continue;
+                }
+                let current = current_of(key);
+                let input = state.axis_cal.entry(axis).or_default();
+                ui.label(label);
+                match current {
+                    Some(value) => ui.label(format!("{value:.4}")),
+                    None => ui.weak("—"),
+                };
+                let clear = clear_for == Some(axis);
+                locale_number_reset(ui, ("axis_cal_target", label), &mut input.target_mm, clear);
+                locale_number_reset(
+                    ui,
+                    ("axis_cal_measured", label),
+                    &mut input.measured_mm,
+                    clear,
+                );
+                let (target, measured) = (input.target_mm, input.measured_mm);
+
+                // Vorschau vor dem Schreiben: der Nutzer sieht den neuen Wert,
+                // bevor er die Maschine verändert.
+                let preview = current.and_then(|value| {
+                    studio_core::calibrated_step_length(value, target, measured).ok()
+                });
+                match preview {
+                    Some(value) => ui.strong(format!("{value:.4}")),
+                    None => ui.weak("—"),
+                };
+                // Während des Schreibens steht hier ein Spinner: der Vorgang
+                // dauert am Ruida mehrere Sekunden und blockiert den
+                // UI-Thread, ohne Anzeige wirkt die Anwendung eingefroren.
+                if state.axis_cal_pending == Some(axis) {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.weak("schreibt…");
+                    });
+                } else {
+                    // Geschrieben wird nur, was auch berechnet werden konnte,
+                    // und nie, solange eine andere Achse noch läuft.
+                    let ready = preview.is_some() && state.axis_cal_pending.is_none();
+                    if ui
+                        .add_enabled(ready, egui::Button::new("Schreiben"))
+                        .clicked()
+                    {
+                        requested = Some((axis, target, measured));
+                    }
+                }
+                ui.end_row();
+            }
+        });
+    if let Some((axis, target, measured)) = requested {
+        *outcome = LaserManagerOutcome::CalibrateAxis(axis, target, measured);
+    }
+    // Solange ein Worker arbeitet, weiter zeichnen — sonst stünde der Spinner
+    // still und das Ergebnis käme erst beim nächsten Mausereignis an.
+    if state.axis_cal_pending.is_some() || state.machine_read_rx.is_some() {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(100));
+    }
+}
+
 fn locale_number(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug, value: &mut f64) {
+    locale_number_reset(ui, salt, value, false)
+}
+
+/// Wie `locale_number`, kann den zwischengelagerten Text aber verwerfen.
+/// Nötig, weil das Feld seinen Text in `ui.data_mut` hält: wird nur der Wert
+/// im State genullt, holt der Puffer die alte Eingabe im nächsten Frame zurück.
+/// Das Zurücksetzen muss dort passieren, wo auch die ID gebildet wird — eine
+/// außerhalb nachgebaute `make_persistent_id` trifft einen anderen Eintrag.
+fn locale_number_reset(
+    ui: &mut egui::Ui,
+    salt: impl std::hash::Hash + std::fmt::Debug,
+    value: &mut f64,
+    reset: bool,
+) {
     let id = ui.make_persistent_id(salt);
+    if reset {
+        ui.data_mut(|data| data.remove::<String>(id));
+    }
     let mut text = ui
         .data_mut(|data| data.get_temp::<String>(id))
         .unwrap_or_else(|| format!("{value:.3}"));
@@ -409,7 +573,21 @@ fn locale_number(ui: &mut egui::Ui, salt: impl std::hash::Hash + std::fmt::Debug
 }
 
 fn controller(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut LaserManagerOutcome) {
+    // Lesen und Schreiben laufen auf dem Geräte-Worker und dauern am Ruida
+    // mehrere Sekunden; solange zeigt die Leiste einen Spinner statt Knöpfen,
+    // die ins Leere liefen.
+    let busy = state.machine_read_rx.is_some();
     ui.horizontal(|ui| {
+        if busy {
+            ui.spinner();
+            ui.weak(match state.machine_write_count {
+                Some(_) => "schreibt Register…",
+                None => "liest Register…",
+            });
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(100));
+            return;
+        }
         if ui.button("Maschine auslesen").clicked() {
             *outcome = LaserManagerOutcome::MachineRead;
         }

@@ -13,6 +13,78 @@ use studio_core::{
 
 use crate::{catalog_sync::enqueue_catalog_profile, AppError, CatalogKind, SharedCatalogRecord};
 
+/// Lesen → rechnen → schreiben für eine Achse, auf einem bereits gesperrten
+/// Treiber. Frei von `self`, damit es im Geräte-Worker laufen kann.
+fn calibrate_on_driver(
+    driver: &mut Box<dyn MachineDriver + Send>,
+    axis: studio_core::MachineAxis,
+    target_mm: f64,
+    measured_mm: f64,
+) -> Result<AxisCalibration, AppError> {
+    let key = axis_step_length_key(axis);
+    let settings = driver.read_machine_settings().map_err(|error| {
+        AppError::wrap(
+            "axis_calibration_read",
+            "Aktuelle Schrittlänge lesen fehlgeschlagen.",
+            error.to_string(),
+        )
+    })?;
+    let setting = settings
+        .iter()
+        .find(|setting| setting.key == key)
+        .ok_or_else(|| {
+            AppError::new(
+                "axis_calibration_missing",
+                format!("Der Controller meldet keine Schrittlänge für {key}."),
+            )
+        })?;
+    let current = setting.value().ok_or_else(|| {
+        AppError::new(
+            "axis_calibration_unread",
+            format!("Die Schrittlänge für {key} konnte nicht gelesen werden."),
+        )
+    })?;
+    // Die Fachrechnung liegt im Core und ist dort ohne Gerät getestet.
+    let calibrated = studio_core::calibrated_step_length(current, target_mm, measured_mm)
+        .map_err(|error| AppError::new("axis_calibration_input", error.to_string()))?;
+    let raw = (calibrated * setting.unit.factor()).round() as i64;
+    let address = setting.address;
+    driver
+        .write_machine_settings(&[(address, raw)])
+        .map_err(|error| {
+            AppError::wrap(
+                "axis_calibration_write",
+                "Neue Schrittlänge schreiben fehlgeschlagen.",
+                error.to_string(),
+            )
+        })?;
+    // Gleich im Worker gegenlesen: der Parametersatz ist danach im Dialog
+    // aktuell, ohne dass der UI-Thread ein zweites Mal blockierend liest.
+    let settings = driver.read_machine_settings().map_err(|error| {
+        AppError::wrap(
+            "axis_calibration_verify",
+            "Die Schrittlänge wurde geschrieben, konnte aber nicht zur Kontrolle gelesen werden.",
+            error.to_string(),
+        )
+    })?;
+    Ok(AxisCalibration {
+        step_length: calibrated,
+        settings,
+    })
+}
+
+/// Schlüssel des Schrittweiten-Parameters einer Achse. Die Adresse selbst kennt
+/// nur der Treiber; hier steht bloß die geräteneutrale Namenskonvention, über
+/// die der gelesene Parametersatz durchsucht wird.
+fn axis_step_length_key(axis: studio_core::MachineAxis) -> &'static str {
+    match axis {
+        studio_core::MachineAxis::X => "x_step_length",
+        studio_core::MachineAxis::Y => "y_step_length",
+        studio_core::MachineAxis::Z => "z_step_length",
+        studio_core::MachineAxis::U => "u_step_length",
+    }
+}
+
 /// Ob eine Job-Aktion eine offene Geräteverbindung braucht. Kompilieren/
 /// Export laufen ohne Gerät.
 fn needs_connection(a: JobAction) -> bool {
@@ -41,6 +113,15 @@ pub struct LaserService {
     driver: Option<std::sync::Arc<std::sync::Mutex<Box<dyn MachineDriver + Send>>>>,
     driver_id: Option<String>,
     connected_id: Option<String>,
+}
+
+/// Ergebnis einer Achskalibrierung: die neue Schrittlänge in der Einheit des
+/// Parameters (Ruida: µm pro Schritt) und der frisch gegengelesene
+/// Parametersatz, damit der Dialog ohne zweiten blockierenden Lesegang aktuell
+/// ist.
+pub struct AxisCalibration {
+    pub step_length: f64,
+    pub settings: Vec<MachineSetting>,
 }
 
 /// Vollständiges Ergebnis einer Live-Abfrage. Es wird im Hintergrund erzeugt,
@@ -99,6 +180,137 @@ impl LaserService {
                 )
             })
         })
+    }
+
+    /// Schreibt geprüfte Rohwerte auf dem Geräte-Worker und liest anschließend
+    /// zur Bestätigung zurück. Hintergrund wie bei `read_machine_settings_async`:
+    /// Schreiben plus Gegenlesen dauert am Ruida mehrere Sekunden.
+    pub fn write_machine_settings_async(
+        &mut self,
+        changes: Vec<(u16, i64)>,
+    ) -> Result<std::sync::mpsc::Receiver<Result<Vec<MachineSetting>, AppError>>, AppError> {
+        // Baut den Treiber bei Bedarf und prüft die Capability, ohne I/O.
+        self.with_driver(true, |driver| {
+            if !driver.capabilities().machine_settings {
+                return Err(AppError::new(
+                    "machine_settings_unsupported",
+                    "Der aktive Lasertreiber unterstützt keine Maschinendaten.",
+                ));
+            }
+            Ok(())
+        })?;
+        let driver = self.driver.as_ref().unwrap().clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = match driver.lock() {
+                Ok(driver) => driver
+                    .write_machine_settings(&changes)
+                    .map_err(|error| {
+                        AppError::wrap(
+                            "machine_settings_write",
+                            "Maschinendaten schreiben fehlgeschlagen.",
+                            error.to_string(),
+                        )
+                    })
+                    .and_then(|()| {
+                        driver.read_machine_settings().map_err(|error| {
+                            AppError::wrap(
+                                "machine_settings_verify",
+                                "Maschinendaten wurden geschrieben, konnten aber nicht zur Kontrolle gelesen werden.",
+                                error.to_string(),
+                            )
+                        })
+                    }),
+                Err(_) => Err(AppError::new(
+                    "laser_driver_poisoned",
+                    "Der Gerätezugriff ist in einem Fehlerzustand.",
+                )),
+            };
+            let _ = tx.send(result);
+        });
+        Ok(rx)
+    }
+
+    /// Liest die Maschinenparameter auf dem Geräte-Worker.
+    ///
+    /// Der Ruida beantwortet jedes Register einzeln; ein vollständiger Satz
+    /// dauert mehrere Sekunden. Synchron stünde die Oberfläche so lange still,
+    /// deshalb läuft das Lesen wie `read_live_async` im Hintergrund.
+    pub fn read_machine_settings_async(
+        &mut self,
+    ) -> Result<std::sync::mpsc::Receiver<Result<Vec<MachineSetting>, AppError>>, AppError> {
+        // Baut den Treiber bei Bedarf und prüft die Capability, ohne I/O.
+        self.with_driver(true, |driver| {
+            if !driver.capabilities().machine_settings {
+                return Err(AppError::new(
+                    "machine_settings_unsupported",
+                    "Der aktive Lasertreiber unterstützt keine Maschinendaten.",
+                ));
+            }
+            Ok(())
+        })?;
+        let driver = self.driver.as_ref().unwrap().clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = match driver.lock() {
+                Ok(driver) => driver.read_machine_settings().map_err(|error| {
+                    AppError::wrap(
+                        "machine_settings_read",
+                        "Maschinendaten lesen fehlgeschlagen.",
+                        error.to_string(),
+                    )
+                }),
+                Err(_) => Err(AppError::new(
+                    "laser_driver_poisoned",
+                    "Der Gerätezugriff ist in einem Fehlerzustand.",
+                )),
+            };
+            let _ = tx.send(result);
+        });
+        Ok(rx)
+    }
+
+    /// Kalibriert die Schrittlänge einer Achse aus Soll/Ist (ADR 0022 §B) auf
+    /// dem Geräte-Worker.
+    ///
+    /// Läuft im Hintergrund, weil Lesen und Schreiben der Register am Ruida
+    /// mehrere Sekunden dauern — synchron stünde der UI-Thread so lange still.
+    /// Der geklonte `Arc` zeigt auf denselben Treiber und Socket wie
+    /// `read_live_async`; der Mutex serialisiert die Zugriffe.
+    ///
+    /// Der Fluss bleibt gespalten: der aktuelle Wert kommt aus dem Treiber, die
+    /// Rechnung aus dem Core (`calibrated_step_length`), das Schreiben wieder in
+    /// den Treiber. Geliefert wird die neue Schrittlänge in der Einheit des
+    /// Parameters (Ruida: µm pro Schritt).
+    pub fn calibrate_axis_steps_async(
+        &mut self,
+        axis: studio_core::MachineAxis,
+        target_mm: f64,
+        measured_mm: f64,
+    ) -> Result<std::sync::mpsc::Receiver<Result<AxisCalibration, AppError>>, AppError> {
+        // Baut den Treiber bei Bedarf und prüft die Capability, ohne I/O.
+        self.with_driver(true, |driver| {
+            if !driver.capabilities().axis_step_calibration {
+                return Err(AppError::new(
+                    "axis_calibration_unsupported",
+                    "Der aktive Lasertreiber unterstützt keine Achsenkalibrierung.",
+                ));
+            }
+            Ok(())
+        })?;
+        let driver = self.driver.as_ref().unwrap().clone();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = match driver.lock() {
+                Ok(mut driver) => calibrate_on_driver(&mut driver, axis, target_mm, measured_mm),
+                Err(_) => Err(AppError::new(
+                    "laser_driver_poisoned",
+                    "Der Gerätezugriff ist in einem Fehlerzustand.",
+                )),
+            };
+            let _ = tx.send(result);
+        });
+        Ok(rx)
     }
 
     /// Schreibt geprüfte Rohwerte über den aktiven Treiber und liest sie
@@ -223,6 +435,11 @@ impl LaserService {
             old.kind != profile.kind
                 || old.connection != profile.connection
                 || old.scan_offset != profile.scan_offset
+                // Achsen-Verfügbarkeit und Richtungs-Inversion stecken über
+                // from_profile im Treiber: ohne Neuaufbau bliebe nach dem
+                // Umschalten der Checkbox die alte Richtung aktiv.
+                || old.axes != profile.axes
+                || old.rotary != profile.rotary
         })
     }
 
@@ -625,6 +842,22 @@ impl LaserService {
     ) -> Result<(), AppError> {
         if matches!(motion, studio_core::JogMotion::HoldStop) && !self.is_connected() {
             return Ok(());
+        }
+        // Maschinenregel, nicht Darstellungsregel: eine nicht eingerichtete
+        // Achse wird nie angefahren. Die UI gated zusätzlich, aber ein
+        // Shortcut oder eine andere Ansicht darf hier nicht vorbeikommen.
+        if let Some(profile) = self.active_profile() {
+            let available = match axis {
+                studio_core::MachineAxis::Z => profile.axes.has_z_axis,
+                studio_core::MachineAxis::U => profile.axes.has_u_axis,
+                studio_core::MachineAxis::X | studio_core::MachineAxis::Y => true,
+            };
+            if !available {
+                return Err(AppError::new(
+                    "laser_axis_unavailable",
+                    format!("Die Achse {axis:?} ist für diesen Laser nicht eingerichtet."),
+                ));
+            }
         }
         self.with_driver(true, |d| {
             d.jog_axis(axis, dir, motion, speed).map_err(|e| {

@@ -632,6 +632,9 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
             dialogs::LaserManagerOutcome::Delete => app.laser_manager_delete(),
             dialogs::LaserManagerOutcome::MachineRead => app.laser_manager_machine_read(),
             dialogs::LaserManagerOutcome::MachineWrite => app.laser_manager_machine_write(),
+            dialogs::LaserManagerOutcome::CalibrateAxis(axis, target, measured) => {
+                app.laser_calibrate_axis(axis, target, measured)
+            }
         }
     }
 

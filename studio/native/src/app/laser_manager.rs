@@ -23,6 +23,12 @@ impl App {
             machine_settings: Vec::new(),
             machine_dirty: Default::default(),
             machine_confirm_write: false,
+            machine_read_rx: None,
+            machine_write_count: None,
+            axis_cal: Default::default(),
+            axis_cal_clear_inputs: None,
+            axis_cal_pending: None,
+            axis_cal_rx: None,
         });
     }
 
@@ -44,6 +50,11 @@ impl App {
             st.tab = LaserManagerTab::Grunddaten;
             st.machine_settings.clear();
             st.machine_dirty.clear();
+            st.axis_cal.clear();
+            st.axis_cal_pending = None;
+            st.axis_cal_rx = None;
+            st.machine_read_rx = None;
+            st.machine_write_count = None;
             st.machine_confirm_write = false;
         }
     }
@@ -56,6 +67,11 @@ impl App {
             st.tab = LaserManagerTab::Grunddaten;
             st.machine_settings.clear();
             st.machine_dirty.clear();
+            st.axis_cal.clear();
+            st.axis_cal_pending = None;
+            st.axis_cal_rx = None;
+            st.machine_read_rx = None;
+            st.machine_write_count = None;
             st.machine_confirm_write = false;
         }
     }
@@ -135,11 +151,41 @@ impl App {
         self.toasts.success("Laser-Profil gelöscht.");
     }
 
+    /// Stößt das Auslesen der Maschinenparameter auf dem Geräte-Worker an. Der
+    /// Ruida antwortet je Register einzeln; synchron stünde die Oberfläche
+    /// dabei mehrere Sekunden still. `poll_machine_read` holt das Ergebnis ab.
     pub fn laser_manager_machine_read(&mut self) {
         self.activate_managed_laser();
-        self.hub_runtime
-            .set_lease_usage(studio_application::LeaseUsage::Unknown);
-        match self.laser_backend.read_machine_settings() {
+        match self.laser_backend.read_machine_settings_async() {
+            Ok(receiver) => {
+                self.hub_runtime
+                    .set_lease_usage(studio_application::LeaseUsage::Unknown);
+                if let Some(st) = self.laser_manager.as_mut() {
+                    st.machine_read_rx = Some(receiver);
+                }
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    /// Holt einen laufenden Lesevorgang ab. Pro Frame aufzurufen; `true`,
+    /// sobald ein Ergebnis eingetroffen ist.
+    pub fn poll_machine_read(&mut self) -> bool {
+        let Some(result) = self
+            .laser_manager
+            .as_ref()
+            .and_then(|st| st.machine_read_rx.as_ref())
+            .and_then(|rx| rx.try_recv().ok())
+        else {
+            return false;
+        };
+        // War es ein Schreibvorgang, meldet der Toast die geschriebenen Register
+        // statt der gelesenen Gesamtzahl.
+        let written = self.laser_manager.as_mut().and_then(|st| {
+            st.machine_read_rx = None;
+            st.machine_write_count.take()
+        });
+        match result {
             Ok(values) => {
                 let count = values.len();
                 if let Some(st) = self.laser_manager.as_mut() {
@@ -147,15 +193,21 @@ impl App {
                     st.machine_dirty.clear();
                     st.machine_confirm_write = false;
                 }
-                self.toasts
-                    .success(format!("{count} Ruida-Register gelesen."));
+                self.toasts.success(match written {
+                    Some(count) => format!("{count} Ruida-Register geschrieben und bestätigt."),
+                    None => format!("{count} Ruida-Register gelesen."),
+                });
             }
             Err(error) => self.app_error = Some(error),
         }
         self.hub_runtime
             .set_lease_usage(studio_application::LeaseUsage::Idle);
+        true
     }
 
+    /// Stößt das Schreiben der geänderten Register auf dem Geräte-Worker an.
+    /// Ergebnis über `poll_machine_read` — geschrieben wird mit Gegenlesen,
+    /// geliefert wird also ebenfalls ein frischer Parametersatz.
     pub fn laser_manager_machine_write(&mut self) {
         self.activate_managed_laser();
         let changes: Vec<_> = self
@@ -166,24 +218,99 @@ impl App {
         if changes.is_empty() {
             return;
         }
-        self.hub_runtime
-            .set_lease_usage(studio_application::LeaseUsage::Unknown);
-        match self.laser_backend.write_machine_settings(&changes) {
-            Ok(values) => {
+        let count = changes.len();
+        match self.laser_backend.write_machine_settings_async(changes) {
+            Ok(receiver) => {
+                self.hub_runtime
+                    .set_lease_usage(studio_application::LeaseUsage::Unknown);
                 if let Some(st) = self.laser_manager.as_mut() {
-                    st.machine_settings = values;
+                    st.machine_read_rx = Some(receiver);
+                    st.machine_write_count = Some(count);
+                }
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    /// Stößt die Achskalibrierung auf dem Geräte-Worker an (ADR 0022 §D). Das
+    /// Schreiben dauert am Ruida mehrere Sekunden; es läuft deshalb im
+    /// Hintergrund, damit die Oberfläche bedienbar bleibt und der Spinner
+    /// überhaupt gezeichnet werden kann. Das Ergebnis holt
+    /// `poll_axis_calibration` ab.
+    pub fn laser_calibrate_axis(
+        &mut self,
+        axis: studio_core::MachineAxis,
+        target_mm: f64,
+        measured_mm: f64,
+    ) {
+        self.activate_managed_laser();
+        match self
+            .laser_backend
+            .calibrate_axis_steps_async(axis, target_mm, measured_mm)
+        {
+            Ok(receiver) => {
+                self.hub_runtime
+                    .set_lease_usage(studio_application::LeaseUsage::Unknown);
+                if let Some(st) = self.laser_manager.as_mut() {
+                    st.axis_cal_pending = Some(axis);
+                    st.axis_cal_rx = Some(receiver);
+                }
+            }
+            Err(error) => {
+                self.app_error = Some(error);
+                if let Some(st) = self.laser_manager.as_mut() {
+                    st.axis_cal_pending = None;
+                }
+            }
+        }
+    }
+
+    /// Holt das Ergebnis einer laufenden Achskalibrierung ab. Pro Frame
+    /// aufzurufen; `true`, sobald ein Ergebnis eingetroffen ist.
+    pub fn poll_axis_calibration(&mut self) -> bool {
+        let Some(result) = self
+            .laser_manager
+            .as_ref()
+            .and_then(|st| st.axis_cal_rx.as_ref())
+            .and_then(|rx| rx.try_recv().ok())
+        else {
+            return false;
+        };
+        let axis = self
+            .laser_manager
+            .as_ref()
+            .and_then(|st| st.axis_cal_pending);
+        if let Some(st) = self.laser_manager.as_mut() {
+            // In jedem Fall aufräumen — bliebe der Spinner nach einem Fehler
+            // stehen, wäre die Kalibrierung dauerhaft blockiert.
+            st.axis_cal_rx = None;
+            st.axis_cal_pending = None;
+        }
+        match result {
+            Ok(calibration) => {
+                if let (Some(st), Some(axis)) = (self.laser_manager.as_mut(), axis) {
                     st.machine_dirty.clear();
-                    st.machine_confirm_write = false;
+                    // Der Worker hat nach dem Schreiben gegengelesen: „Aktuell"
+                    // zeigt damit den neuen Wert, ohne dass der UI-Thread ein
+                    // zweites Mal blockierend alle Register abfragt.
+                    st.machine_settings = calibration.settings;
+                    // Die Messung ist verbraucht: nach dem Schreiben gehört sie
+                    // zum alten Stand. Stehen bleiben dürfte sie nicht — ein
+                    // zweiter Klick würde den bereits korrigierten Wert erneut
+                    // mit demselben Verhältnis skalieren.
+                    st.axis_cal.remove(&axis);
+                    st.axis_cal_clear_inputs = Some(axis);
                 }
                 self.toasts.success(format!(
-                    "{} Ruida-Register geschrieben und bestätigt.",
-                    changes.len()
+                    "Schrittlänge kalibriert: {:.4} µm pro Schritt.",
+                    calibration.step_length
                 ));
             }
             Err(error) => self.app_error = Some(error),
         }
         self.hub_runtime
             .set_lease_usage(studio_application::LeaseUsage::Idle);
+        true
     }
 
     fn activate_managed_laser(&mut self) {

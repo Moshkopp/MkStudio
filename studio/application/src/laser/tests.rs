@@ -449,3 +449,62 @@ fn fremdes_profil_speichern_oder_loeschen_haelt_die_verbindung() {
     svc.delete_profile("test-ruida").unwrap();
     assert!(!svc.is_connected(), "das verbundene Gerät löschen trennt");
 }
+
+#[test]
+fn geaenderte_achsen_bauen_den_treiber_neu() {
+    // Die Inversion steckt über from_profile im Treiber. Ohne Neuaufbau bliebe
+    // nach dem Umschalten der Checkbox die alte Richtung aktiv — die Achse
+    // führe weiter verkehrt herum.
+    let _g = crate::test_env::with_temp_dir("laser_axes_invalidate_driver");
+    let mut svc = service_with_ruida();
+    mark_connected(&mut svc);
+    let mut profile = svc.registry.active().unwrap().clone();
+    profile.axes.invert_u = !profile.axes.invert_u;
+    svc.save_profile(profile).unwrap();
+    assert!(
+        !svc.is_connected(),
+        "geänderte Achsen-Inversion muss den Treiber neu bauen"
+    );
+}
+
+#[test]
+fn geaenderter_rotary_baut_den_treiber_neu() {
+    let _g = crate::test_env::with_temp_dir("laser_rotary_invalidates_driver");
+    let mut svc = service_with_ruida();
+    mark_connected(&mut svc);
+    let mut profile = svc.registry.active().unwrap().clone();
+    profile.rotary = Some(studio_core::Rotary::default());
+    svc.save_profile(profile).unwrap();
+    assert!(
+        !svc.is_connected(),
+        "geänderter Rotary muss den Treiber neu bauen"
+    );
+}
+
+#[test]
+fn nicht_eingerichtete_achse_wird_nicht_angefahren() {
+    // Sicherheitsregel in der Application, nicht nur in der UI: ein Shortcut
+    // oder eine andere Ansicht darf eine fehlende Achse nicht bewegen.
+    let _g = crate::test_env::with_temp_dir("laser_axis_gate");
+    let mut svc = service_with_ruida();
+    mark_connected(&mut svc);
+    let error = svc
+        .jog_axis(
+            studio_core::MachineAxis::Z,
+            studio_core::AxisDir::Forward,
+            studio_core::JogMotion::Step(1.0),
+            10.0,
+        )
+        .expect_err("Z ohne has_z_axis muss abgelehnt werden");
+    assert_eq!(error.code(), "laser_axis_unavailable");
+
+    let error = svc
+        .jog_axis(
+            studio_core::MachineAxis::U,
+            studio_core::AxisDir::Forward,
+            studio_core::JogMotion::HoldStart,
+            10.0,
+        )
+        .expect_err("U ohne has_u_axis muss abgelehnt werden");
+    assert_eq!(error.code(), "laser_axis_unavailable");
+}
