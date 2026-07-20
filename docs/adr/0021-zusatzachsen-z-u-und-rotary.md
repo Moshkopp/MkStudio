@@ -58,7 +58,7 @@ Achsen-Jog. (C) Achsen-Inversion ist pro Achse im Laserprofil konfigurierbar.
 
 Studio leitet die vorhandenen Zusatzachsen aus dem Controller ab, nicht aus
 manueller Eingabe. **Wichtig — zwei getrennte Rotary-Mechanismen** (recherchiert,
-LightBurn-/RDWorks-Doku und -Foren):
+RDWorks-Doku und -Foren):
 
 - **Rotary über Y** (klassisch): Der vorhandene Settings-Block (`settings.rs`,
   Gruppe „Rotary") liest bereits `0x0226` **rotary_enable** (`bit_mask:
