@@ -1020,7 +1020,9 @@ mod tests {
                 events,
                 ..Default::default()
             };
-            ctx.run_ui(input, |ctx| {
+            // Der FullOutput interessiert hier nicht: geprüft wird allein die
+            // Zustandsänderung in `st`, nicht das Rendering-Ergebnis.
+            let _ = ctx.run_ui(input, |ctx| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     shortcuts_section(ui, st);
                 });
