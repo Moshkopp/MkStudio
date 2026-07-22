@@ -13,6 +13,18 @@ use studio_core::{
 
 use crate::{catalog_sync::enqueue_catalog_profile, AppError, CatalogKind, SharedCatalogRecord};
 
+pub use studio_serial::SerialPortInfo;
+
+pub fn available_serial_ports() -> Result<Vec<SerialPortInfo>, AppError> {
+    studio_serial::available_ports().map_err(|error| {
+        AppError::wrap(
+            "serial_ports",
+            "Serielle Anschlüsse konnten nicht ermittelt werden.",
+            error,
+        )
+    })
+}
+
 /// Lesen → rechnen → schreiben für eine Achse, auf einem bereits gesperrten
 /// Treiber. Frei von `self`, damit es im Geräte-Worker laufen kann.
 fn calibrate_on_driver(
@@ -681,7 +693,7 @@ impl LaserService {
             .ok_or_else(|| AppError::new("no_active_laser", "Kein Laser aktiv."))?;
         self.with_driver(false, |driver| {
             let target = connection_target(&profile);
-            driver.connect(&target).map_err(|error| {
+            driver.connect(&profile.connection).map_err(|error| {
                 AppError::wrap(
                     "laser_connect",
                     format!("Keine Verbindung zum Laser ({target})."),
@@ -841,6 +853,47 @@ impl LaserService {
         })
     }
 
+    /// Startet eine Geräteaktion außerhalb des UI-Threads. Die Application
+    /// besitzt dabei weiterhin Planung, Treiberwahl und Fehlerabbildung; die
+    /// Oberfläche erhält ausschließlich das fertige Ergebnis.
+    pub fn run_action_async(
+        &mut self,
+        action: JobAction,
+        shapes: &[Shape],
+        layers: &[Layer],
+        reference: &StartReference,
+        anchor_idx: usize,
+    ) -> Result<std::sync::mpsc::Receiver<Result<String, AppError>>, AppError> {
+        let (plan, params) = self.resolved_plan(shapes, layers, reference, anchor_idx)?;
+        self.with_driver(needs_connection(action), |_| Ok(()))?;
+        let driver = self
+            .driver
+            .as_ref()
+            .expect("Treiber wurde aufgebaut")
+            .clone();
+        let layers = layers.to_vec();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            let result = match driver.lock() {
+                Ok(driver) => driver
+                    .run_action(action, &plan, &layers, &params)
+                    .map_err(|error| {
+                        AppError::wrap(
+                            "laser_action",
+                            "Laser-Aktion fehlgeschlagen.",
+                            error.to_string(),
+                        )
+                    }),
+                Err(_) => Err(AppError::new(
+                    "laser_driver_lock",
+                    "Laser-Treiber ist nicht mehr verfügbar.",
+                )),
+            };
+            let _ = tx.send(result);
+        });
+        Ok(rx)
+    }
+
     /// Kompiliert den Job und schreibt ihn in eine Datei (Ruida .rd / GRBL .gcode).
     pub fn export_to(
         &mut self,
@@ -928,6 +981,18 @@ impl LaserService {
     pub fn driver_capabilities(&self) -> DriverCapabilities {
         self.active_profile()
             .map(Self::profile_capabilities)
+            .unwrap_or_default()
+    }
+
+    /// Nicht blockierender Diagnosesnapshot für die Oberfläche. Ist der
+    /// Geräte-Worker beschäftigt, bleibt die letzte Anzeige einfach stehen.
+    pub fn console_snapshot(&self) -> Vec<studio_core::DriverConsoleLine> {
+        let Some(driver) = self.driver.as_ref() else {
+            return Vec::new();
+        };
+        driver
+            .try_lock()
+            .map(|driver| driver.console_snapshot())
             .unwrap_or_default()
     }
 

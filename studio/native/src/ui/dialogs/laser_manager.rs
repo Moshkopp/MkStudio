@@ -20,6 +20,7 @@ pub(in crate::ui) enum LaserManagerOutcome {
     Delete,
     MachineRead,
     MachineWrite,
+    RefreshSerialPorts,
     /// Schrittweite einer Achse aus Soll/Ist kalibrieren (ADR 0022 §B).
     CalibrateAxis(studio_core::MachineAxis, f64, f64),
 }
@@ -170,7 +171,7 @@ fn detail(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut LaserM
         .max_height(content_height)
         .auto_shrink([false, false])
         .show(ui, |ui| match state.tab {
-            LaserManagerTab::Grunddaten => basic_data(ui, state),
+            LaserManagerTab::Grunddaten => basic_data(ui, state, outcome),
             LaserManagerTab::ScanOffset => calibration(ui, state),
             LaserManagerTab::Achskalibrierung => axis_calibration(ui, state, outcome),
             LaserManagerTab::Controller => controller(ui, state, outcome),
@@ -193,7 +194,7 @@ fn tab(
     }
 }
 
-fn basic_data(ui: &mut egui::Ui, state: &mut LaserManagerState) {
+fn basic_data(ui: &mut egui::Ui, state: &mut LaserManagerState, outcome: &mut LaserManagerOutcome) {
     let profile = &mut state.draft;
     egui::Grid::new("laser_basic_data")
         .num_columns(2)
@@ -240,8 +241,47 @@ fn basic_data(ui: &mut egui::Ui, state: &mut LaserManagerState) {
                 }
                 Connection::Seriell { port, baud } => {
                     ui.label("Schnittstelle");
-                    ui.add(egui::TextEdit::singleline(port).desired_width(220.0));
+                    ui.horizontal(|ui| {
+                        let selected = state
+                            .serial_ports
+                            .iter()
+                            .find(|candidate| candidate.name == *port)
+                            .map(|candidate| candidate.label())
+                            .unwrap_or_else(|| port.clone());
+                        egui::ComboBox::from_id_salt("laser_serial_port")
+                            .selected_text(if selected.is_empty() {
+                                "Schnittstelle wählen …".into()
+                            } else {
+                                selected
+                            })
+                            .width(300.0)
+                            .show_ui(ui, |ui| {
+                                for candidate in &state.serial_ports {
+                                    ui.selectable_value(
+                                        port,
+                                        candidate.name.clone(),
+                                        candidate.label(),
+                                    );
+                                }
+                            });
+                        if ui
+                            .button("↻")
+                            .on_hover_text("Schnittstellen neu suchen")
+                            .clicked()
+                        {
+                            *outcome = LaserManagerOutcome::RefreshSerialPorts;
+                        }
+                    });
                     ui.end_row();
+                    if let Some(error) = state.serial_ports_error.as_deref() {
+                        ui.label("");
+                        ui.colored_label(ui.visuals().error_fg_color, error);
+                        ui.end_row();
+                    } else if state.serial_ports.is_empty() {
+                        ui.label("");
+                        ui.weak("Keine serielle Schnittstelle gefunden.");
+                        ui.end_row();
+                    }
                     ui.label("Baudrate");
                     ui.add(egui::DragValue::new(baud).range(1_200..=2_000_000));
                     ui.end_row();

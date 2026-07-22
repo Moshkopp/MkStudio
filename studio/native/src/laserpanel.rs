@@ -384,6 +384,11 @@ pub fn show(ui: &mut egui::Ui, view: &LaserView, ui_state: &mut LaserUi) -> Vec<
         crate::tools::Z_JOG_SPEED_MAX,
     );
 
+    ui.add_space(8.0);
+    if ui.button("Konsole öffnen").clicked() {
+        actions.push(UiAction::OpenLaserConsole);
+    }
+
     actions
 }
 

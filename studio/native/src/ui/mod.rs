@@ -882,9 +882,72 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
             dialogs::LaserManagerOutcome::Delete => app.laser_manager_delete(),
             dialogs::LaserManagerOutcome::MachineRead => app.laser_manager_machine_read(),
             dialogs::LaserManagerOutcome::MachineWrite => app.laser_manager_machine_write(),
+            dialogs::LaserManagerOutcome::RefreshSerialPorts => {
+                app.laser_manager_refresh_serial_ports()
+            }
             dialogs::LaserManagerOutcome::CalibrateAxis(axis, target, measured) => {
                 app.laser_calibrate_axis(axis, target, measured)
             }
+        }
+    }
+
+    if app.laser_console_open {
+        let lines = app.laser_backend.console_snapshot();
+        let connected = app.laser_backend.is_connected();
+        let mut open = true;
+        egui::Window::new("Geräte-Konsole")
+            .id(egui::Id::new("laser_device_console"))
+            .open(&mut open)
+            .resizable(true)
+            .movable(true)
+            .default_size(egui::vec2(720.0, 420.0))
+            .min_size(egui::vec2(420.0, 220.0))
+            .show(ui.ctx(), |ui| {
+                ui.horizontal(|ui| {
+                    let state = if connected { "Verbunden" } else { "Getrennt" };
+                    ui.strong(state);
+                    ui.separator();
+                    ui.weak(format!("{} Zeilen · nur lesend", lines.len()));
+                });
+                ui.separator();
+                egui::Frame::new()
+                    .fill(egui::Color32::from_rgb(0x10, 0x13, 0x18))
+                    .corner_radius(4.0)
+                    .inner_margin(10.0)
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .stick_to_bottom(true)
+                            .auto_shrink([false, false])
+                            .show(ui, |ui| {
+                                ui.set_min_width(ui.available_width());
+                                if lines.is_empty() {
+                                    ui.weak("Noch keine Gerätedaten.");
+                                }
+                                for line in &lines {
+                                    let (prefix, color) = match line.direction {
+                                        studio_core::DriverConsoleDirection::Sent => {
+                                            (">", egui::Color32::from_rgb(0x79, 0xc0, 0xff))
+                                        }
+                                        studio_core::DriverConsoleDirection::Received => {
+                                            ("<", egui::Color32::from_rgb(0x7e, 0xe7, 0xa8))
+                                        }
+                                        studio_core::DriverConsoleDirection::Info => {
+                                            ("·", ui.visuals().weak_text_color())
+                                        }
+                                    };
+                                    ui.colored_label(
+                                        color,
+                                        egui::RichText::new(format!("{prefix} {}", line.text))
+                                            .monospace(),
+                                    );
+                                }
+                            });
+                    });
+            });
+        app.laser_console_open = open;
+        if connected && open {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
 

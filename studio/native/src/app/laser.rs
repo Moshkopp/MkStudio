@@ -147,6 +147,12 @@ impl App {
     }
 
     pub fn laser_disconnect(&mut self) {
+        if self.laser_action_rx.is_some() {
+            self.toasts.error(
+                "Während einer laufenden Laser-Aktion kann die Verbindung nicht getrennt werden.",
+            );
+            return;
+        }
         // Zwingend vor dem Trennen: danach verschluckt jog_axis jedes HoldStop
         // als No-op und das Stop-Telegramm erreicht den Controller nie mehr.
         self.laser_hold_cancel();
@@ -165,21 +171,56 @@ impl App {
             self.laser_goto_reference();
             return;
         }
+        if self.laser_action_rx.is_some() {
+            self.toasts
+                .error("Eine Laser-Aktion wird bereits ausgeführt.");
+            return;
+        }
         let (shapes, layers) = self.laser_shapes();
         let reference = self.laser.start_reference.clone();
         let anchor = self.laser.anchor;
         self.request_laser_status_refresh();
         match self
             .laser_backend
-            .run_action(action, &shapes, &layers, &reference, anchor)
+            .run_action_async(action, &shapes, &layers, &reference, anchor)
         {
+            Ok(rx) => {
+                self.laser_action_rx = Some(rx);
+                self.laser_action_pending = Some(action);
+                self.toasts.success("Laser-Aktion gestartet.");
+            }
+            Err(error) => self.app_error = Some(error),
+        }
+    }
+
+    pub fn poll_laser_action(&mut self) -> bool {
+        let Some(rx) = self.laser_action_rx.as_ref() else {
+            return false;
+        };
+        let result = match rx.try_recv() {
+            Ok(result) => result,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return false,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                Err(studio_application::AppError::new(
+                    "laser_action_worker",
+                    "Die Laser-Aktion wurde unerwartet beendet.",
+                ))
+            }
+        };
+        let action = self.laser_action_pending.take();
+        self.laser_action_rx = None;
+        match result {
             Ok(message) => {
                 let usage = match action {
-                    studio_core::JobAction::SendJob | studio_core::JobAction::StreamGcode => {
+                    Some(studio_core::JobAction::SendJob | studio_core::JobAction::StreamGcode) => {
                         Some(studio_application::LeaseUsage::Running)
                     }
-                    studio_core::JobAction::Pause => Some(studio_application::LeaseUsage::Paused),
-                    studio_core::JobAction::Stop => Some(studio_application::LeaseUsage::Idle),
+                    Some(studio_core::JobAction::Pause) => {
+                        Some(studio_application::LeaseUsage::Paused)
+                    }
+                    Some(studio_core::JobAction::Stop) => {
+                        Some(studio_application::LeaseUsage::Idle)
+                    }
                     _ => None,
                 };
                 if let Some(usage) = usage {
@@ -189,6 +230,8 @@ impl App {
             }
             Err(error) => self.app_error = Some(error),
         }
+        self.request_laser_status_refresh();
+        true
     }
 
     pub fn force_laser_lease(&mut self) {

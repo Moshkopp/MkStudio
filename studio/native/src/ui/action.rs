@@ -123,6 +123,8 @@ pub enum UiAction {
     /// Verbindung zum aktiven Laser ausdrücklich aufbauen oder trennen.
     LaserConnect,
     LaserDisconnect,
+    /// Verschiebbare, lesende Geräte-Konsole öffnen.
+    OpenLaserConsole,
     /// Alle vorhandenen Layer gemeinsam für den Laserjob konfigurieren.
     OpenLayerManager,
     /// Laser-Job-Aktion ausführen (Start/Pause/Stop/…).

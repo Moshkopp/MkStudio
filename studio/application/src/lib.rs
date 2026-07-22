@@ -27,7 +27,9 @@ pub use hub::{
     HubHandshake, HubLease, HubProjectEvent, HubSyncReport, HubWorkplace, HubWorkplaceBackup,
     LeaseUsage, SharedCatalogRecord, SharedCatalogSync, LASER_SCHEMA_CAPABILITY,
 };
-pub use laser::{AxisCalibration, LaserLiveRead, LaserService};
+pub use laser::{
+    available_serial_ports, AxisCalibration, LaserLiveRead, LaserService, SerialPortInfo,
+};
 pub use materials::MaterialService;
 pub use persistence::{load_ui_settings, save_ui_settings};
 pub use project::{ProjectDetail, ProjectService};

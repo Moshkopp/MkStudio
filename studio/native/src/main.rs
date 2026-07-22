@@ -178,6 +178,9 @@ impl ApplicationHandler for Runner {
         if app.poll_laser_lease() {
             app.window.request_redraw();
         }
+        if app.poll_laser_action() {
+            app.window.request_redraw();
+        }
         if app.view == crate::tools::View::Laser && app.poll_laser_status() {
             app.window.request_redraw();
         }

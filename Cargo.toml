@@ -11,6 +11,7 @@ members = [
     "studio/native",
     "studio/drivers/grbl",
     "studio/drivers/ruida",
+    "studio/serial",
     "hub",
 ]
 

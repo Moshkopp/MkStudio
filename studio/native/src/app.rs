@@ -132,6 +132,11 @@ pub struct App {
     pub laser_hold_seen: Option<std::time::Instant>,
     /// Live gelesener Maschinen-Anzeigestand (Kopf/Benutzerursprung, ADR 0020).
     pub laser_live: laser::LaserLiveState,
+    pub laser_console_open: bool,
+    /// Laufende Geräteaktion; der UI-Thread pollt nur ihr Ergebnis.
+    laser_action_rx:
+        Option<std::sync::mpsc::Receiver<Result<String, studio_application::AppError>>>,
+    laser_action_pending: Option<studio_core::JobAction>,
     /// Offener Nullpunkt-Namensdialog (Anlegen/Umbenennen) oder None.
     pub saved_origin_dialog: Option<crate::ui::SavedOriginDialogState>,
     /// Zentraler, nutzerlesbarer Fehlerkanal der Anwendungsschicht.
@@ -294,6 +299,9 @@ impl App {
             laser_hold: None,
             laser_hold_seen: None,
             laser_live: Default::default(),
+            laser_console_open: false,
+            laser_action_rx: None,
+            laser_action_pending: None,
             saved_origin_dialog: None,
             app_error: None,
             accent,
@@ -675,6 +683,7 @@ impl App {
             A::LaserSelect(id) => self.laser_select(&id),
             A::LaserConnect => self.laser_connect(),
             A::LaserDisconnect => self.laser_disconnect(),
+            A::OpenLaserConsole => self.laser_console_open = true,
             A::OpenLayerManager => self.open_layer_manager(),
             A::LaserRun(action) => self.laser_run(action),
             A::LaserExport => self.laser_export(),

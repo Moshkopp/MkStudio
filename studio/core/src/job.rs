@@ -673,6 +673,21 @@ pub struct MachineStatus {
     pub rotary_on_y: bool,
 }
 
+/// Eine protokollnahe Diagnosezeile für die Geräte-Konsole. Der Core legt nur
+/// Richtung und Text fest; Interpretation und Erzeugung bleiben im Treiber.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DriverConsoleLine {
+    pub direction: DriverConsoleDirection,
+    pub text: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DriverConsoleDirection {
+    Sent,
+    Received,
+    Info,
+}
+
 /// Fehler der Live-Steuerung — geräteneutral gehalten (der Treiber wandelt
 /// seine internen Fehler, z. B. UDP-Timeouts, hierher).
 #[derive(Debug, Clone, PartialEq)]
@@ -717,6 +732,11 @@ pub trait MachineDriver {
         DriverCapabilities::default()
     }
 
+    /// Begrenzter Diagnose-Snapshot; leer bei Treibern ohne Konsolenquelle.
+    fn console_snapshot(&self) -> Vec<DriverConsoleLine> {
+        Vec::new()
+    }
+
     /// Maschinenparameter lesen, sofern der Treiber diese Capability anbietet.
     fn read_machine_settings(&self) -> Result<Vec<MachineSetting>, DriverError> {
         Err(DriverError::NotSupported)
@@ -759,8 +779,9 @@ pub trait MachineDriver {
         params: &JobParams,
     ) -> Result<crate::ExecutionTrace, String>;
 
-    /// Verbindung zur Maschine aufbauen (IP/Port bzw. serieller Anschluss).
-    fn connect(&mut self, _target: &str) -> Result<(), DriverError> {
+    /// Verbindung zur Maschine aufbauen. Der Core transportiert nur die
+    /// geräteneutrale Profilkonfiguration; Protokoll und I/O bleiben im Treiber.
+    fn connect(&mut self, _connection: &crate::Connection) -> Result<(), DriverError> {
         Err(DriverError::NotSupported)
     }
 

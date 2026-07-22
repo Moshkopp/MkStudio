@@ -10,6 +10,7 @@ description = "UI-unabhängige Anwendungsschicht für Studio."
 studio-core = { path = "../core" }
 driver-ruida = { path = "../drivers/ruida" }
 driver-grbl = { path = "../drivers/grbl" }
+studio-serial = { path = "../serial" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 image = { workspace = true }

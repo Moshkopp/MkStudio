@@ -300,6 +300,8 @@ pub struct LaserManagerState {
     pub draft: studio_core::LaserProfile,
     pub is_new: bool,
     pub tab: LaserManagerTab,
+    pub serial_ports: Vec<studio_application::SerialPortInfo>,
+    pub serial_ports_error: Option<String>,
     pub machine_settings: Vec<studio_application::MachineSetting>,
     pub machine_dirty: std::collections::BTreeMap<u16, i64>,
     pub machine_confirm_write: bool,

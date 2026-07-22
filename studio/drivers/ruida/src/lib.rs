@@ -483,7 +483,12 @@ impl MachineDriver for RuidaDriver {
         Ok(self.build_job_with(plan, params))
     }
 
-    fn connect(&mut self, target: &str) -> Result<(), DriverError> {
+    fn connect(&mut self, connection: &studio_core::Connection) -> Result<(), DriverError> {
+        let studio_core::Connection::Netz { ip: target, .. } = connection else {
+            return Err(DriverError::Transport(
+                "Ruida benötigt eine Netzwerkverbindung.".into(),
+            ));
+        };
         // Idempotent: schon zum selben Ziel verbunden → NICHTS tun. Sonst würde
         // ein zweiter connect() erneut Port 40200 binden (und pingen), was mit
         // dem noch offenen Socket kollidiert → Timeout (Symptom: „fährt einmal,

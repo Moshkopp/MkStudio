@@ -3,6 +3,9 @@
 //! Kennt nur `studio-core` (ADR 0001). Der Core liefert Cut-Pfade in mm; dieser
 //! Treiber macht daraus G-Code-Text (als UTF-8-Bytes).
 
+mod protocol;
+mod transport;
+
 use studio_core::{DriverError, JobAction, JobParams, JobPlan, Layer, LayerWork, MachineDriver};
 
 /// Einstellungen der GRBL-Maschine.
@@ -25,9 +28,10 @@ impl Default for GrblConfig {
 }
 
 /// Der GRBL-Treiber.
-#[derive(Debug, Clone, Default)]
+#[derive(Default)]
 pub struct GrblDriver {
     pub config: GrblConfig,
+    transport: Option<transport::SerialTransport>,
 }
 
 #[derive(Clone, Copy)]
@@ -123,7 +127,10 @@ fn grbl_motion_program(plan: &JobPlan) -> Vec<(usize, f64, f64, Vec<GrblMotion>)
 
 impl GrblDriver {
     pub fn new(config: GrblConfig) -> Self {
-        Self { config }
+        Self {
+            config,
+            transport: None,
+        }
     }
 
     /// Erzeugt den G-Code als String (praktisch für Tests/Vorschau).
@@ -192,6 +199,13 @@ impl MachineDriver for GrblDriver {
         "gcode"
     }
 
+    fn capabilities(&self) -> studio_core::DriverCapabilities {
+        studio_core::DriverCapabilities {
+            position_read: true,
+            ..Default::default()
+        }
+    }
+
     fn execution_trace(
         &self,
         plan: &JobPlan,
@@ -218,6 +232,59 @@ impl MachineDriver for GrblDriver {
             }
         }
         Ok(trace.finish())
+    }
+
+    fn connect(&mut self, connection: &studio_core::Connection) -> Result<(), DriverError> {
+        let studio_core::Connection::Seriell { port, baud } = connection else {
+            return Err(DriverError::Transport(
+                "GRBL benötigt eine serielle Verbindung.".into(),
+            ));
+        };
+        if self
+            .transport
+            .as_ref()
+            .is_some_and(|transport| transport.matches(port, *baud))
+        {
+            return Ok(());
+        }
+        self.transport = None;
+        self.transport = Some(transport::SerialTransport::connect(port, *baud)?);
+        Ok(())
+    }
+
+    fn disconnect(&mut self) {
+        self.transport = None;
+    }
+
+    fn console_snapshot(&self) -> Vec<studio_core::DriverConsoleLine> {
+        self.transport
+            .as_ref()
+            .map(transport::SerialTransport::console_snapshot)
+            .unwrap_or_default()
+    }
+
+    fn status(&self) -> Result<studio_core::MachineStatus, DriverError> {
+        let transport = self.transport.as_ref().ok_or(DriverError::NotConnected)?;
+        let status = transport.status()?;
+        let position = status
+            .machine_position
+            .or(status.work_position)
+            .unwrap_or_default();
+        Ok(studio_core::MachineStatus {
+            is_running: matches!(status.state.as_str(), "Run" | "Jog" | "Home"),
+            is_paused: status.state.starts_with("Hold") || status.state.starts_with("Door"),
+            pos_x_mm: position[0],
+            pos_y_mm: position[1],
+            pos_z_mm: Some(position[2]),
+            pos_u_mm: None,
+            rotary_on_y: false,
+        })
+    }
+
+    fn send_job(&self, bytes: &[u8]) -> Result<(), DriverError> {
+        let transport = self.transport.as_ref().ok_or(DriverError::NotConnected)?;
+        transport.send_program(bytes)?;
+        Ok(())
     }
 
     fn compile_with(
@@ -253,7 +320,14 @@ impl MachineDriver for GrblDriver {
                     .map_err(DriverError::Transport)?;
                 Ok(format!("G-Code erzeugt ({} Byte).", bytes.len()))
             }
-            // Serielles Streamen kommt mit dem GRBL-Transport (späterer Schritt).
+            JobAction::StreamGcode => {
+                let bytes = self
+                    .compile_with(plan, layers, params)
+                    .map_err(DriverError::Transport)?;
+                let transport = self.transport.as_ref().ok_or(DriverError::NotConnected)?;
+                let lines = transport.send_program(&bytes)?;
+                Ok(format!("G-Code gesendet ({lines} Befehle)."))
+            }
             _ => Err(DriverError::NotSupported),
         }
     }
@@ -297,6 +371,26 @@ mod tests {
             driver.read_machine_settings().unwrap_err(),
             DriverError::NotSupported
         );
+    }
+
+    /// Expliziter, standardmäßig übersprungener Hardware-Smoke-Test. Sendet
+    /// ausschließlich Handshake, `$I` und `?`, niemals Bewegung oder Laser.
+    #[test]
+    #[ignore = "benötigt einen ausdrücklich angeschlossenen GRBL-Controller"]
+    fn hardware_serieller_handshake_und_status() {
+        let port = std::env::var("GRBL_PORT").expect("GRBL_PORT fehlt");
+        let baud = std::env::var("GRBL_BAUD")
+            .ok()
+            .and_then(|value| value.parse().ok())
+            .unwrap_or(115_200);
+        let mut driver = GrblDriver::default();
+        driver
+            .connect(&studio_core::Connection::Seriell { port, baud })
+            .expect("Handshake");
+        let status = driver.status().expect("Status");
+        assert!(status.pos_x_mm.is_finite());
+        assert!(status.pos_y_mm.is_finite());
+        driver.disconnect();
     }
 
     #[test]

@@ -1,11 +1,10 @@
 [package]
-name = "driver-grbl"
+name = "studio-serial"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 authors.workspace = true
-description = "GRBL/miniGRBL-Treiber für Studio: JobPlan → G-Code. Kennt nur den Core."
+description = "Gemeinsame serielle Infrastruktur für Studio-Gerätetreiber."
 
 [dependencies]
-studio-core = { path = "../../core" }
 serialport = { version = "4.9", default-features = false }

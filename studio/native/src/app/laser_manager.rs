@@ -20,6 +20,8 @@ impl App {
             draft: profile,
             is_new: create_new,
             tab: LaserManagerTab::Grunddaten,
+            serial_ports: Vec::new(),
+            serial_ports_error: None,
             machine_settings: Vec::new(),
             machine_dirty: Default::default(),
             machine_confirm_write: false,
@@ -30,6 +32,23 @@ impl App {
             axis_cal_pending: None,
             axis_cal_rx: None,
         });
+        self.laser_manager_refresh_serial_ports();
+    }
+
+    pub fn laser_manager_refresh_serial_ports(&mut self) {
+        let Some(state) = self.laser_manager.as_mut() else {
+            return;
+        };
+        match studio_application::available_serial_ports() {
+            Ok(ports) => {
+                state.serial_ports = ports;
+                state.serial_ports_error = None;
+            }
+            Err(error) => {
+                state.serial_ports.clear();
+                state.serial_ports_error = Some(error.to_string());
+            }
+        }
     }
 
     pub fn laser_manager_select(&mut self, id: &str) {
