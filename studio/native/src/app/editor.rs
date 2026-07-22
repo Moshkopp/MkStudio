@@ -138,14 +138,23 @@ impl App {
         }
     }
 
-    /// Sofort-Aktion aus der Werkzeugleiste. Boolean/Fillet/Offset/Muster
-    /// öffnen einen Parameterdialog; der Haltesteg ist ein eigenes
-    /// Canvas-Werkzeug (`Tool::Bridge`).
+    /// Sofort-Aktion aus der Werkzeugleiste. Fillet und Offset sind interaktive
+    /// Canvas-Werkzeuge; Boolean und Muster öffnen Parameterdialoge.
     pub fn begin_action(&mut self, a: crate::tools::ToolAction) {
         use crate::tools::ToolAction as A;
         match a {
             A::Boolean => self.geo_op_dialog = Some(GeoOpDialogState::new(GeoOpKind::Boolean)),
-            A::Fillet => self.geo_op_dialog = Some(GeoOpDialogState::new(GeoOpKind::Fillet)),
+            A::Fillet => {
+                self.geo_op_dialog = None;
+                self.canvas.bridge = None;
+                self.canvas.offset = None;
+                self.canvas.tool = crate::tools::Tool::Fillet;
+                let draft = crate::canvas::state::FilletDraft {
+                    shape_index: self.session.selected.first().copied(),
+                    ..Default::default()
+                };
+                self.canvas.fillet = Some(draft);
+            }
             A::Offset => {
                 self.geo_op_dialog = None;
                 self.canvas.bridge = None;
@@ -194,7 +203,6 @@ impl App {
         };
         let result = match st.kind {
             GeoOpKind::Boolean => self.session.boolean(st.bool_op),
-            GeoOpKind::Fillet => self.session.fillet(st.radius),
             GeoOpKind::PatternFill => self.session.pattern_fill(&st.fill),
         };
         match result {
@@ -254,6 +262,33 @@ impl App {
 
     pub fn cancel_offset(&mut self) {
         self.canvas.offset = None;
+        self.canvas.tool = crate::tools::Tool::Select;
+    }
+
+    pub fn commit_fillet(&mut self) {
+        let Some(draft) = self.canvas.fillet.as_ref() else {
+            return;
+        };
+        let Some(shape_index) = draft.shape_index else {
+            return;
+        };
+        match self.session.fillet_corners(shape_index, &draft.radii) {
+            Ok(count) => {
+                self.canvas.fillet = None;
+                self.canvas.tool = crate::tools::Tool::Select;
+                self.refresh_accent();
+                self.toasts.success(format!("{count} Fillets übernommen"));
+            }
+            Err(error) => {
+                if let Some(draft) = self.canvas.fillet.as_mut() {
+                    draft.error = Some(error.message().to_owned());
+                }
+            }
+        }
+    }
+
+    pub fn cancel_fillet(&mut self) {
+        self.canvas.fillet = None;
         self.canvas.tool = crate::tools::Tool::Select;
     }
 

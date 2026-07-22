@@ -168,6 +168,64 @@ impl EditorSession {
         Ok(())
     }
 
+    /// Berechnet eine Fillet-Vorschau für eine Kontur, ohne Session, Undo oder
+    /// Dirty-State zu verändern. Jeder Punktindex trägt seinen eigenen Radius.
+    pub fn fillet_preview(
+        &self,
+        shape_index: usize,
+        radii: &[(usize, f64)],
+    ) -> Result<(studio_core::Shape, usize), AppError> {
+        if radii
+            .iter()
+            .any(|(_, radius)| !radius.is_finite() || *radius <= 0.0)
+        {
+            return Err(AppError::new(
+                "fillet_radius",
+                "Der Radius muss größer als 0 mm sein.",
+            ));
+        }
+        let mut preview = self.state.clone();
+        let accepted = preview.fillet_shape_corner_radii(shape_index, radii);
+        let shape = preview.shapes.get(shape_index).cloned().ok_or_else(|| {
+            AppError::new(
+                "fillet_shape",
+                "Die gewählte Kontur ist nicht mehr vorhanden.",
+            )
+        })?;
+        Ok((shape, accepted))
+    }
+
+    /// Übernimmt alle gewählten Fillets gemeinsam als einen Undo-Schritt.
+    pub fn fillet_corners(
+        &mut self,
+        shape_index: usize,
+        radii: &[(usize, f64)],
+    ) -> Result<usize, AppError> {
+        if radii.is_empty() {
+            return Err(AppError::new(
+                "fillet_empty",
+                "Bitte mindestens eine Ecke auswählen.",
+            ));
+        }
+        if radii
+            .iter()
+            .any(|(_, radius)| !radius.is_finite() || *radius <= 0.0)
+        {
+            return Err(AppError::new(
+                "fillet_radius",
+                "Der Radius muss größer als 0 mm sein.",
+            ));
+        }
+        let accepted = self.state.fillet_shape_corner_radii(shape_index, radii);
+        if accepted == 0 {
+            return Err(AppError::new(
+                "fillet_rejected",
+                "Keine gewählte Ecke kann mit diesem Radius verrundet werden.",
+            ));
+        }
+        Ok(accepted)
+    }
+
     /// Muster-Füllung der Auswahl (eigener Layer, ein Core-Undo). Ungültige
     /// Parameter und eine Auswahl ohne geschlossene Konturen liefern einen
     /// stabilen Fehler ohne Mutation.

@@ -1087,3 +1087,27 @@ fn haltesteg_trennt_kontur_und_meldet_fehlschlag_ohne_mutation() {
         "Undo stellt das Rechteck wieder her"
     );
 }
+
+#[test]
+fn fillet_vorschau_ist_read_only_und_commit_ein_undo_schritt() {
+    let mut session = session_with_rect();
+    session.set_selection(vec![0]);
+    session.mark_saved();
+    let original = session.shapes[0].clone();
+
+    let (preview, accepted) = session
+        .fillet_preview(0, &[(0, 2.0), (1, 3.0)])
+        .expect("Fillet-Vorschau");
+    assert_eq!(accepted, 2);
+    assert_ne!(preview.geo, original.geo);
+    assert_eq!(session.shapes[0].geo, original.geo);
+    assert!(
+        !session.is_dirty(),
+        "Vorschau darf die Session nicht verändern"
+    );
+
+    assert_eq!(session.fillet_corners(0, &[(0, 2.0), (1, 3.0)]).unwrap(), 2);
+    assert_ne!(session.shapes[0].geo, original.geo);
+    assert!(session.undo());
+    assert_eq!(session.shapes[0].geo, original.geo);
+}

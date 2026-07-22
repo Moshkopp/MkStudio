@@ -49,6 +49,42 @@ impl OffsetDraft {
     }
 }
 
+/// Kurzlebige Fillet-Sitzung. Die Radien beziehen sich auf Punkt-Indizes der
+/// unveränderten Quellkontur; dadurch können Ecken unabhängig umgeschaltet und
+/// mit unterschiedlichen Eingabewerten versehen werden.
+pub struct FilletDraft {
+    pub input: String,
+    pub shape_index: Option<usize>,
+    pub radii: Vec<(usize, f64)>,
+    pub preview: Option<studio_core::Shape>,
+    pub accepted: usize,
+    pub error: Option<String>,
+}
+
+impl Default for FilletDraft {
+    fn default() -> Self {
+        Self {
+            input: "2,0".into(),
+            shape_index: None,
+            radii: Vec::new(),
+            preview: None,
+            accepted: 0,
+            error: None,
+        }
+    }
+}
+
+impl FilletDraft {
+    pub fn radius(&self) -> Option<f64> {
+        self.input
+            .trim()
+            .replace(',', ".")
+            .parse::<f64>()
+            .ok()
+            .filter(|value| value.is_finite() && *value > 0.0)
+    }
+}
+
 pub struct CanvasState {
     pub cam: Camera,
     pub tool: Tool,
@@ -76,6 +112,7 @@ pub struct CanvasState {
     /// Aktiver Offset-Entwurf; besteht auch ohne Auswahl, damit Werkzeug zuerst
     /// und Kontur danach gewählt werden kann.
     pub offset: Option<OffsetDraft>,
+    pub fillet: Option<FilletDraft>,
     /// Zuletzt genutzte Steg-Breite (mm) — Vorbelegung des nächsten Entwurfs.
     pub bridge_width: f64,
     /// Native Bézier-Feder: Anker samt beim Ziehen erzeugten Tangenten.
@@ -107,6 +144,7 @@ impl CanvasState {
             poly_pts: Vec::new(),
             bridge: None,
             offset: None,
+            fillet: None,
             bridge_width: 2.0,
             bezier_nodes: Vec::new(),
             trim_preview: None,

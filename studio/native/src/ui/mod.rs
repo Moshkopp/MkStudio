@@ -530,6 +530,123 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
         }
     }
 
+    // Fillet-Werkzeug: jede gewählte Ecke merkt sich den Radius, der beim
+    // Anklicken im Feld stand. Die grüne Kontur ist nur Vorschau; erst der
+    // Haken erzeugt einen gemeinsamen Undo-Schritt.
+    if app.view == View::Design && app.canvas.tool == crate::tools::Tool::Fillet {
+        if let Some(bounds) = app.session.selection_bbox() {
+            let ppp = ui.ctx().pixels_per_point();
+            let anchor = app
+                .canvas
+                .cam
+                .world_to_screen([bounds.x + bounds.w, bounds.y]);
+            let pos = egui::pos2(anchor[0] / ppp + 12.0, anchor[1] / ppp - 10.0);
+            let mut commit = false;
+            let mut cancel = false;
+            egui::Area::new(egui::Id::new("fillet_input"))
+                .order(egui::Order::Foreground)
+                .fixed_pos(pos)
+                .show(ui.ctx(), |ui| {
+                    let visuals = ui.visuals().clone();
+                    egui::Frame::new()
+                        .fill(visuals.panel_fill)
+                        .stroke(egui::Stroke::new(1.0, visuals.window_stroke.color))
+                        .corner_radius(12.0)
+                        .inner_margin(egui::Margin::symmetric(10, 8))
+                        .shadow(visuals.window_shadow)
+                        .show(ui, |ui| {
+                            if let Some(draft) = app.canvas.fillet.as_mut() {
+                                ui.spacing_mut().item_spacing = egui::vec2(6.0, 0.0);
+                                ui.spacing_mut().interact_size.y = 32.0;
+                                ui.style_mut().override_text_valign = Some(egui::Align::Center);
+                                ui.horizontal_centered(|ui| {
+                                    let count = draft.radii.len();
+                                    let counter = if count == 1 {
+                                        "1 FILLET".to_owned()
+                                    } else {
+                                        format!("{count} FILLETS")
+                                    };
+                                    egui::Frame::new()
+                                        .fill(visuals.extreme_bg_color)
+                                        .corner_radius(8.0)
+                                        .inner_margin(egui::Margin::symmetric(9, 0))
+                                        .show(ui, |ui| {
+                                            ui.add_sized(
+                                                [70.0, 32.0],
+                                                egui::Label::new(
+                                                    egui::RichText::new(counter).size(11.0),
+                                                ),
+                                            );
+                                        });
+
+                                    let response = ui.add_sized(
+                                        [62.0, 32.0],
+                                        egui::TextEdit::singleline(&mut draft.input)
+                                            .margin(egui::Margin::symmetric(8, 6))
+                                            .horizontal_align(egui::Align::Center),
+                                    );
+                                    let input_has_focus = response.has_focus();
+                                    ui.add_sized(
+                                        [22.0, 32.0],
+                                        egui::Label::new(
+                                            egui::RichText::new("mm")
+                                                .size(11.0)
+                                                .color(visuals.weak_text_color()),
+                                        ),
+                                    );
+                                    if ui
+                                        .add_sized(
+                                            [32.0, 32.0],
+                                            egui::Button::new(
+                                                egui_material_icons::icons::ICON_CHECK,
+                                            )
+                                            .fill(egui::Color32::from_rgb(28, 155, 82))
+                                            .stroke(egui::Stroke::NONE)
+                                            .corner_radius(8.0),
+                                        )
+                                        .on_hover_text("Fillets übernehmen (Enter)")
+                                        .clicked()
+                                    {
+                                        commit = true;
+                                    }
+                                    if ui
+                                        .add_sized(
+                                            [32.0, 32.0],
+                                            egui::Button::new(
+                                                egui_material_icons::icons::ICON_CLOSE,
+                                            )
+                                            .fill(egui::Color32::from_rgb(190, 48, 58))
+                                            .stroke(egui::Stroke::NONE)
+                                            .corner_radius(8.0),
+                                        )
+                                        .on_hover_text("Abbrechen (Esc)")
+                                        .clicked()
+                                    {
+                                        cancel = true;
+                                    }
+                                    if input_has_focus
+                                        && ui.input(|input| input.key_pressed(egui::Key::Enter))
+                                    {
+                                        commit = true;
+                                    }
+                                });
+                                if let Some(error) = &draft.error {
+                                    ui.colored_label(egui::Color32::LIGHT_RED, error);
+                                }
+                            }
+                        });
+                });
+            if ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                cancel = true;
+            }
+            if commit {
+                app.commit_fillet();
+            } else if cancel {
+                app.cancel_fillet();
+            }
+        }
+    }
+
     // Ein gemeinsames Backdrop für alle echten Dialoge. Beim Einstellen wird
     // direkt der Draft gelesen, damit der Alpha-Regler live reagiert.
     let has_dialog = app.text_dialog.is_some()
@@ -621,7 +738,7 @@ pub fn build(ui: &mut egui::Ui, app: &mut App) {
         }
     }
 
-    // Geometrie-Parameterdialog (Boolean/Offset/Fillet): Entwurf als &mut,
+    // Geometrie-Parameterdialog (Boolean/Muster-Füllung): Entwurf als &mut,
     // Ausführung über die Session.
     if let Some(st) = app.geo_op_dialog.as_mut() {
         match dialogs::geo_op_dialog_window(ui, st) {

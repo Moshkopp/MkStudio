@@ -6,8 +6,8 @@ use crate::geometry::{rotate_point, Geo, Pt};
 use crate::state::AppState;
 
 use super::{
-    boolean, bridge_contours, bridge_line, fillet, fillet_corners, line_crosses, offset, unit,
-    BoolOp,
+    boolean, bridge_contours, bridge_line, fillet, fillet_corner_radii, fillet_corners,
+    line_crosses, offset, unit, BoolOp,
 };
 
 impl AppState {
@@ -316,6 +316,45 @@ impl AppState {
             };
         }
         self.dirty = true;
+    }
+
+    /// Verrundet gewählte Ecken einer Shape mit individuellen Radien in einem
+    /// Undo-Schritt. Liefert die Anzahl tatsächlich erzeugter Rundungen.
+    pub fn fillet_shape_corner_radii(&mut self, idx: usize, radii: &[(usize, f64)]) -> usize {
+        if radii.is_empty() {
+            return 0;
+        }
+        let Some(s) = self.shapes.get(idx) else {
+            return 0;
+        };
+        if matches!(s.geo, Geo::Image { .. } | Geo::Ellipse { .. }) {
+            return 0;
+        }
+        let (mut pts, closed) = s.geo.outline_points();
+        if pts.len() < 3 {
+            return 0;
+        }
+        let rotation = s.rotation;
+        let center = s.bbox().center();
+        if rotation != 0.0 {
+            for point in &mut pts {
+                *point = rotate_point(point.0, point.1, center.0, center.1, rotation);
+            }
+        }
+        let (rounded, accepted) = fillet_corner_radii(&pts, closed, radii);
+        if accepted == 0 {
+            return 0;
+        }
+        self.push_undo();
+        if let Some(s) = self.shapes.get_mut(idx) {
+            s.rotation = 0.0;
+            s.geo = Geo::Polyline {
+                pts: rounded,
+                closed,
+            };
+        }
+        self.dirty = true;
+        accepted
     }
 
     /// Verrundet die Ecken der selektierten Vektor-Shapes (ein Undo-Punkt).

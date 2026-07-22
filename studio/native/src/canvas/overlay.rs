@@ -31,6 +31,7 @@ pub struct OverlayInput<'a> {
     /// Schwebender Haltesteg-Entwurf (nur beim Bridge-Werkzeug sichtbar).
     pub bridge: Option<super::state::BridgeDraft>,
     pub offset_preview: &'a [studio_core::Shape],
+    pub fillet: Option<&'a super::state::FilletDraft>,
     pub trim_preview: Option<&'a [(f64, f64)]>,
     pub selection_bbox: Option<studio_core::BBox>,
     pub selection_rotation: Option<([f64; 2], f64)>,
@@ -225,6 +226,69 @@ pub fn overlay_vertices(input: &OverlayInput) -> Vec<Vertex> {
                     [0.25, 0.95, 0.48, 1.0],
                     input.cam_scale,
                 );
+            }
+        }
+    }
+
+    if input.tool == Tool::Fillet {
+        if let Some(draft) = input.fillet {
+            if let Some(preview) = &draft.preview {
+                let (points, closed) = preview.geo.outline_points();
+                for edge in points.windows(2) {
+                    scene_geo::push_seg(
+                        &mut v,
+                        [edge[0].0 as f32, edge[0].1 as f32],
+                        [edge[1].0 as f32, edge[1].1 as f32],
+                        [0.25, 0.95, 0.48, 1.0],
+                    );
+                }
+                if closed && points.len() > 2 {
+                    scene_geo::push_seg(
+                        &mut v,
+                        [
+                            points.last().unwrap().0 as f32,
+                            points.last().unwrap().1 as f32,
+                        ],
+                        [points[0].0 as f32, points[0].1 as f32],
+                        [0.25, 0.95, 0.48, 1.0],
+                    );
+                }
+            }
+            if let Some(shape) = draft
+                .shape_index
+                .and_then(|index| input.session.shapes.get(index))
+            {
+                let (mut points, closed) = shape.geo.outline_points();
+                if shape.rotation != 0.0 {
+                    let center = shape.bbox().center();
+                    for point in &mut points {
+                        *point = studio_core::geometry::rotate_point(
+                            point.0,
+                            point.1,
+                            center.0,
+                            center.1,
+                            shape.rotation,
+                        );
+                    }
+                }
+                let radius = 4.0 / input.cam_scale as f64;
+                for (index, point) in points.iter().enumerate() {
+                    if !closed && (index == 0 || index + 1 == points.len()) {
+                        continue;
+                    }
+                    let selected = draft.radii.iter().any(|(corner, _)| *corner == index);
+                    marker_ring(
+                        &mut v,
+                        point.0,
+                        point.1,
+                        radius,
+                        if selected {
+                            [0.25, 0.95, 0.48, 1.0]
+                        } else {
+                            [0.72, 0.78, 0.88, 0.9]
+                        },
+                    );
+                }
             }
         }
     }
@@ -656,6 +720,7 @@ mod tests {
             laser_markers: None,
             bridge: None,
             offset_preview: &[],
+            fillet: None,
             trim_preview: None,
             selection_bbox: session.selection_bbox(),
             selection_rotation: None,

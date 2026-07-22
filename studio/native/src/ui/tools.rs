@@ -176,7 +176,7 @@ pub(super) fn tools_panel(ui: &mut egui::Ui, cur: Tool, selection: usize) -> Vec
                 side,
                 "fillet",
                 "Ecken verrunden (Auswahl)",
-                false,
+                cur == Tool::Fillet,
                 false,
             ) {
                 actions.push(UiAction::ToolAction(A::Fillet));

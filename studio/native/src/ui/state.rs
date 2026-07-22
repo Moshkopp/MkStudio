@@ -152,19 +152,15 @@ impl Default for TextDialogState {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum GeoOpKind {
     Boolean,
-    Fillet,
     PatternFill,
 }
 
-/// Entwurf des Geometrie-Parameterdialogs (Boolean-Variante, Offset-Distanz,
-/// Fillet-Radius, Muster-Füllung). Reiner UI-Zustand; die Ausführung läuft
-/// über die Session.
+/// Entwurf des Geometrie-Parameterdialogs für Boolean und Muster-Füllung.
+/// Reiner UI-Zustand; die Ausführung läuft über die Session.
 pub struct GeoOpDialogState {
     pub kind: GeoOpKind,
     /// Boolean-Variante (nur bei `Boolean`).
     pub bool_op: studio_core::BoolOp,
-    /// Radius in mm (Fillet).
-    pub radius: f64,
     /// Muster-Parameter (nur bei `PatternFill`).
     pub fill: studio_core::pattern_fill::FillParams,
 }
@@ -174,7 +170,6 @@ impl GeoOpDialogState {
         Self {
             kind,
             bool_op: studio_core::BoolOp::Union,
-            radius: 2.0,
             fill: Default::default(),
         }
     }

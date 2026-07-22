@@ -127,6 +127,10 @@ impl CanvasState {
                         session.select_at(w[0], w[1], 4.0 / self.cam.scale as f64, false);
                         self.drag = Drag::None;
                     }
+                    Tool::Fillet => {
+                        self.toggle_fillet_corner(session, w);
+                        self.drag = Drag::None;
+                    }
                     Tool::Node => self.begin_node_edit(session, w),
                     Tool::Trim => {
                         let tolerance = 6.0 / self.cam.scale as f64;
@@ -185,6 +189,81 @@ impl CanvasState {
             _ => {}
         }
         out
+    }
+
+    fn toggle_fillet_corner(&mut self, session: &mut EditorSession, w: [f64; 2]) {
+        let Some(draft) = self.fillet.as_mut() else {
+            return;
+        };
+        if draft.shape_index.is_none() {
+            let tolerance = 6.0 / self.cam.scale as f64;
+            let Some(index) = session.hit_test(w[0], w[1], tolerance) else {
+                return;
+            };
+            session.select_at(w[0], w[1], tolerance, false);
+            draft.shape_index = Some(index);
+        }
+        let Some(shape_index) = draft.shape_index else {
+            return;
+        };
+        let Some(shape) = session.shapes.get(shape_index) else {
+            draft.error = Some("Die gewählte Kontur ist nicht mehr vorhanden.".into());
+            return;
+        };
+        let (mut points, closed) = shape.geo.outline_points();
+        if shape.rotation != 0.0 {
+            let center = shape.bbox().center();
+            for point in &mut points {
+                *point = studio_core::geometry::rotate_point(
+                    point.0,
+                    point.1,
+                    center.0,
+                    center.1,
+                    shape.rotation,
+                );
+            }
+        }
+        let pick = 10.0 / self.cam.scale as f64;
+        let nearest = points
+            .iter()
+            .enumerate()
+            .filter(|(index, _)| closed || (*index > 0 && *index + 1 < points.len()))
+            .map(|(index, point)| (index, (point.0 - w[0]).hypot(point.1 - w[1])))
+            .filter(|(_, distance)| *distance <= pick)
+            .min_by(|a, b| a.1.total_cmp(&b.1))
+            .map(|(index, _)| index);
+        let Some(corner) = nearest else {
+            return;
+        };
+        if let Some(position) = draft.radii.iter().position(|(index, _)| *index == corner) {
+            draft.radii.remove(position);
+        } else {
+            let Some(radius) = draft.radius() else {
+                draft.error = Some("Bitte einen gültigen Radius größer als 0 mm eingeben.".into());
+                return;
+            };
+            draft.radii.push((corner, radius));
+        }
+        if draft.radii.is_empty() {
+            draft.preview = None;
+            draft.accepted = 0;
+            draft.error = None;
+            return;
+        }
+        match session.fillet_preview(shape_index, &draft.radii) {
+            Ok((preview, accepted)) => {
+                draft.preview = Some(preview);
+                draft.accepted = accepted;
+                draft.error = (accepted < draft.radii.len()).then(|| {
+                    "Mindestens eine Ecke bleibt bei ihrem gewählten Radius scharf.".into()
+                });
+            }
+            Err(error) => {
+                draft.preview = None;
+                draft.accepted = 0;
+                draft.error = Some(error.message().to_owned());
+            }
+        }
     }
 
     /// Bildschirmkonstante Fangzone am ersten Knoten. Mindestens drei Knoten

@@ -207,14 +207,37 @@ pub fn fillet(points: &[Pt], closed: bool, r: f64) -> Vec<Pt> {
 /// Wie [`fillet`], aber optional nur an den Ecken mit den angegebenen
 /// **Punkt-Indizes** (Referenz-UX: Ecken einzeln anklicken). `None` = alle.
 pub fn fillet_corners(points: &[Pt], closed: bool, r: f64, only: Option<&[usize]>) -> Vec<Pt> {
+    let radii: Vec<(usize, f64)> = only
+        .map(|indices| indices.iter().map(|&index| (index, r)).collect())
+        .unwrap_or_else(|| {
+            let corner_count = if closed {
+                points.len()
+            } else {
+                points.len().saturating_sub(2)
+            };
+            (0..corner_count)
+                .map(|k| (if closed { k } else { k + 1 }, r))
+                .collect()
+        });
+    fillet_corner_radii(points, closed, &radii).0
+}
+
+/// Verrundet einzelne Ecken mit jeweils eigenem Radius. Der zweite Rückgabewert
+/// zählt die tatsächlich erzeugten Rundungen; ungeeignete Ecken bleiben spitz.
+pub fn fillet_corner_radii(
+    points: &[Pt],
+    closed: bool,
+    radii: &[(usize, f64)],
+) -> (Vec<Pt>, usize) {
     let n = points.len();
-    if n < 3 || r <= 0.0 {
-        return points.to_vec();
+    if n < 3 || radii.is_empty() {
+        return (points.to_vec(), 0);
     }
     /// Segmente je Viertelkreis — fein genug für Laser-Konturen.
     const ARC_SEGS: usize = 8;
 
     let mut out: Vec<Pt> = Vec::new();
+    let mut accepted = 0;
     let corner_count = if closed { n } else { n - 2 };
     if !closed {
         out.push(points[0]);
@@ -227,16 +250,21 @@ pub fn fillet_corners(points: &[Pt], closed: bool, r: f64, only: Option<&[usize]
             (k, k + 1, k + 2)
         };
         let (a, p, b) = (points[ia], points[ip], points[ib]);
-        let wanted = only.map(|list| list.contains(&ip)).unwrap_or(true);
-        match wanted.then(|| corner_arc(a, p, b, r, ARC_SEGS)).flatten() {
-            Some(arc) => out.extend(arc),
+        let radius = radii
+            .iter()
+            .find_map(|&(index, radius)| (index == ip && radius > 0.0).then_some(radius));
+        match radius.and_then(|radius| corner_arc(a, p, b, radius, ARC_SEGS)) {
+            Some(arc) => {
+                accepted += 1;
+                out.extend(arc);
+            }
             None => out.push(p), // nicht gewählt / zu kurze Schenkel: Ecke bleibt
         }
     }
     if !closed {
         out.push(points[n - 1]);
     }
-    out
+    (out, accepted)
 }
 
 /// Bogenpunkte für die Ecke `p` (Schenkel zu `a` und `b`) mit Radius `r`.
@@ -728,6 +756,20 @@ mod tests {
         // Kein Punkt liegt mehr auf der spitzen Ecke (0,0). Der nächste
         // Bogenpunkt hat Abstand r·(√2−1)·√2 ≈ 0,828 zur alten Ecke.
         assert!(out.iter().all(|&(x, y)| (x - 0.0).hypot(y - 0.0) > 0.8));
+    }
+
+    #[test]
+    fn fillet_ecken_behalten_individuelle_radien() {
+        let sq = rect(0.0, 0.0, 20.0, 20.0);
+        let (out, accepted) = fillet_corner_radii(&sq, true, &[(0, 2.0), (1, 4.0)]);
+        assert_eq!(accepted, 2);
+        let near = |x: f64, y: f64| {
+            out.iter()
+                .any(|point| (point.0 - x).abs() < 1e-6 && (point.1 - y).abs() < 1e-6)
+        };
+        assert!(near(2.0, 0.0), "erste Ecke verwendet 2 mm");
+        assert!(near(16.0, 0.0), "zweite Ecke verwendet 4 mm");
+        assert!(near(20.0, 4.0), "zweite Tangente verwendet 4 mm");
     }
 
     #[test]

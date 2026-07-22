@@ -20,6 +20,8 @@ pub enum Tool {
     Bridge,
     /// Parallele Kontur mit Live-Vorschau und Inline-Eingabe.
     Offset,
+    /// Einzelne Konturecken mit individuellen Radien verrunden.
+    Fillet,
 }
 
 /// Haupt-Ansicht (Reiterleiste oben), analog zur Tauri-App.
@@ -93,6 +95,7 @@ impl Tool {
             Tool::Trim => "Trimmen",
             Tool::Bridge => "Haltesteg",
             Tool::Offset => "Offset",
+            Tool::Fillet => "Fillet",
         }
     }
 
@@ -112,6 +115,7 @@ impl Tool {
             Tool::Trim => "trim",
             Tool::Bridge => "bridge",
             Tool::Offset => "offset",
+            Tool::Fillet => "fillet",
         }
     }
 }

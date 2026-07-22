@@ -151,7 +151,7 @@ pub struct App {
     pub layer_dialog: Option<LayerDialogState>,
     /// Offener Bildparameter-Dialog (Doppelklick auf Bild) oder None.
     pub image_dialog: Option<ImageDialogState>,
-    /// Offener Geometrie-Parameterdialog (Boolean/Offset/Fillet) oder None.
+    /// Offener Geometrie-Parameterdialog (Boolean/Muster-Füllung) oder None.
     pub geo_op_dialog: Option<GeoOpDialogState>,
     /// Projektaktion, die auf Bestätigung wartet (Dirty-Guard) oder None.
     pub pending_project: Option<PendingProjectAction>,
@@ -514,6 +514,10 @@ impl App {
                 }
             }
             S::Cancel => {
+                if self.canvas.fillet.is_some() {
+                    self.cancel_fillet();
+                    return;
+                }
                 if self.canvas.offset.is_some() {
                     self.cancel_offset();
                     return;
@@ -693,6 +697,9 @@ impl App {
         if tool != crate::tools::Tool::Offset {
             self.canvas.offset = None;
         }
+        if tool != crate::tools::Tool::Fillet {
+            self.canvas.fillet = None;
+        }
         self.canvas.tool = tool;
     }
 
@@ -849,6 +856,7 @@ impl App {
                     .as_ref()
                     .map(|draft| draft.preview.as_slice())
                     .unwrap_or_default(),
+                fillet: self.canvas.fillet.as_ref(),
                 trim_preview: self.canvas.trim_preview.as_deref(),
                 selection_bbox: self
                     .canvas

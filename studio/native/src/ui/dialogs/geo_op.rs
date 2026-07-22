@@ -1,5 +1,5 @@
-//! Parameterdialog für die geometrischen Operationen Boolean, Offset, Fillet
-//! und Muster-Füllung. Native hält nur den Entwurf; die Ausführung läuft über
+//! Parameterdialog für Boolean und Muster-Füllung. Native hält nur den Entwurf;
+//! die Ausführung läuft über
 //! die Session (mit Auswahlvoraussetzung und Undo).
 
 use studio_core::pattern_fill::Pattern;
@@ -15,7 +15,6 @@ pub(in crate::ui) fn geo_op_dialog_window(
     let mut outcome = DialogOutcome::None;
     let title = match st.kind {
         GeoOpKind::Boolean => "Boolesche Operation",
-        GeoOpKind::Fillet => "Ecken verrunden",
         GeoOpKind::PatternFill => "Muster-Füllung",
     };
     egui::Window::new(title)
@@ -41,16 +40,6 @@ pub(in crate::ui) fn geo_op_dialog_window(
                                 ui.selectable_value(&mut st.bool_op, op, label(op));
                             }
                         });
-                }
-                GeoOpKind::Fillet => {
-                    ui.horizontal(|ui| {
-                        ui.label("Radius (mm)");
-                        ui.add(
-                            egui::DragValue::new(&mut st.radius)
-                                .range(0.1..=100.0)
-                                .speed(0.1),
-                        );
-                    });
                 }
                 GeoOpKind::PatternFill => {
                     let label = |p: Pattern| match p {
